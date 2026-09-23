@@ -19,3 +19,9 @@
 .DS_Store
 .idea/
 .vscode/
+
+# Dev workflow
+/CLAUDE.md
+/AGENTS.md
+/.specs/
+/docs/
