@@ -10,9 +10,7 @@ const MAX_RETRIES = 3;
 
 export const pool = new Pool({ connectionString: env.DATABASE_URL });
 
-// Inside `fn`, only use positional `client.query(text, values)` — a named
-// prepared statement (`{ name, text, values }`) can silently misbehave under
-// Supabase's transaction-mode pooler when reused on a different connection.
+// Inside `fn`, only use positional `client.query(text, values)` — named prepared statements misbehave under Supabase's transaction-mode pooler.
 export async function withTransaction<T>(
   fn: (client: PoolClient) => Promise<T>,
 ): Promise<T> {
@@ -31,8 +29,7 @@ export async function withTransaction<T>(
       try {
         await client.query("rollback");
       } catch (rollbackErr) {
-        // The connection may still be mid-transaction and unsafe to reuse;
-        // let the pool discard it instead of returning it to circulation.
+        // Connection may still be mid-transaction; let the pool discard it instead of reusing it.
         releaseAsBroken = true;
         console.error("Rollback failed:", rollbackErr);
       }

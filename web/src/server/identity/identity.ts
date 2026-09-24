@@ -1,5 +1,6 @@
 import "server-only";
 import type { PoolClient } from "pg";
+import { pool } from "@/lib/db";
 import { getVerifiedUser } from "@/lib/supabase/server";
 import { ForbiddenError, UnauthorizedError } from "@/server/http/errors";
 
@@ -17,6 +18,18 @@ export async function requireUser() {
     throw new UnauthorizedError();
   }
   return user;
+}
+
+// Unlocked, no-throw lookup for rendering UI — requireProfile's lock is only needed before a guarded write.
+export async function getCurrentProfile(): Promise<Profile | null> {
+  const user = await getVerifiedUser();
+  if (!user) return null;
+  const { rows } = await pool.query(
+    "select id, display_name, role from profiles where id = $1",
+    [user.id],
+  );
+  const row = rows[0];
+  return row ? { id: row.id, displayName: row.display_name, role: row.role } : null;
 }
 
 export async function requireProfile(client: PoolClient): Promise<Profile> {

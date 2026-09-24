@@ -7,8 +7,7 @@ export function ok<T>(data: T, init?: ResponseInit) {
   return NextResponse.json(data, { ...init, status: init?.status ?? 200 });
 }
 
-// Only a recognized AppError's message reaches the client; anything else
-// could leak internals, so it's logged and replaced with a generic message.
+// Only a recognized AppError's message reaches the client; anything else could leak internals.
 export function apiError(err: unknown) {
   if (err instanceof AppError) {
     return NextResponse.json(

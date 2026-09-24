@@ -25,11 +25,7 @@ const scoringPolicySchema = z.object({
 });
 type ScoringPolicy = z.infer<typeof scoringPolicySchema>;
 
-// The DB's CHECK constraints only verify coarse JSON shape (array vs
-// object), not element types, so a malformed stored row can reach here.
-// Fail with a plain logged error rather than an unhandled TypeError deeper
-// in grading/scoring, and never surface Zod's raw issue details to the
-// client — this is a stored-data problem, not a bad request.
+// CHECK constraints only verify coarse JSON shape, not element types; fail with a logged error, not Zod's raw issues, since this is a stored-data problem.
 function parseChallengeData(challenge: { answer_data: unknown; scoring_policy: unknown }) {
   try {
     return {
@@ -151,8 +147,7 @@ export async function submitChallenge(dailyChallengeId: string, response: string
       };
     }
 
-    // Read the clock once and reuse it for both the stored timestamp and
-    // the elapsed time, so scoring, expiry, and the saved time never disagree.
+    // One clock read reused for both the stored timestamp and elapsed time, so they can't disagree.
     const {
       rows: [{ t: now, elapsed_ms: elapsedMsRaw }],
     } = await client.query(
@@ -195,8 +190,7 @@ export async function submitChallenge(dailyChallengeId: string, response: string
       };
     }
 
-    // Parse only now — an already-finalized or expired session never needs
-    // this data, and shouldn't fail just because it happens to be malformed.
+    // Parse only now: an already-finalized or expired session shouldn't fail just because stored data is malformed.
     const { answerData, scoringPolicy } = parseChallengeData(challenge);
     const correct = gradeRiddle(response, answerData.accepted);
     const isFinal = correct || submission.attempts + 1 >= challenge.max_attempts;

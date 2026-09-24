@@ -1,3 +1,2 @@
-// server-only throws unless Next's bundler strips it, which Vitest doesn't
-// run through; aliased in place of it so tests can still import these modules.
+// Aliased in place of server-only, which throws outside Next's bundler and Vitest doesn't go through it.
 export {};

@@ -20,8 +20,7 @@ export async function createSupabaseServerClient() {
               cookieStore.set(name, value, options),
             );
           } catch {
-            // Server Components can't set cookies; safe to ignore as long
-            // as middleware refreshes the session elsewhere.
+            // Server Components can't set cookies; safe to ignore since proxy.ts refreshes the session.
           }
         },
       },
@@ -29,8 +28,7 @@ export async function createSupabaseServerClient() {
   );
 }
 
-// Verifies the JWT against Supabase Auth. Never substitute
-// `supabase.auth.getSession()` here — it trusts a locally cached session.
+// Never substitute `supabase.auth.getSession()` here — it trusts a locally cached session instead of verifying.
 export async function getVerifiedUser() {
   const supabase = await createSupabaseServerClient();
   const {
