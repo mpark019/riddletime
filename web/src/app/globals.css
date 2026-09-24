@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #4169e1;
+  --background: #080616;
   --foreground: #ffffff;
 }
 
@@ -12,5 +12,33 @@
 
 body {
   background: var(--background);
+  background-image:
+    radial-gradient(circle at 12% 18%, #8b5cf633 0 2px, transparent 3px),
+    radial-gradient(circle at 74% 28%, #60a5fa44 0 2px, transparent 3px),
+    radial-gradient(circle at 41% 72%, #f472b633 0 1px, transparent 2px);
+  background-size: 150px 150px, 210px 210px, 110px 110px;
   color: var(--foreground);
+}
+
+.dancing-letter {
+  animation: dancing-letter-bob 1.2s ease-in-out infinite;
+  display: inline-flex;
+  transform-origin: bottom center;
+}
+
+@keyframes dancing-letter-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+
+  50% {
+    transform: translateY(-0.35rem) rotate(2deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dancing-letter {
+    animation: none;
+  }
 }
