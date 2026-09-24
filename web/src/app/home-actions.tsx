@@ -2,41 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { PendingInvitation } from "@/server/invitations/invitations";
 
 type Role = "spectator" | "player" | "admin";
 
-export function HomeActions({ loggedIn, isAdmin }: { loggedIn: boolean; isAdmin: boolean }) {
-  const [inviteOpen, setInviteOpen] = useState(false);
-
-  if (!loggedIn) {
-    return (
-      <Link href="/login" className="rounded bg-white px-4 py-2 text-black">
-        Log in
-      </Link>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-3">
-      {isAdmin && (
-        <button
-          type="button"
-          onClick={() => setInviteOpen(true)}
-          className="rounded bg-white px-4 py-2 text-black"
-        >
-          Invite
-        </button>
-      )}
-      <SignOutButton />
-      {inviteOpen && <InviteModal onClose={() => setInviteOpen(false)} />}
-    </div>
-  );
-}
-
-function SignOutButton() {
+export function SignOutButton({ className }: { className?: string }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
 
@@ -53,14 +24,14 @@ function SignOutButton() {
       type="button"
       onClick={handleClick}
       disabled={submitting}
-      className="rounded border border-white/40 px-4 py-2 text-white disabled:opacity-50"
+      className={className ?? "rounded-xl border border-white/20 bg-white/5 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/10 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200"}
     >
       {submitting ? "Signing out..." : "Sign out"}
     </button>
   );
 }
 
-function InviteModal({ onClose }: { onClose: () => void }) {
+export function InvitePanel() {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<Role>("player");
@@ -122,16 +93,13 @@ function InviteModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/80">
-      <div className="flex max-h-[90vh] w-full max-w-md flex-col gap-6 overflow-y-auto rounded border border-white/20 bg-black p-8">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-normal">Invite someone</h2>
-          <button type="button" onClick={onClose} className="text-sm text-white/60">
-            Close
-          </button>
-        </div>
+    <section className="flex w-full max-w-2xl flex-col gap-6">
+      <div>
+        <h2 className="text-2xl font-semibold">Invite someone</h2>
+        <p className="mt-1 text-sm text-white/70">Choose their role and starting score before sending the invitation.</p>
+      </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <label className="flex flex-col gap-1 text-sm">
             Email
             <input
@@ -185,20 +153,19 @@ function InviteModal({ onClose }: { onClose: () => void }) {
           >
             {submitting ? "Sending..." : "Send invite"}
           </button>
-        </form>
+      </form>
 
-        <div className="flex flex-col gap-3 border-t border-white/20 pt-4">
-          <h3 className="text-sm text-white/60">Pending invitations</h3>
-          {listLoading && <p className="text-sm text-white/60">Loading...</p>}
-          {!listLoading && pending.length === 0 && (
-            <p className="text-sm text-white/60">None pending.</p>
-          )}
-          {pending.map((invitation) => (
-            <PendingRow key={invitation.id} invitation={invitation} onChanged={refreshPending} />
-          ))}
-        </div>
+      <div className="flex flex-col gap-3 border-t border-white/20 pt-4">
+        <h3 className="text-sm text-white/60">Pending invitations</h3>
+        {listLoading && <p className="text-sm text-white/60">Loading...</p>}
+        {!listLoading && pending.length === 0 && (
+          <p className="text-sm text-white/60">None pending.</p>
+        )}
+        {pending.map((invitation) => (
+          <PendingRow key={invitation.id} invitation={invitation} onChanged={refreshPending} />
+        ))}
       </div>
-    </div>
+    </section>
   );
 }
 

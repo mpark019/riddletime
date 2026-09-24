@@ -10,7 +10,7 @@ import { z } from "zod";
 const requestSchema = z.object({
   user_id: z.uuid(),
   amount: z.number(),
-  reason: z.string(),
+  reason: z.string().optional(),
   operation_key: z.string(),
 });
 

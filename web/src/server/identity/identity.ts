@@ -10,6 +10,7 @@ export interface Profile {
   id: string;
   name: string | null;
   displayName: string | null;
+  email?: string | null;
   role: Role;
 }
 
@@ -31,7 +32,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
   );
   const row = rows[0];
   return row
-    ? { id: row.id, name: row.name, displayName: row.display_name, role: row.role }
+    ? { id: row.id, name: row.name, displayName: row.display_name, email: user.email ?? null, role: row.role }
     : null;
 }
 
@@ -75,6 +76,22 @@ export async function requireAdminRead(client: PoolClient): Promise<Profile> {
   const profile = await requireProfileRead(client);
   if (profile.role !== "admin") {
     throw new ForbiddenError("Admin role required");
+  }
+  return profile;
+}
+
+export async function requirePointsManager(client: PoolClient): Promise<Profile> {
+  const profile = await requireProfile(client);
+  if (profile.role !== "admin" && profile.role !== "spectator") {
+    throw new ForbiddenError("Admin or spectator role required");
+  }
+  return profile;
+}
+
+export async function requirePointsManagerRead(client: PoolClient): Promise<Profile> {
+  const profile = await requireProfileRead(client);
+  if (profile.role !== "admin" && profile.role !== "spectator") {
+    throw new ForbiddenError("Admin or spectator role required");
   }
   return profile;
 }

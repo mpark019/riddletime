@@ -21,11 +21,11 @@ beforeEach(() => {
   getVerifiedUser.mockReset();
 });
 
-async function createProfile(role: "spectator" | "player" | "admin", displayName: string) {
+async function createProfile(role: "spectator" | "player" | "admin", displayName: string, name: string | null = null) {
   const id = await createAuthUser();
   await pool.query(
-    "insert into profiles (id, display_name, role) values ($1, $2, $3)",
-    [id, displayName, role],
+    "insert into profiles (id, name, display_name, role) values ($1, $2, $3, $4)",
+    [id, name, displayName, role],
   );
   return id;
 }
@@ -40,6 +40,42 @@ async function addPoints(userId: string, amount: number, label: string) {
   return rows[0].id as string;
 }
 
+async function ensureLeaderboardRiddle() {
+  const { rows: existing } = await pool.query(
+    "select id from challenges where prompt = 'Leaderboard statistics fixture'",
+  );
+  if (existing[0]) return existing[0].id as string;
+
+  const admin = await createProfile("admin", "Leaderboard fixture admin");
+  const { rows: dailyRows } = await pool.query(
+    `insert into daily_challenges
+       (active_date, mode, allowed_types, difficulty_selection, difficulty_presets, selected_difficulty, created_by)
+     values ('2099-01-01', 'shared', array['riddle'], 'fixed', $1::jsonb, 'standard', $2)
+     returning id`,
+    [JSON.stringify({ standard: {} }), admin],
+  );
+  const { rows } = await pool.query(
+    `insert into challenges
+       (daily_challenge_id, mode, type, difficulty, prompt, config, answer_data, max_attempts, time_limit_seconds, scoring_policy)
+     values ($1, 'shared', 'riddle', 'standard', 'Leaderboard statistics fixture', '{}'::jsonb, $2::jsonb, 1, 60, $3::jsonb)
+     returning id`,
+    [dailyRows[0].id, JSON.stringify({ accepted: ["fixture"] }), JSON.stringify({ base_points: 1, speed_bonuses: [] })],
+  );
+  return rows[0].id as string;
+}
+
+async function addFinalizedRiddleSubmission(userId: string, correct: boolean) {
+  const challengeId = await ensureLeaderboardRiddle();
+  await pool.query(
+    "insert into submissions (challenge_id, challenge_mode, user_id) values ($1, 'shared', $2)",
+    [challengeId, userId],
+  );
+  await pool.query(
+    "update submissions set submitted_at = started_at, correct = $3, time_taken_ms = 0, scoring_breakdown = $4::jsonb where challenge_id = $1 and user_id = $2",
+    [challengeId, userId, correct, JSON.stringify({ total_points: correct ? 1 : 0 })],
+  );
+}
+
 describe("leaderboard", () => {
   it("requires an authenticated application member", async () => {
     getVerifiedUser.mockResolvedValue(null);
@@ -48,12 +84,14 @@ describe("leaderboard", () => {
 
   it("returns current players only with shared ranks and stable tie ordering", async () => {
     const viewer = await createProfile("spectator", "Viewer");
-    const alpha = await createProfile("player", "Alpha");
-    const bravo = await createProfile("player", "Bravo");
+    const alpha = await createProfile("player", "Alpha", "Alexandra");
+    const bravo = await createProfile("player", "Bravo", "Brandon");
     const hidden = await createProfile("admin", "Hidden Admin");
     await addPoints(alpha, 40, "alpha");
     await addPoints(bravo, 40, "bravo");
     await addPoints(hidden, 999, "hidden");
+    await addFinalizedRiddleSubmission(alpha, true);
+    await addFinalizedRiddleSubmission(bravo, false);
     getVerifiedUser.mockResolvedValue({ id: viewer });
 
     const result = await getLeaderboard();
@@ -63,8 +101,8 @@ describe("leaderboard", () => {
     expect(tiedEntries.map((entry) => entry.userId)).toEqual([alpha, bravo].sort());
     expect(tiedEntries).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ userId: alpha, displayName: "Alpha", totalPoints: 40 }),
-        expect.objectContaining({ userId: bravo, displayName: "Bravo", totalPoints: 40 }),
+        expect.objectContaining({ userId: alpha, displayName: "Alpha", name: "Alexandra", totalPoints: 40, correctRiddles: 1, incorrectRiddles: 0 }),
+        expect.objectContaining({ userId: bravo, displayName: "Bravo", name: "Brandon", totalPoints: 40, correctRiddles: 0, incorrectRiddles: 1 }),
       ]),
     );
     expect(tiedEntries[0].rank).toBe(tiedEntries[1].rank);
@@ -144,7 +182,7 @@ describe("manual point adjustments", () => {
     expect(result.entry.operationKey).toMatch(/^manual:result:/);
   });
 
-  it("limits listing, creation, and deletion to admins", async () => {
+  it("allows spectators and admins to manage points, but rejects players", async () => {
     const admin = await createProfile("admin", "Admin");
     const player = await createProfile("player", "Player");
     const spectator = await createProfile("spectator", "Spectator");
@@ -163,19 +201,51 @@ describe("manual point adjustments", () => {
     await expect(deletePointTransaction(transactionId)).rejects.toBeInstanceOf(ForbiddenError);
 
     getVerifiedUser.mockResolvedValue({ id: spectator });
-    await expect(listPointTransactions()).rejects.toBeInstanceOf(ForbiddenError);
-
-    getVerifiedUser.mockResolvedValue({ id: admin });
     expect(await listPointTransactions()).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: transactionId })]),
     );
+    await expect(
+      createManualAdjustment({
+        userId: player,
+        amount: 1,
+        reason: "Spectator correction",
+        operationKey: `adjust:${randomUUID()}`,
+      }),
+    ).resolves.toMatchObject({ entry: { createdBy: spectator, amount: 1 } });
     await expect(deletePointTransaction(transactionId)).resolves.toEqual({ id: transactionId });
-    const { rows } = await pool.query("select id from point_transactions where id = $1", [transactionId]);
+
+    getVerifiedUser.mockResolvedValue({ id: admin });
+    const adminTransactionId = await addPoints(player, 10, "admin-delete");
+    await expect(deletePointTransaction(adminTransactionId)).resolves.toEqual({ id: adminTransactionId });
+    const { rows } = await pool.query("select id from point_transactions where id = $1", [adminTransactionId]);
     expect(rows).toEqual([]);
   });
 });
 
 describe("point-transaction HTTP contract", () => {
+  it("accepts an omitted reason and stores the default audit explanation", async () => {
+    const admin = await createProfile("admin", "Admin");
+    const player = await createProfile("player", "Player");
+    getVerifiedUser.mockResolvedValue({ id: admin });
+
+    const response = await postPointTransaction(
+      new Request("http://localhost/api/admin/point-transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: player,
+          amount: 5,
+          operation_key: randomUUID(),
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      entry: { user_id: player, reason: "Manual adjustment" },
+    });
+  });
+
   it("accepts the documented snake_case body and returns snake_case fields", async () => {
     const admin = await createProfile("admin", "Admin");
     const player = await createProfile("player", "Player");
