@@ -1,5 +1,14 @@
-import { createInvitation } from "@/server/invitations/invitations";
+import { createInvitation, listPendingInvitations } from "@/server/invitations/invitations";
 import { ok, apiError } from "@/server/http/api-response";
+
+export async function GET() {
+  try {
+    const result = await listPendingInvitations();
+    return ok(result);
+  } catch (err) {
+    return apiError(err);
+  }
+}
 
 export async function POST(request: Request) {
   try {

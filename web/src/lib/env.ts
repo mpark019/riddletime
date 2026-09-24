@@ -6,6 +6,9 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   DATABASE_URL: z.string().min(1),
   APP_TIMEZONE: z.string().min(1).default("UTC"),
+  SITE_URL: z.url(),
+  RESEND_API_KEY: z.string().min(1),
+  RESEND_FROM_EMAIL: z.string().min(1),
   // Test-only: lets fixtures write auth.users as the database owner.
   TEST_ADMIN_DATABASE_URL: z.string().min(1).optional(),
 });

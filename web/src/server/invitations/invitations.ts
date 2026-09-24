@@ -1,9 +1,11 @@
 import "server-only";
 import { z } from "zod";
+import { Resend } from "resend";
 import { pool, withTransaction } from "@/lib/db";
 import { requireAdmin, requireUser } from "@/server/identity/identity";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { ConflictError, ForbiddenError, NotFoundError } from "@/server/http/errors";
+import { env } from "@/lib/env";
 
 export const createInvitationInput = z
   .object({
@@ -24,18 +26,56 @@ export type CreateInvitationInput = z.infer<typeof createInvitationInput>;
 
 // Narrow on purpose so tests can inject a fake instead of a real Supabase client.
 export interface InviteEmailSender {
-  inviteUserByEmail(email: string): Promise<{ authUserId: string | null }>;
+  sendInvite(
+    email: string,
+    invitationId: string,
+  ): Promise<{ authUserId: string | null }>;
 }
 
+// generateLink + our own send, not Supabase's inviteUserByEmail: one link-generation path for both create and resend, and full control over the email itself.
 function defaultInviteSender(): InviteEmailSender {
   const admin = createSupabaseAdminClient();
+  const resend = new Resend(env.RESEND_API_KEY);
   return {
-    async inviteUserByEmail(email) {
-      const { data, error } = await admin.auth.admin.inviteUserByEmail(email);
+    async sendInvite(email, invitationId) {
+      const { data, error } = await admin.auth.admin.generateLink({
+        type: "invite",
+        email,
+        options: {
+          redirectTo: `${env.SITE_URL}/invite/accept?invitationId=${invitationId}`,
+        },
+      });
       if (error) {
-        throw new Error(`Supabase invite delivery failed: ${error.message}`);
+        throw new Error(`Supabase link generation failed: ${error.message}`);
       }
+
+      const { error: sendError } = await resend.emails.send({
+        from: env.RESEND_FROM_EMAIL,
+        to: email,
+        subject: "You're invited to riddletime",
+        html: `<p>You've been invited to riddletime.</p><p><a href="${data.properties.action_link}">Accept your invitation</a></p>`,
+      });
+      if (sendError) {
+        throw new Error(`Resend delivery failed: ${sendError.message}`);
+      }
+
       return { authUserId: data.user?.id ?? null };
+    },
+  };
+}
+
+export interface AuthUserAdmin {
+  deleteAuthUser(authUserId: string): Promise<void>;
+}
+
+function defaultAuthUserAdmin(): AuthUserAdmin {
+  const admin = createSupabaseAdminClient();
+  return {
+    async deleteAuthUser(authUserId) {
+      const { error } = await admin.auth.admin.deleteUser(authUserId);
+      if (error) {
+        throw new Error(`Supabase user deletion failed: ${error.message}`);
+      }
     },
   };
 }
@@ -49,16 +89,13 @@ function isConstraintViolation(err: unknown): err is { code: string; message: st
   return code === CHECK_VIOLATION || code === UNIQUE_VIOLATION;
 }
 
-// Never forward a raw Postgres/trigger message to the client — it can
-// include constraint or schema details not meant for end users. Log it
-// server-side and return a fixed, generic conflict instead.
+// Never forward a raw Postgres/trigger message to the client; it can leak constraint or schema details.
 function toSafeConflict(err: { message: string }): ConflictError {
   console.error("Constraint violation on write:", err.message);
   return new ConflictError("This request conflicts with existing data");
 }
 
-// The pending row commits on its own, before the provider call, so a
-// delivery failure never rolls back the saved invitation.
+// Commits before the provider call, so a delivery failure never rolls back the saved invitation.
 export async function createInvitation(
   input: CreateInvitationInput,
   deps: { inviteSender?: InviteEmailSender } = {},
@@ -95,25 +132,25 @@ export async function createInvitation(
 
   const sender = deps.inviteSender ?? defaultInviteSender();
   try {
-    const { authUserId } = await sender.inviteUserByEmail(email);
+    const { authUserId } = await sender.sendInvite(email, invitationId);
     await pool.query(
       `update invitations
        set auth_user_id = $1, delivery_status = 'sent', last_sent_at = clock_timestamp()
        where id = $2`,
       [authUserId, invitationId],
     );
-  } catch {
+  } catch (err) {
     await pool.query(
       "update invitations set delivery_status = 'failed' where id = $1",
       [invitationId],
     );
+    console.error("Invite delivery failed:", err);
   }
 
   return { id: invitationId };
 }
 
-// Needs a verified session but not an existing profile — this is the one
-// onboarding path that runs before a profile exists.
+// The one onboarding path that runs before a profile exists, so it needs a verified session but not one.
 export async function acceptInvitation(invitationId: string) {
   const user = await requireUser();
   const userEmail = user.email?.toLowerCase();
@@ -197,4 +234,111 @@ export async function acceptInvitation(invitationId: string) {
     if (isConstraintViolation(err)) throw toSafeConflict(err);
     throw err;
   }
+}
+
+// Delete and reissue rather than rebind: Supabase rejects a second invite to an already-invited email.
+export async function resendInvitation(
+  invitationId: string,
+  deps: { inviteSender?: InviteEmailSender; authAdmin?: AuthUserAdmin } = {},
+) {
+  const deleted = await withTransaction(async (client) => {
+    await requireAdmin(client);
+    const { rows } = await client.query(
+      `delete from invitations where id = $1 and status = 'pending'
+       returning email, display_name, role, opening_amount, auth_user_id`,
+      [invitationId],
+    );
+    if (rows[0]) {
+      return rows[0] as {
+        email: string;
+        display_name: string;
+        role: "spectator" | "player" | "admin";
+        opening_amount: number | null;
+        auth_user_id: string | null;
+      };
+    }
+
+    const { rows: existing } = await client.query(
+      "select id from invitations where id = $1",
+      [invitationId],
+    );
+    if (!existing[0]) throw new NotFoundError("Invitation not found");
+    throw new ConflictError("Only a pending invitation can be resent");
+  });
+
+  if (deleted.auth_user_id) {
+    const authAdmin = deps.authAdmin ?? defaultAuthUserAdmin();
+    try {
+      await authAdmin.deleteAuthUser(deleted.auth_user_id);
+    } catch (err) {
+      console.error("Failed to delete stale invited auth user before resend:", err);
+      throw new Error("Could not prepare this invitation for resend");
+    }
+  }
+
+  return createInvitation(
+    {
+      email: deleted.email,
+      displayName: deleted.display_name,
+      role: deleted.role,
+      ...(deleted.role === "player" ? { openingAmount: deleted.opening_amount ?? 0 } : {}),
+    },
+    { inviteSender: deps.inviteSender },
+  );
+}
+
+// Unlike cancel, this permanently removes the record, which frees its FK-restricted Supabase auth user.
+export async function deleteInvitation(
+  invitationId: string,
+  deps: { authAdmin?: AuthUserAdmin } = {},
+) {
+  const deleted = await withTransaction(async (client) => {
+    await requireAdmin(client);
+    const { rows } = await client.query(
+      "delete from invitations where id = $1 returning auth_user_id",
+      [invitationId],
+    );
+    if (!rows[0]) throw new NotFoundError("Invitation not found");
+    return rows[0] as { auth_user_id: string | null };
+  });
+
+  if (deleted.auth_user_id) {
+    const authAdmin = deps.authAdmin ?? defaultAuthUserAdmin();
+    try {
+      await authAdmin.deleteAuthUser(deleted.auth_user_id);
+    } catch (err) {
+      console.error("Failed to delete invited auth user on invitation delete:", err);
+    }
+  }
+
+  return { id: invitationId };
+}
+
+export interface PendingInvitation {
+  id: string;
+  email: string;
+  displayName: string;
+  role: "spectator" | "player" | "admin";
+  deliveryStatus: string;
+  createdAt: string;
+}
+
+export async function listPendingInvitations(): Promise<PendingInvitation[]> {
+  return withTransaction(async (client) => {
+    await requireAdmin(client);
+    const { rows } = await client.query(
+      `select id, email, display_name, role, delivery_status, created_at
+       from invitations
+       where status = 'pending'
+       order by created_at desc`,
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      displayName: row.display_name,
+      role: row.role,
+      deliveryStatus: row.delivery_status,
+      createdAt: row.created_at,
+    }));
+  });
 }
