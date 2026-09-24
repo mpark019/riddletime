@@ -5,6 +5,7 @@ import {
   manualAdjustmentInput,
   type PointTransaction,
 } from "@/server/points/points";
+import { announceLeaderboardChanged } from "@/server/realtime/leaderboard";
 import { z } from "zod";
 
 const requestSchema = z.object({
@@ -52,6 +53,7 @@ export async function POST(request: Request) {
       operationKey: body.operation_key,
     });
     const result = await createManualAdjustment(input);
+    if (result.created) await announceLeaderboardChanged();
     return ok(
       { entry: transactionResponse(result.entry), total_points: result.totalPoints },
       { status: 201 },

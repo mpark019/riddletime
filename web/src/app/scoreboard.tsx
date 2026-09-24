@@ -73,7 +73,7 @@ function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
   );
 }
 
-export function PointsDesk({ players, onChanged }: { players: LeaderboardEntry[]; onChanged: () => Promise<void> }) {
+export function PointsDesk({ players, onChanged, refreshVersion = 0 }: { players: LeaderboardEntry[]; onChanged: () => Promise<void>; refreshVersion?: number }) {
   const [tab, setTab] = useState<PointsDeskTab>("adjustment");
   const [auditRefreshVersion, setAuditRefreshVersion] = useState(0);
 
@@ -96,7 +96,7 @@ export function PointsDesk({ players, onChanged }: { players: LeaderboardEntry[]
         </div>
         <div className="p-5 sm:p-7">
           <div hidden={tab !== "adjustment"}><AdjustmentForm players={players} onChanged={handlePointsChanged} /></div>
-          <div hidden={tab !== "audit"}><AuditTrail onChanged={handlePointsChanged} refreshVersion={auditRefreshVersion} /></div>
+          <div hidden={tab !== "audit"}><AuditTrail onChanged={handlePointsChanged} refreshVersion={auditRefreshVersion + refreshVersion} /></div>
         </div>
       </div>
     </section>

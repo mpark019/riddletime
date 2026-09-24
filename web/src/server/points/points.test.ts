@@ -123,6 +123,7 @@ describe("manual point adjustments", () => {
     });
 
     expect(result).toMatchObject({
+      created: true,
       totalPoints: -15,
       entry: {
         userId: player,
@@ -147,7 +148,8 @@ describe("manual point adjustments", () => {
 
     const first = await createManualAdjustment(input);
     const retry = await createManualAdjustment(input);
-    expect(retry).toEqual(first);
+    expect(first).toMatchObject({ created: true, entry: { id: retry.entry.id } });
+    expect(retry).toMatchObject({ created: false, totalPoints: first.totalPoints, entry: { id: first.entry.id } });
 
     await expect(createManualAdjustment({ ...input, amount: 26 })).rejects.toBeInstanceOf(
       ConflictError,

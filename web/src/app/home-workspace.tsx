@@ -1,11 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Profile } from "@/server/identity/identity";
 import type { LeaderboardEntry } from "@/server/points/points";
 import { InvitePanel, SignOutButton } from "./home-actions";
+import { LeaderboardRealtime } from "./leaderboard-realtime";
 import { PointsDesk, Scoreboard } from "./scoreboard";
 
 type WorkspaceView = "home" | "riddle" | "points" | "settings";
@@ -22,6 +23,7 @@ export function HomeWorkspace({
 }) {
   const [view, setView] = useState<WorkspaceView>("home");
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
+  const [realtimeRefreshVersion, setRealtimeRefreshVersion] = useState(0);
   const router = useRouter();
   const canManagePoints = profile.role === "admin" || profile.role === "spectator";
 
@@ -30,8 +32,14 @@ export function HomeWorkspace({
     if (nextView === "settings") setSettingsTab("general");
   }
 
+  const refreshRealtimeData = useCallback(() => {
+    setRealtimeRefreshVersion((version) => version + 1);
+    router.refresh();
+  }, [router]);
+
   return (
     <div className="flex min-h-screen flex-col">
+      <LeaderboardRealtime onChanged={refreshRealtimeData} />
       <header className="flex flex-col items-center gap-4 border-b border-white/10 bg-slate-950/30 px-4 py-5 backdrop-blur-sm sm:flex-row sm:justify-between sm:px-8 sm:py-6">
         {children}
         <div className="flex flex-wrap items-center justify-center gap-3 sm:justify-end">
@@ -46,7 +54,7 @@ export function HomeWorkspace({
 
       {view === "home" && <Scoreboard initialEntries={leaderboard} />}
       {view === "riddle" && <RiddlePlaceholder />}
-      {view === "points" && canManagePoints && <PointsDesk players={leaderboard} onChanged={async () => router.refresh()} />}
+      {view === "points" && canManagePoints && <PointsDesk players={leaderboard} onChanged={async () => router.refresh()} refreshVersion={realtimeRefreshVersion} />}
       {view === "settings" && <SettingsPage profile={profile} isAdmin={profile.role === "admin"} tab={settingsTab} onTabChange={setSettingsTab} />}
     </div>
   );

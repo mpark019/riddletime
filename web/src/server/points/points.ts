@@ -146,7 +146,8 @@ export async function createManualAdjustment(input: ManualAdjustmentInput) {
       [parsed.userId, parsed.amount, parsed.reason, actor.id, databaseOperationKey],
     );
 
-    let entry = inserted[0] ? mapTransaction(inserted[0]) : null;
+    const created = Boolean(inserted[0]);
+    let entry = created ? mapTransaction(inserted[0]) : null;
     if (!entry) {
       const { rows: existingRows } = await client.query(
         `select id, user_id, null::text as display_name, amount, kind, reason,
@@ -172,7 +173,7 @@ export async function createManualAdjustment(input: ManualAdjustmentInput) {
       "select coalesce(sum(amount), 0)::bigint as total_points from point_transactions where user_id = $1",
       [parsed.userId],
     );
-    return { entry, totalPoints: Number(balanceRows[0].total_points) };
+    return { entry, totalPoints: Number(balanceRows[0].total_points), created };
   });
 }
 

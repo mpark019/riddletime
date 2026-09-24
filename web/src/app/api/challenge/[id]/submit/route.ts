@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { submitChallenge } from "@/server/challenges/challenges";
+import { announceLeaderboardChanged } from "@/server/realtime/leaderboard";
 import { ok, apiError } from "@/server/http/api-response";
 
 const paramsSchema = z.object({ id: z.uuid() });
@@ -13,6 +14,7 @@ export async function POST(
     const { id } = paramsSchema.parse(await ctx.params);
     const { response } = bodySchema.parse(await request.json());
     const result = await submitChallenge(id, response);
+    if (result.finalized && !result.alreadyFinalized) await announceLeaderboardChanged();
     return ok(result);
   } catch (err) {
     return apiError(err);
