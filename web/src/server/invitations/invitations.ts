@@ -10,19 +10,28 @@ import { env } from "@/lib/env";
 export const createInvitationInput = z
   .object({
     email: z.email(),
-    displayName: z.string().trim().min(1),
+    displayName: z.string().trim().min(1).optional(),
     role: z.enum(["spectator", "player", "admin"]),
-    openingAmount: z.number().int().nonnegative().optional(),
+    initialScore: z.number().int().nonnegative().optional(),
   })
   .refine(
-    (v) => (v.role === "player" ? v.openingAmount !== undefined : v.openingAmount === undefined),
+    (v) => (v.role === "player" ? v.initialScore !== undefined : v.initialScore === undefined),
     {
       message:
-        "openingAmount is required for role 'player' and must be omitted otherwise",
-      path: ["openingAmount"],
+        "initialScore is required for role 'player' and must be omitted otherwise",
+      path: ["initialScore"],
     },
-  );
+  )
+  .refine((v) => v.role !== "player" || v.displayName !== undefined, {
+    message: "displayName is required for role 'player'",
+    path: ["displayName"],
+  });
 export type CreateInvitationInput = z.infer<typeof createInvitationInput>;
+
+export const acceptInvitationInput = z.object({
+  name: z.string().trim().min(1).optional(),
+});
+export type AcceptInvitationInput = z.infer<typeof acceptInvitationInput>;
 
 // Narrow on purpose so tests can inject a fake instead of a real Supabase client.
 export interface InviteEmailSender {
@@ -118,10 +127,10 @@ export async function createInvitation(
 
     try {
       const { rows } = await client.query(
-        `insert into invitations (email, display_name, role, opening_amount, invited_by)
+        `insert into invitations (email, display_name, role, initial_score, invited_by)
          values ($1, $2, $3, $4, $5)
          returning id`,
-        [email, parsed.displayName, parsed.role, parsed.openingAmount ?? null, admin.id],
+        [email, parsed.displayName, parsed.role, parsed.initialScore ?? null, admin.id],
       );
       return rows[0].id as string;
     } catch (err) {
@@ -151,7 +160,11 @@ export async function createInvitation(
 }
 
 // The one onboarding path that runs before a profile exists, so it needs a verified session but not one.
-export async function acceptInvitation(invitationId: string) {
+export async function acceptInvitation(
+  invitationId: string,
+  input: AcceptInvitationInput = {},
+) {
+  const parsed = acceptInvitationInput.parse(input);
   const user = await requireUser();
   const userEmail = user.email?.toLowerCase();
   if (!user.email_confirmed_at) {
@@ -174,7 +187,7 @@ export async function acceptInvitation(invitationId: string) {
           );
         }
         const { rows: profileRows } = await client.query(
-          "select id, display_name, role from profiles where id = $1",
+          "select id, name, display_name, role from profiles where id = $1",
           [user.id],
         );
         return {
@@ -213,21 +226,26 @@ export async function acceptInvitation(invitationId: string) {
         [user.id, invitationId],
       );
       await client.query(
-        "insert into profiles (id, display_name, role) values ($1, $2, $3)",
-        [user.id, invitation.display_name, invitation.role],
+        "insert into profiles (id, name, display_name, role) values ($1, $2, $3, $4)",
+        [user.id, parsed.name ?? null, invitation.display_name, invitation.role],
       );
       if (invitation.role === "player") {
         await client.query(
           `insert into point_transactions (user_id, amount, kind, reason, operation_key)
-           values ($1, $2, 'opening_balance', 'Opening balance', $3)`,
-          [user.id, invitation.opening_amount, `opening:${user.id}`],
+           values ($1, $2, 'initial_score', 'Initial score', $3)`,
+          [user.id, invitation.initial_score, `initial:${user.id}`],
         );
       }
 
       return {
         invitationId,
         alreadyAccepted: false,
-        profile: { id: user.id, display_name: invitation.display_name, role: invitation.role },
+        profile: {
+          id: user.id,
+          name: parsed.name ?? null,
+          display_name: invitation.display_name,
+          role: invitation.role,
+        },
       };
     });
   } catch (err) {
@@ -245,15 +263,15 @@ export async function resendInvitation(
     await requireAdmin(client);
     const { rows } = await client.query(
       `delete from invitations where id = $1 and status = 'pending'
-       returning email, display_name, role, opening_amount, auth_user_id`,
+       returning email, display_name, role, initial_score, auth_user_id`,
       [invitationId],
     );
     if (rows[0]) {
       return rows[0] as {
         email: string;
-        display_name: string;
+        display_name: string | null;
         role: "spectator" | "player" | "admin";
-        opening_amount: number | null;
+        initial_score: number | null;
         auth_user_id: string | null;
       };
     }
@@ -279,9 +297,9 @@ export async function resendInvitation(
   return createInvitation(
     {
       email: deleted.email,
-      displayName: deleted.display_name,
       role: deleted.role,
-      ...(deleted.role === "player" ? { openingAmount: deleted.opening_amount ?? 0 } : {}),
+      ...(deleted.display_name === null ? {} : { displayName: deleted.display_name }),
+      ...(deleted.role === "player" ? { initialScore: deleted.initial_score ?? 0 } : {}),
     },
     { inviteSender: deps.inviteSender },
   );
@@ -317,7 +335,7 @@ export async function deleteInvitation(
 export interface PendingInvitation {
   id: string;
   email: string;
-  displayName: string;
+  displayName: string | null;
   role: "spectator" | "player" | "admin";
   deliveryStatus: string;
   createdAt: string;

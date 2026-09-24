@@ -64,7 +64,7 @@ function InviteModal({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [role, setRole] = useState<Role>("player");
-  const [openingAmount, setOpeningAmount] = useState("0");
+  const [initialScore, setInitialScore] = useState("0");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -98,8 +98,9 @@ function InviteModal({ onClose }: { onClose: () => void }) {
     setSubmitting(true);
     setFormError(null);
 
-    const body: Record<string, unknown> = { email, displayName, role };
-    if (role === "player") body.openingAmount = Number(openingAmount);
+    const body: Record<string, unknown> = { email, role };
+    if (displayName.trim()) body.displayName = displayName;
+    if (role === "player") body.initialScore = Number(initialScore);
 
     const response = await fetch("/api/admin/invitations", {
       method: "POST",
@@ -142,10 +143,10 @@ function InviteModal({ onClose }: { onClose: () => void }) {
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            Display name
+            Display name {role === "player" ? "(required)" : "(optional)"}
             <input
               type="text"
-              required
+              required={role === "player"}
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
               className="rounded border border-white/20 bg-black px-3 py-2 text-white"
@@ -165,13 +166,13 @@ function InviteModal({ onClose }: { onClose: () => void }) {
           </label>
           {role === "player" && (
             <label className="flex flex-col gap-1 text-sm">
-              Opening balance
+              Initial score
               <input
                 type="number"
                 min={0}
                 required
-                value={openingAmount}
-                onChange={(event) => setOpeningAmount(event.target.value)}
+                value={initialScore}
+                onChange={(event) => setInitialScore(event.target.value)}
                 className="rounded border border-white/20 bg-black px-3 py-2 text-white"
               />
             </label>
@@ -250,7 +251,9 @@ function PendingRow({
         <div>
           <p>{invitation.email}</p>
           <p className="text-white/60">
-            {invitation.displayName} · {invitation.role} · {invitation.deliveryStatus}
+            {[invitation.displayName, invitation.role, invitation.deliveryStatus]
+              .filter(Boolean)
+              .join(" · ")}
           </p>
         </div>
         <div className="flex gap-2">

@@ -11,7 +11,7 @@ export default async function Home() {
         <div className="flex items-center gap-4">
           {profile && (
             <span className="text-sm text-white/80">
-              {profile.displayName} · {profile.role}
+              {[profile.name, profile.displayName, profile.role].filter(Boolean).join(" · ")}
             </span>
           )}
           <HomeActions loggedIn={Boolean(profile)} isAdmin={profile?.role === "admin"} />

@@ -52,6 +52,7 @@ describe("requireProfile", () => {
       const profile = await requireProfile(client);
       expect(profile).toEqual({
         id: authId,
+        name: null,
         displayName: "Spec Tester",
         role: "player",
       });

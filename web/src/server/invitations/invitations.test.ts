@@ -91,6 +91,25 @@ beforeEach(() => {
 });
 
 describe("createInvitation", () => {
+  it("requires a display name for players but allows spectators without one", async () => {
+    const adminId = await makeAdmin();
+    getVerifiedUser.mockResolvedValue({ id: adminId });
+
+    await expect(
+      createInvitation(
+        { email: uniqueEmail("player-no-display"), role: "player", initialScore: 0 },
+        { inviteSender: inviteSender() },
+      ),
+    ).rejects.toThrow("displayName is required");
+
+    const { id } = await createInvitation(
+      { email: uniqueEmail("spectator-no-display"), role: "spectator" },
+      { inviteSender: inviteSender() },
+    );
+    const { rows } = await pool.query("select display_name from invitations where id = $1", [id]);
+    expect(rows[0].display_name).toBeNull();
+  });
+
   it("saves the pending row, then marks delivery sent from the injected sender", async () => {
     const adminId = await makeAdmin();
     getVerifiedUser.mockResolvedValue({ id: adminId });
@@ -104,7 +123,7 @@ describe("createInvitation", () => {
         email: email.toUpperCase(),
         displayName: "Player One",
         role: "player",
-        openingAmount: 0,
+        initialScore: 0,
       },
       { inviteSender: sender },
     );
@@ -220,7 +239,7 @@ describe("createInvitation", () => {
 describe("acceptInvitation", () => {
   async function inviteAndBind(
     role: "player" | "spectator" | "admin",
-    openingAmount?: number,
+    initialScore?: number,
   ) {
     const adminId = await makeAdmin();
     getVerifiedUser.mockResolvedValue({ id: adminId });
@@ -232,7 +251,7 @@ describe("acceptInvitation", () => {
         email: recipientEmail,
         displayName: "Recipient",
         role,
-        ...(openingAmount === undefined ? {} : { openingAmount }),
+        ...(initialScore === undefined ? {} : { initialScore }),
       },
       { inviteSender: inviteSender() },
     );
@@ -250,20 +269,24 @@ describe("acceptInvitation", () => {
       email_confirmed_at: new Date().toISOString(),
     });
 
-    const result = await acceptInvitation(invitationId);
+    const result = await acceptInvitation(invitationId, { name: "Actual Player" });
     expect(result.alreadyAccepted).toBe(false);
 
     const { rows: profileRows } = await pool.query(
-      "select role from profiles where id = $1",
+      "select name, display_name, role from profiles where id = $1",
       [recipientAuthId],
     );
-    expect(profileRows[0].role).toBe("player");
+    expect(profileRows[0]).toMatchObject({
+      name: "Actual Player",
+      display_name: "Recipient",
+      role: "player",
+    });
 
     const { rows: pointRows } = await pool.query(
-      "select amount, kind from point_transactions where user_id = $1",
+      "select amount, kind, reason from point_transactions where user_id = $1",
       [recipientAuthId],
     );
-    expect(pointRows).toEqual([{ amount: 100, kind: "opening_balance" }]);
+    expect(pointRows).toEqual([{ amount: 100, kind: "initial_score", reason: "Initial score" }]);
   });
 
   it("is idempotent for a repeat acceptance by the same bound account", async () => {
@@ -285,6 +308,19 @@ describe("acceptInvitation", () => {
       [recipientAuthId],
     );
     expect(rows[0].count).toBe(1);
+  });
+
+  it("rejects a blank invitee-entered name before changing invitation state", async () => {
+    const { invitationId, recipientAuthId, recipientEmail } = await inviteAndBind("spectator");
+    getVerifiedUser.mockResolvedValue({
+      id: recipientAuthId,
+      email: recipientEmail,
+      email_confirmed_at: new Date().toISOString(),
+    });
+
+    await expect(acceptInvitation(invitationId, { name: "   " })).rejects.toThrow();
+    const { rows } = await pool.query("select status from invitations where id = $1", [invitationId]);
+    expect(rows[0].status).toBe("pending");
   });
 
   it("rejects acceptance from an account whose email does not match", async () => {
@@ -366,13 +402,38 @@ describe("createInvitation concurrency", () => {
   });
 });
 
+describe("identity column constraints", () => {
+  it("rejects blank names and player profiles/invitations without display names", async () => {
+    const playerId = await createAuthUser();
+    await expect(
+      pool.query("insert into profiles (id, role) values ($1, 'player')", [playerId]),
+    ).rejects.toThrow();
+
+    const spectatorId = await createAuthUser();
+    await expect(
+      pool.query("insert into profiles (id, name, role) values ($1, '   ', 'spectator')", [
+        spectatorId,
+      ]),
+    ).rejects.toThrow();
+
+    const adminId = await makeAdmin();
+    await expect(
+      pool.query(
+        `insert into invitations (email, role, initial_score, invited_by)
+         values ($1, 'player', 0, $2)`,
+        [uniqueEmail("player-constraint"), adminId],
+      ),
+    ).rejects.toThrow();
+  });
+});
+
 describe("resendInvitation", () => {
   it("deletes the old invitation and reissues a new one with a real email send (AC-4)", async () => {
     const adminId = await makeAdmin();
     getVerifiedUser.mockResolvedValue({ id: adminId });
     const email = uniqueEmail("resend");
     const { id: oldId } = await createInvitation(
-      { email, displayName: "Resend Me", role: "player", openingAmount: 50 },
+      { email, displayName: "Resend Me", role: "player", initialScore: 50 },
       { inviteSender: inviteSender() },
     );
 
@@ -384,14 +445,14 @@ describe("resendInvitation", () => {
     const { rows: oldRows } = await pool.query("select id from invitations where id = $1", [oldId]);
     expect(oldRows).toHaveLength(0);
     const { rows: newRows } = await pool.query(
-      "select email, display_name, role, opening_amount, status from invitations where id = $1",
+      "select email, display_name, role, initial_score, status from invitations where id = $1",
       [result.id],
     );
     expect(newRows[0]).toMatchObject({
       email,
       display_name: "Resend Me",
       role: "player",
-      opening_amount: 50,
+      initial_score: 50,
       status: "pending",
     });
   });

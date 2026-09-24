@@ -11,6 +11,7 @@ function AcceptForm() {
   const searchParams = useSearchParams();
   const invitationId = searchParams.get("invitationId");
   const [status, setStatus] = useState<Status>("waiting");
+  const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [supabase] = useState(() => createSupabaseBrowserClient());
@@ -85,6 +86,8 @@ function AcceptForm() {
 
     const response = await fetch(`/api/invitations/${invitationId}/accept`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(name.trim() ? { name } : {}),
     });
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
@@ -112,6 +115,15 @@ function AcceptForm() {
   return (
     <form onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-4 p-8">
       <h1 className="text-xl font-normal">Set your password</h1>
+      <label className="flex flex-col gap-1">
+        Name <span className="text-sm text-white/60">(optional)</span>
+        <input
+          type="text"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          className="rounded border border-white/20 bg-black px-3 py-2 text-white"
+        />
+      </label>
       <label className="flex flex-col gap-1">
         Password
         <input
