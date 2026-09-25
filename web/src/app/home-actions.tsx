@@ -101,8 +101,7 @@ export function InvitePanel() {
   return (
     <section className="flex w-full max-w-2xl flex-col gap-6">
       <div>
-        <h2 className="text-2xl font-semibold">Invite someone</h2>
-        <p className="mt-1 text-sm text-white/70">Choose their role and starting score before sending the invitation.</p>
+        <h2 className="text-2xl font-semibold">Invite</h2>
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
