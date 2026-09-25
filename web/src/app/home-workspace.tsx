@@ -42,29 +42,29 @@ export function HomeWorkspace({
       <LeaderboardRealtime onChanged={refreshRealtimeData} />
       <header className="flex flex-col items-center gap-4 bg-background px-4 py-5 sm:flex-row sm:justify-between sm:px-8 sm:py-6">
         {children}
-        <div className="flex flex-wrap items-center justify-center gap-3 sm:justify-end">
-          <nav className="flex items-center border border-white/80 bg-black/10 p-1" aria-label="Workspace">
-            <PillButton active={view === "home"} onClick={() => selectView("home")}>Home</PillButton>
-            <PillButton active={view === "riddle"} onClick={() => selectView("riddle")}>Riddle</PillButton>
-            {canManagePoints && <PillButton active={view === "points"} onClick={() => selectView("points")}>Points</PillButton>}
-            <AccountMenu profile={profile} onOpenSettings={() => selectView("settings")} />
-          </nav>
-        </div>
+        <nav className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-50 mx-auto flex max-w-md items-center border border-white/80 bg-black/10 p-1 backdrop-blur-sm sm:static sm:mx-0 sm:max-w-none sm:backdrop-blur-none" aria-label="Workspace">
+          <PillButton active={view === "home"} onClick={() => selectView("home")}>Home</PillButton>
+          <PillButton active={view === "riddle"} onClick={() => selectView("riddle")}>Riddle</PillButton>
+          {canManagePoints && <PillButton active={view === "points"} onClick={() => selectView("points")}>Points</PillButton>}
+          <AccountMenu active={view === "settings"} profile={profile} onOpenSettings={() => selectView("settings")} />
+        </nav>
       </header>
 
-      {view === "home" && <Scoreboard initialEntries={leaderboard} />}
-      {view === "riddle" && <RiddlePlaceholder />}
-      {view === "points" && canManagePoints && <PointsDesk players={leaderboard} onChanged={async () => router.refresh()} refreshVersion={realtimeRefreshVersion} />}
-      {view === "settings" && <SettingsPage profile={profile} isAdmin={profile.role === "admin"} tab={settingsTab} onTabChange={setSettingsTab} />}
+      <main className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-0">
+        {view === "home" && <Scoreboard initialEntries={leaderboard} />}
+        {view === "riddle" && <RiddlePlaceholder />}
+        {view === "points" && canManagePoints && <PointsDesk players={leaderboard} onChanged={async () => router.refresh()} refreshVersion={realtimeRefreshVersion} />}
+        {view === "settings" && <SettingsPage profile={profile} isAdmin={profile.role === "admin"} tab={settingsTab} onTabChange={setSettingsTab} />}
+      </main>
     </div>
   );
 }
 
 function PillButton({ active, children, onClick, ...props }: { active: boolean; children: ReactNode; onClick: () => void; "aria-label"?: string }) {
-  return <button type="button" onClick={onClick} aria-pressed={active} className={`px-4 py-2 text-sm font-bold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:px-5 ${active ? "bg-white text-[#4169e1]" : "text-white/70 hover:bg-white/10 hover:text-white"}`} {...props}>{children}</button>;
+  return <button type="button" onClick={onClick} aria-pressed={active} className={`min-w-0 flex-1 px-3 py-2 text-sm font-bold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:flex-none sm:px-5 ${active ? "bg-white text-[#4169e1]" : "text-white/70 hover:bg-white/10 hover:text-white"}`} {...props}>{children}</button>;
 }
 
-function AccountMenu({ profile, onOpenSettings }: { profile: Profile; onOpenSettings: () => void }) {
+function AccountMenu({ active, profile, onOpenSettings }: { active: boolean; profile: Profile; onOpenSettings: () => void }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const accountName = profile.displayName ?? profile.name ?? "Account";
@@ -84,13 +84,13 @@ function AccountMenu({ profile, onOpenSettings }: { profile: Profile; onOpenSett
     };
   }, []);
 
-  return <div ref={menuRef} className="relative ml-1 border-l border-white/15 pl-1">
-    <button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open} aria-haspopup="menu" className="px-3 py-2 text-left text-sm font-bold text-white transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+  return <div ref={menuRef} className="relative flex flex-1 border-l border-white/15 pl-1 sm:ml-1 sm:flex-none">
+    <button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open} aria-haspopup="menu" className={`min-w-0 flex-1 px-3 py-2 text-sm font-bold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:flex-none sm:text-left ${active ? "bg-white text-[#4169e1]" : "text-white hover:bg-white/10"}`}>
       <span className="hidden sm:inline">{accountName} · {profile.role}</span>
-      <span className="sm:hidden" aria-label="Account settings">⚙</span>
-      <span className="ml-1 text-white/60" aria-hidden="true">⌄</span>
+      <span className="sm:hidden">Settings</span>
+      <span className={`ml-1 hidden sm:inline ${active ? "text-[#4169e1]/60" : "text-white/60"}`} aria-hidden="true">⌄</span>
     </button>
-    {open && <div role="menu" className="absolute right-0 top-[calc(100%+0.75rem)] z-20 w-64 overflow-hidden border border-white/80 bg-black/10 backdrop-blur-sm">
+    {open && <div role="menu" className="absolute bottom-[calc(100%+0.75rem)] right-0 z-20 w-64 overflow-hidden border border-white/60 bg-[#18203a]/95 shadow-xl backdrop-blur-md sm:bottom-auto sm:top-[calc(100%+0.75rem)] sm:border-white/80 sm:bg-black/10 sm:shadow-none">
       <div className="border-b border-white/50 px-4 py-3">
         <p className="truncate text-sm font-semibold text-white">{accountName}</p>
         <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-white/60">{profile.role}</p>
