@@ -54,6 +54,7 @@ describe("requireProfile", () => {
         id: authId,
         name: null,
         displayName: "Spec Tester",
+        avatarUrl: null,
         role: "player",
       });
     });

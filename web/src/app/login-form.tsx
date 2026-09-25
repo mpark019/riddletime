@@ -42,7 +42,7 @@ export function LoginForm() {
           autoComplete="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
-          className="rounded border border-white bg-white px-4 py-3 text-slate-950 placeholder:text-slate-500 focus:outline-2 focus:outline-offset-2 focus:outline-white"
+          className="border border-white/80 bg-black/10 px-4 py-3 text-white placeholder:text-white/50 focus:outline-2 focus:outline-white"
         />
       </label>
       <label className="flex flex-col gap-2 text-lg">
@@ -53,14 +53,14 @@ export function LoginForm() {
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="rounded border border-white bg-white px-4 py-3 text-slate-950 placeholder:text-slate-500 focus:outline-2 focus:outline-offset-2 focus:outline-white"
+          className="border border-white/80 bg-black/10 px-4 py-3 text-white placeholder:text-white/50 focus:outline-2 focus:outline-white"
         />
       </label>
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p className="border border-white bg-black/15 px-4 py-3 text-sm text-white">{error}</p>}
       <button
         type="submit"
         disabled={submitting}
-        className="rounded bg-white px-4 py-3 text-black disabled:opacity-50"
+        className="border border-white bg-white px-4 py-3 font-semibold text-[#4169e1] transition hover:bg-transparent hover:text-white disabled:opacity-50"
       >
         {submitting ? "Signing in..." : "Continue"}
       </button>

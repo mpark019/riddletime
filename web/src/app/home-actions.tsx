@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { PendingInvitation } from "@/server/invitations/invitations";
 
 type Role = "spectator" | "player" | "admin";
+
+const roleOptions: Array<{ value: Role; label: string }> = [
+  { value: "spectator", label: "Spectator" },
+  { value: "player", label: "Player" },
+  { value: "admin", label: "Admin" },
+];
 
 export function SignOutButton({ className }: { className?: string }) {
   const router = useRouter();
@@ -107,7 +113,7 @@ export function InvitePanel() {
               required
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              className="rounded border border-white/20 bg-black px-3 py-2 text-white"
+              className="border border-white/80 bg-black/10 px-4 py-3 text-white focus:outline-2 focus:outline-white"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -117,21 +123,13 @@ export function InvitePanel() {
               required={role === "player"}
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
-              className="rounded border border-white/20 bg-black px-3 py-2 text-white"
+              className="border border-white/80 bg-black/10 px-4 py-3 text-white focus:outline-2 focus:outline-white"
             />
           </label>
-          <label className="flex flex-col gap-1 text-sm">
-            Role
-            <select
-              value={role}
-              onChange={(event) => setRole(event.target.value as Role)}
-              className="rounded border border-white/20 bg-black px-3 py-2 text-white"
-            >
-              <option value="spectator">Spectator</option>
-              <option value="player">Player</option>
-              <option value="admin">Admin</option>
-            </select>
-          </label>
+          <div className="flex flex-col gap-1 text-sm">
+            <span className="font-semibold">Role</span>
+            <RolePicker value={role} onChange={setRole} />
+          </div>
           {role === "player" && (
             <label className="flex flex-col gap-1 text-sm">
               Initial score
@@ -141,21 +139,21 @@ export function InvitePanel() {
                 required
                 value={initialScore}
                 onChange={(event) => setInitialScore(event.target.value)}
-                className="rounded border border-white/20 bg-black px-3 py-2 text-white"
+                className="number-field border border-white/80 bg-black/10 px-4 py-3 text-white focus:outline-2 focus:outline-white"
               />
             </label>
           )}
-          {formError && <p className="text-sm text-red-400">{formError}</p>}
+          {formError && <p className="border border-white bg-black/15 px-4 py-3 text-sm text-white">{formError}</p>}
           <button
             type="submit"
             disabled={submitting}
-            className="rounded bg-white px-4 py-2 text-black disabled:opacity-50"
+            className="border border-white bg-white px-4 py-3 font-semibold text-[#4169e1] transition hover:bg-transparent hover:text-white disabled:opacity-50"
           >
             {submitting ? "Sending..." : "Send invite"}
           </button>
       </form>
 
-      <div className="flex flex-col gap-3 border-t border-white/20 pt-4">
+      <div className="flex flex-col gap-3 border-t border-white/50 pt-4">
         <h3 className="text-sm text-white/60">Pending invitations</h3>
         {listLoading && <p className="text-sm text-white/60">Loading...</p>}
         {!listLoading && pending.length === 0 && (
@@ -167,6 +165,38 @@ export function InvitePanel() {
       </div>
     </section>
   );
+}
+
+function RolePicker({ value, onChange }: { value: Role; onChange: (role: Role) => void }) {
+  const [open, setOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const selected = roleOptions.find((option) => option.value === value)!;
+
+  useEffect(() => {
+    function closeOnOutsideClick(event: MouseEvent) {
+      if (!pickerRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
+
+  return <div ref={pickerRef} className="relative">
+    <button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open} aria-haspopup="listbox" className="flex w-full items-center justify-between border border-white/80 bg-black/10 px-4 py-3 text-left font-medium text-white transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white">
+      <span>{selected.label}</span><span aria-hidden="true">⌄</span>
+    </button>
+    {open && <div role="listbox" aria-label="Invitation role" className="absolute z-10 mt-2 w-full border border-white bg-[#4169e1] p-1">
+      {roleOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={option.value === value} onClick={() => { onChange(option.value); setOpen(false); }} className={`flex w-full items-center justify-between px-3 py-2.5 text-left font-medium transition focus-visible:outline-2 focus-visible:outline-white ${option.value === value ? "bg-white text-[#4169e1]" : "text-white hover:bg-white/15"}`}>
+        <span>{option.label}</span>{option.value === value && <span aria-hidden="true">✓</span>}
+      </button>)}
+    </div>}
+  </div>;
 }
 
 function PendingRow({
@@ -213,7 +243,7 @@ function PendingRow({
   }
 
   return (
-    <div className="flex flex-col gap-1 rounded border border-white/10 p-3 text-sm">
+    <div className="flex flex-col gap-1 border border-white/80 bg-black/10 p-3 text-sm">
       <div className="flex items-center justify-between gap-2">
         <div>
           <p>{invitation.email}</p>
@@ -228,7 +258,7 @@ function PendingRow({
             type="button"
             onClick={resend}
             disabled={busy !== null}
-            className="rounded border border-white/40 px-3 py-1 text-white disabled:opacity-50"
+            className="border border-white/80 px-3 py-1 text-white transition hover:bg-white/10 disabled:opacity-50"
           >
             {busy === "resend" ? "..." : "Resend"}
           </button>
@@ -236,7 +266,7 @@ function PendingRow({
             type="button"
             onClick={deleteInvite}
             disabled={busy !== null}
-            className="rounded border border-red-400/60 px-3 py-1 text-red-400 disabled:opacity-50"
+            className="border border-white/80 px-3 py-1 text-white transition hover:bg-white/10 disabled:opacity-50"
           >
             {busy === "delete" ? "..." : "Delete"}
           </button>
