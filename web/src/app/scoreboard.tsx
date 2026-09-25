@@ -29,13 +29,13 @@ export function Scoreboard({ initialEntries }: { initialEntries: LeaderboardEntr
         </div>
       ) : (
         <div className="overflow-x-auto border border-white/80 bg-black/10">
-          <table className="w-full min-w-[640px] text-left">
+          <table className="w-full text-left sm:min-w-[640px]">
             <thead className="border-b border-white/50 text-xs font-semibold uppercase tracking-[0.12em] text-white/70">
               <tr>
-                <th className="px-4 py-3 sm:px-6">Player</th>
-                <th className="px-4 py-3 text-right">Points</th>
-                <th className="px-4 py-3 text-right">Riddles correct</th>
-                <th className="px-4 py-3 text-right sm:px-6">Riddles incorrect</th>
+                <th className="w-3/4 px-4 py-3 sm:w-auto sm:px-6">Player</th>
+                <th className="w-1/4 px-4 py-3 text-right sm:w-auto">Points</th>
+                <th className="hidden px-4 py-3 text-right sm:table-cell">Riddles correct</th>
+                <th className="hidden px-4 py-3 text-right sm:table-cell sm:px-6">Riddles incorrect</th>
               </tr>
             </thead>
             <tbody>{entries.map((entry) => <LeaderboardRow key={entry.userId} entry={entry} />)}</tbody>
@@ -67,8 +67,8 @@ function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
         </div>
       </td>
       <td className="px-4 py-4 text-right text-lg font-semibold tabular-nums text-white">{number.format(entry.totalPoints)}</td>
-      <td className="px-4 py-4 text-right text-lg tabular-nums text-white">{number.format(entry.correctRiddles)}</td>
-      <td className="px-4 py-4 text-right text-lg tabular-nums text-white sm:px-6">{number.format(entry.incorrectRiddles)}</td>
+      <td className="hidden px-4 py-4 text-right text-lg tabular-nums text-white sm:table-cell">{number.format(entry.correctRiddles)}</td>
+      <td className="hidden px-4 py-4 text-right text-lg tabular-nums text-white sm:table-cell sm:px-6">{number.format(entry.incorrectRiddles)}</td>
     </tr>
   );
 }
