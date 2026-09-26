@@ -6,11 +6,22 @@ import { parsePlayerUsername, playerUsernameEmail } from "@/lib/player-username"
 import { requireAdmin } from "@/server/identity/identity";
 import { ConflictError, NotFoundError } from "@/server/http/errors";
 
+export const managedAccountRole = z.enum(["spectator", "player", "admin"]);
+export type ManagedAccountRole = z.infer<typeof managedAccountRole>;
+
 export const createPlayerAccountInput = z.object({
   name: z.string().trim().min(1).max(100).optional(),
   displayName: z.string().trim().min(1),
   password: z.string().min(12, "Password must be at least 12 characters."),
-  initialScore: z.number().int().nonnegative(),
+  role: z.enum(["player", "spectator"]).default("player"),
+  initialScore: z.number().int().nonnegative().optional(),
+}).superRefine((input, context) => {
+  if (input.role === "player" && input.initialScore === undefined) {
+    context.addIssue({ code: "custom", path: ["initialScore"], message: "Initial score is required for players." });
+  }
+  if (input.role === "spectator" && input.initialScore !== undefined) {
+    context.addIssue({ code: "custom", path: ["initialScore"], message: "Spectators cannot receive an initial score." });
+  }
 });
 export type CreatePlayerAccountInput = z.infer<typeof createPlayerAccountInput>;
 
@@ -19,17 +30,18 @@ export interface PlayerAccountAuthAdmin {
   deleteUser(id: string): Promise<void>;
 }
 
-export interface PlayerAccount {
+export interface ManagedAccount {
   id: string;
   name: string | null;
-  displayName: string;
+  displayName: string | null;
   avatarUrl: string | null;
+  role: ManagedAccountRole;
 }
 
 export const updatePlayerAccountInput = z.object({
   displayName: z.string().trim().min(1).optional(),
   password: z.string().min(12, "Password must be at least 12 characters.").optional(),
-}).refine((input) => input.displayName !== undefined || input.password !== undefined, {
+}).strict().refine((input) => input.displayName !== undefined || input.password !== undefined, {
   message: "Provide a display name or password.",
 });
 
@@ -63,45 +75,49 @@ async function updateAuthUser(id: string, input: { displayName?: string; passwor
   if (error) throw new Error(`Supabase player update failed: ${error.message}`);
 }
 
-export async function listPlayerAccounts(): Promise<PlayerAccount[]> {
+export async function listMemberAccounts(rawRole: unknown): Promise<ManagedAccount[]> {
+  const role = managedAccountRole.parse(rawRole);
   return withTransaction(async (client) => {
     await requireAdmin(client);
     const { rows } = await client.query(
-      "select id, name, display_name, avatar_url from profiles where role = 'player' order by lower(display_name)",
+      "select id, name, display_name, avatar_url, role from profiles where role = $1 order by lower(display_name)",
+      [role],
     );
-    return rows.map((row) => ({ id: row.id, name: row.name, displayName: row.display_name, avatarUrl: row.avatar_url }));
+    return rows.map((row) => ({ id: row.id, name: row.name, displayName: row.display_name, avatarUrl: row.avatar_url, role: row.role }));
   });
 }
 
-export async function updatePlayerAccount(id: string, rawInput: unknown) {
+export async function updateMemberAccount(id: string, rawInput: unknown) {
   const input = updatePlayerAccountInput.parse(rawInput);
-  const displayName = input.displayName ? parsePlayerUsername(input.displayName) : undefined;
-  await withTransaction(async (client) => {
+  const account = await withTransaction(async (client) => {
     await requireAdmin(client);
-    const { rows } = await client.query("select id from profiles where id = $1 and role = 'player'", [id]);
-    if (!rows[0]) throw new NotFoundError("Player not found");
+    const { rows } = await client.query("select id, role from profiles where id = $1", [id]);
+    if (!rows[0]) throw new NotFoundError("Account not found");
+    const role = managedAccountRole.parse(rows[0].role);
+    const displayName = input.displayName ? parsePlayerUsername(input.displayName) : input.displayName;
     if (displayName) {
-      const { rows: duplicate } = await client.query("select id from profiles where role = 'player' and lower(display_name) = $1 and id <> $2", [displayName, id]);
-      if (duplicate[0]) throw new ConflictError("That player display name is already in use");
+      const { rows: duplicate } = await client.query("select id from profiles where lower(display_name) = $1 and id <> $2", [displayName, id]);
+      if (duplicate[0]) throw new ConflictError("That username is already in use");
     }
+    return { role, displayName };
   });
-  await updateAuthUser(id, { displayName, password: input.password });
+  await updateAuthUser(id, { displayName: account.displayName, password: input.password });
   return withTransaction(async (client) => {
     await requireAdmin(client);
     const { rows } = await client.query(
-      "update profiles set display_name = coalesce($2, display_name) where id = $1 and role = 'player' returning id, name, display_name, avatar_url",
-      [id, input.displayName?.trim() ?? null],
+      "update profiles set display_name = coalesce($2, display_name) where id = $1 returning id, name, display_name, avatar_url, role",
+      [id, account.displayName ?? null],
     );
-    if (!rows[0]) throw new NotFoundError("Player not found");
-    return { id: rows[0].id, name: rows[0].name, displayName: rows[0].display_name, avatarUrl: rows[0].avatar_url };
+    if (!rows[0]) throw new NotFoundError("Account not found");
+    return { id: rows[0].id, name: rows[0].name, displayName: rows[0].display_name, avatarUrl: rows[0].avatar_url, role: rows[0].role };
   });
 }
 
-export async function deletePlayerAccount(id: string) {
+export async function deleteMemberAccount(id: string) {
   const avatarUrl = await withTransaction(async (client) => {
-    await requireAdmin(client);
-    const { rows } = await client.query("select riddle_private.delete_player_data($1) as avatar_url", [id]);
-    if (!rows[0]) throw new NotFoundError("Player not found");
+    const actor = await requireAdmin(client);
+    const { rows } = await client.query("select riddle_private.delete_member_data($1, $2) as avatar_url", [id, actor.id]);
+    if (!rows[0]) throw new NotFoundError("Account not found");
     return rows[0].avatar_url as string | null;
   });
   const { error } = await createSupabaseAdminClient().auth.admin.deleteUser(id);
@@ -116,7 +132,7 @@ function isConstraintViolation(err: unknown): err is { code: string } {
 
 // Auth has no transaction with Postgres. Recheck authorization inside the
 // database transaction and compensate for a failed profile write.
-export async function createPlayerAccount(
+export async function createMemberAccount(
   input: CreatePlayerAccountInput,
   deps: { authAdmin?: PlayerAccountAuthAdmin } = {},
 ) {
@@ -126,10 +142,10 @@ export async function createPlayerAccount(
   await withTransaction(async (client) => {
     await requireAdmin(client);
     const { rows } = await client.query(
-      "select id from profiles where role = 'player' and lower(display_name) = $1",
+      "select id from profiles where lower(display_name) = $1",
       [loginName],
     );
-    if (rows[0]) throw new ConflictError("That player display name is already in use");
+    if (rows[0]) throw new ConflictError("That username is already in use");
   });
   const authAdmin = deps.authAdmin ?? defaultAuthAdmin();
   const authUser = await authAdmin.createUser({
@@ -141,14 +157,16 @@ export async function createPlayerAccount(
     await withTransaction(async (client) => {
       await requireAdmin(client);
       await client.query(
-        "insert into profiles (id, name, display_name, role) values ($1, $2, $3, 'player')",
-        [authUser.id, parsed.name ?? null, parsed.displayName],
+        "insert into profiles (id, name, display_name, role) values ($1, $2, $3, $4)",
+        [authUser.id, parsed.name ?? null, parsed.displayName, parsed.role],
       );
-      await client.query(
-        `insert into point_transactions (user_id, amount, kind, reason, operation_key)
-         values ($1, $2, 'initial_score', 'Initial score', $3)`,
-        [authUser.id, parsed.initialScore, `initial:${authUser.id}`],
-      );
+      if (parsed.role === "player") {
+        await client.query(
+          `insert into point_transactions (user_id, amount, kind, reason, operation_key)
+           values ($1, $2, 'initial_score', 'Initial score', $3)`,
+          [authUser.id, parsed.initialScore, `initial:${authUser.id}`],
+        );
+      }
     });
   } catch (err) {
     try {
@@ -157,7 +175,7 @@ export async function createPlayerAccount(
       console.error("Failed to clean up player Auth account after profile creation failure:", cleanupError);
     }
     if (isConstraintViolation(err)) {
-      throw new ConflictError("That player display name is already in use");
+      throw new ConflictError("That username is already in use");
     }
     throw err;
   }

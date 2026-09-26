@@ -5,12 +5,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Profile } from "@/server/identity/identity";
 import type { LeaderboardEntry } from "@/server/points/points";
-import { InvitePanel, PlayerAccountsPanel, SignOutButton } from "./home-actions";
+import { InvitePanel, SignOutButton, UserAccountsPanel } from "./home-actions";
 import { LeaderboardRealtime } from "./leaderboard-realtime";
 import { PointsDesk, Scoreboard } from "./scoreboard";
 
 type WorkspaceView = "home" | "riddle" | "points" | "settings";
-type SettingsTab = "general" | "invitations" | "players";
+type SettingsTab = "general" | "invitations" | "users";
 
 export function HomeWorkspace({
   children,
@@ -103,6 +103,15 @@ function AccountMenu({ active, profile, onOpenSettings }: { active: boolean; pro
   </div>;
 }
 
+function InlineProfileField({ id, label, value, placeholder, autoComplete, onChange }: { id: string; label: string; value: string; placeholder: string; autoComplete?: string; onChange: (value: string) => void }) {
+  return <div>
+    <label htmlFor={id} className="text-sm font-semibold text-white/70">{label}</label>
+    <div className="relative mt-1 -ml-2 max-w-md">
+      <input id={id} type="text" autoComplete={autoComplete} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="w-full bg-black/15 px-3 py-2 text-lg font-medium text-white transition placeholder:text-white/40 hover:bg-black/25 focus:bg-black/25 focus:outline-2 focus:outline-white/80" />
+    </div>
+  </div>;
+}
+
 function RiddlePlaceholder() {
   return <section className="mx-auto flex w-full max-w-4xl flex-col gap-3 px-4 py-8 sm:px-8 sm:py-12">
     <h2 className="text-3xl font-semibold tracking-tight">Riddle</h2>
@@ -121,12 +130,12 @@ function SettingsPage({ profile, isAdmin, tab, onTabChange }: { profile: Profile
       <div className="flex gap-2 md:flex-col" role="tablist" aria-label="Settings sections">
         <SettingsButton active={tab === "general"} onClick={() => onTabChange("general")}>General</SettingsButton>
         {isAdmin && <SettingsButton active={tab === "invitations"} onClick={() => onTabChange("invitations")}>Invitations</SettingsButton>}
-        {isAdmin && <SettingsButton active={tab === "players"} onClick={() => onTabChange("players")}>Players</SettingsButton>}
+        {isAdmin && <SettingsButton active={tab === "users"} onClick={() => onTabChange("users")}>Users</SettingsButton>}
       </div>
       <div>
         <div hidden={tab !== "general"}><ProfilePanel profile={profile} initials={initials} /></div>
         {isAdmin && <div hidden={tab !== "invitations"}><InvitePanel /></div>}
-        {isAdmin && <div hidden={tab !== "players"}><PlayerAccountsPanel /></div>}
+        {isAdmin && <div hidden={tab !== "users"}><UserAccountsPanel currentUserId={profile.id} /></div>}
       </div>
     </div>
   </section>;
@@ -138,10 +147,9 @@ function SettingsButton({ active, children, onClick }: { active: boolean; childr
 
 function ProfilePanel({ profile, initials }: { profile: Profile; initials: string }) {
   const router = useRouter();
+  const spectatorAccount = profile.role === "spectator";
   const [name, setName] = useState(profile.name ?? "");
-  const [displayName, setDisplayName] = useState(profile.displayName ?? "");
   const [savedName, setSavedName] = useState(profile.name ?? "");
-  const [savedDisplayName, setSavedDisplayName] = useState(profile.displayName ?? "");
   const [savedAvatarUrl, setSavedAvatarUrl] = useState(profile.avatarUrl);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
@@ -150,8 +158,7 @@ function ProfilePanel({ profile, initials }: { profile: Profile; initials: strin
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const hasTextEdits = name.trim() !== savedName
-    || (profile.role !== "player" && displayName.trim() !== savedDisplayName);
+  const hasTextEdits = name.trim() !== savedName;
 
   async function saveProfile(event: React.FormEvent) {
     event.preventDefault();
@@ -162,7 +169,6 @@ function ProfilePanel({ profile, initials }: { profile: Profile; initials: strin
     const body: Record<string, string | null> = {
       name: name.trim() || null,
     };
-    if (profile.role !== "player") body.displayName = displayName.trim() || null;
 
     try {
       const response = await fetch("/api/profile", {
@@ -177,9 +183,7 @@ function ProfilePanel({ profile, initials }: { profile: Profile; initials: strin
       }
 
       setName(result.name ?? "");
-      setDisplayName(result.displayName ?? "");
       setSavedName(result.name ?? "");
-      setSavedDisplayName(result.displayName ?? "");
       setSavedAvatarUrl(result.avatarUrl ?? null);
       setSaved(true);
       router.refresh();
@@ -250,35 +254,34 @@ function ProfilePanel({ profile, initials }: { profile: Profile; initials: strin
           ) : (
             <span className="flex h-full w-full items-center justify-center bg-white/15 text-2xl font-semibold transition group-hover:bg-black/25 group-focus-within:bg-black/25" aria-hidden="true">{initials}</span>
           )}
-          <button type="button" disabled={avatarBusy} onClick={() => avatarInputRef.current?.click()} className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/45 px-2 text-center text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white disabled:cursor-wait">
+          {!spectatorAccount && <button type="button" disabled={avatarBusy} onClick={() => avatarInputRef.current?.click()} className="absolute inset-0 flex cursor-pointer items-center justify-center bg-black/45 px-2 text-center text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-white disabled:cursor-wait">
             {avatarBusy ? "Working…" : "Change"}
-          </button>
+          </button>}
         </div>
-        {savedAvatarUrl && <button type="button" disabled={avatarBusy} onClick={() => void deleteAvatar()} aria-label="Remove profile picture" title="Remove profile picture" className="absolute -right-1 -top-1 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-[#9f3f42] text-base font-medium leading-none text-white shadow-sm transition hover:bg-[#b94b4f] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:cursor-wait">
+        {!spectatorAccount && savedAvatarUrl && <button type="button" disabled={avatarBusy} onClick={() => void deleteAvatar()} aria-label="Remove profile picture" title="Remove profile picture" className="absolute -right-1 -top-1 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full bg-[#9f3f42] text-base font-medium leading-none text-white shadow-sm transition hover:bg-[#b94b4f] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:cursor-wait">
           ×
         </button>}
       </div>
-      <input ref={avatarInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="sr-only" tabIndex={-1} onChange={(event) => {
+      {!spectatorAccount && <input ref={avatarInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="sr-only" tabIndex={-1} onChange={(event) => {
         const avatarFile = event.currentTarget.files?.[0];
         event.currentTarget.value = "";
         if (avatarFile) void uploadAvatar(avatarFile);
-      }} />
+      }} />}
       <div>
         <p className="text-sm text-white/60">Signed in as</p>
-        <p className="mt-1 text-lg font-medium">{profile.role === "player" ? (profile.displayName ?? "Player") : (profile.email ?? profile.displayName ?? profile.name ?? "Member")}</p>
+        <p className="mt-1 text-lg font-medium">{profile.displayName ?? profile.name ?? "Member"}</p>
         <p className="mt-1 text-sm font-semibold uppercase tracking-wide text-white/60">{profile.role}</p>
       </div>
     </div>
 
-    <p className="mt-3 text-xs text-white/60">Click the profile picture to upload a PNG, JPEG, WebP, or GIF up to 5 MiB.</p>
+    <p className="mt-3 text-xs text-white/60">{spectatorAccount ? "Profile pictures are disabled for spectator accounts." : "Click the profile picture to upload a PNG, JPEG, WebP, or GIF up to 5 MiB."}</p>
     {avatarError && <p role="alert" className="mt-3 border border-white bg-black/15 px-4 py-3 text-sm text-white">{avatarError}</p>}
     {avatarNotice && <p aria-live="polite" className="mt-3 text-sm font-medium text-white/80">{avatarNotice}</p>}
 
     <form onSubmit={saveProfile} className="mt-8 flex flex-col gap-5">
-      <InlineProfileField id="profile-name" label="Name" value={name} placeholder="Your name" autoComplete="name" onChange={(value) => { setName(value); setSaved(false); }} />
-      {profile.role !== "player" && <InlineProfileField id="profile-display-name" label="Display name" value={displayName} placeholder="Public display name" onChange={(value) => { setDisplayName(value); setSaved(false); }} />}
-      {profile.role === "player" && profile.displayName && <div>
-        <p className="text-sm text-white/60">Display name</p>
+      {spectatorAccount ? <div><p className="text-sm font-semibold text-white/70">Name</p><p className="mt-1 text-lg font-medium">{profile.name ?? "blank"}</p></div> : <InlineProfileField id="profile-name" label="Name" value={name} placeholder="Your name" autoComplete="name" onChange={(value) => { setName(value); setSaved(false); }} />}
+      {profile.displayName && <div>
+        <p className="text-sm text-white/60">Username</p>
         <p className="mt-1 font-medium">{profile.displayName}</p>
       </div>}
       {error && <p role="alert" className="border border-white bg-black/15 px-4 py-3 text-sm text-white">{error}</p>}
@@ -287,14 +290,5 @@ function ProfilePanel({ profile, initials }: { profile: Profile; initials: strin
         {busy ? "Saving..." : "Save profile"}
       </button>}
     </form>
-  </div>;
-}
-
-function InlineProfileField({ id, label, value, placeholder, autoComplete, onChange }: { id: string; label: string; value: string; placeholder: string; autoComplete?: string; onChange: (value: string) => void }) {
-  return <div>
-    <label htmlFor={id} className="text-sm font-semibold text-white/70">{label}</label>
-    <div className="relative mt-1 -ml-2 max-w-md">
-      <input id={id} type="text" autoComplete={autoComplete} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="w-full bg-black/15 px-3 py-2 text-lg font-medium text-white transition placeholder:text-white/40 hover:bg-black/25 focus:bg-black/25 focus:outline-2 focus:outline-white/80" />
-    </div>
   </div>;
 }

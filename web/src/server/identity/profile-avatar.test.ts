@@ -56,11 +56,11 @@ function imageFile(type: keyof typeof imageFixtures, name = "avatar") {
   return new File([imageFixtures[type]], name, { type });
 }
 
-async function createProfile(avatarUrl: string | null = null) {
+async function createProfile(avatarUrl: string | null = null, role: "player" | "spectator" = "player") {
   const id = await createAuthUser();
   await pool.query(
-    "insert into profiles (id, display_name, avatar_url, role) values ($1, $2, $3, 'player')",
-    [id, `Player ${randomUUID()}`, avatarUrl],
+    "insert into profiles (id, display_name, avatar_url, role) values ($1, $2, $3, $4)",
+    [id, `Player ${randomUUID()}`, avatarUrl, role],
   );
   return id;
 }
@@ -211,6 +211,21 @@ describe("profile avatar HTTP contract", () => {
     await expect(response.json()).resolves.toMatchObject({ id, role: "player" });
   });
 
+  it("rejects a spectator profile-picture upload before writing to Storage", async () => {
+    const id = await createProfile(null, "spectator");
+    mocks.getVerifiedUser.mockResolvedValue({ id });
+    const formData = new FormData();
+    formData.set("file", imageFile("image/webp"));
+
+    const response = await POST(new Request("http://localhost/api/profile/avatar", {
+      method: "POST",
+      body: formData,
+    }));
+
+    expect(response.status).toBe(403);
+    expect(mocks.upload).not.toHaveBeenCalled();
+  });
+
   it("rejects oversized multipart bodies before parsing them", async () => {
     const response = await POST(new Request("http://localhost/api/profile/avatar", {
       method: "POST",
@@ -242,6 +257,16 @@ describe("profile avatar HTTP contract", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     await expect(response.json()).resolves.toMatchObject({ id, avatarUrl: null });
+  });
+
+  it("rejects a spectator profile-picture deletion", async () => {
+    const id = await createProfile("https://images.example/avatar.png", "spectator");
+    mocks.getVerifiedUser.mockResolvedValue({ id });
+
+    const response = await DELETE();
+
+    expect(response.status).toBe(403);
+    expect(mocks.remove).not.toHaveBeenCalled();
   });
 
   it("rejects an unauthenticated avatar deletion", async () => {

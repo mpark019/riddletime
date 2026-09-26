@@ -47,7 +47,7 @@ export function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="flex w-full max-w-xl flex-col gap-5">
       <label className="flex flex-col gap-2 text-lg">
-        Email or username
+        Username
         <input
           type="text"
           required

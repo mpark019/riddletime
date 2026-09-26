@@ -6,11 +6,11 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { PendingInvitation } from "@/server/invitations/invitations";
 
 type Role = "spectator" | "player" | "admin";
+type ProvisionableRole = Exclude<Role, "admin">;
 
-const roleOptions: Array<{ value: Role; label: string }> = [
+const roleOptions: Array<{ value: ProvisionableRole; label: string }> = [
   { value: "spectator", label: "Spectator" },
   { value: "player", label: "Player" },
-  { value: "admin", label: "Admin" },
 ];
 
 export function SignOutButton({ className }: { className?: string }) {
@@ -38,11 +38,10 @@ export function SignOutButton({ className }: { className?: string }) {
 }
 
 export function InvitePanel() {
-  const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<Role>("player");
+  const [role, setRole] = useState<ProvisionableRole>("player");
   const [initialScore, setInitialScore] = useState("0");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -77,11 +76,15 @@ export function InvitePanel() {
     setSubmitting(true);
     setFormError(null);
 
-    const body: Record<string, unknown> = role === "player"
-      ? { displayName, password, initialScore: Number(initialScore), ...(name.trim() ? { name } : {}) }
-      : { email, role, ...(displayName.trim() ? { displayName } : {}) };
+    const body: Record<string, unknown> = {
+      displayName,
+      password,
+      role,
+      ...(name.trim() ? { name } : {}),
+      ...(role === "player" ? { initialScore: Number(initialScore) } : {}),
+    };
 
-    const response = await fetch(role === "player" ? "/api/admin/players" : "/api/admin/invitations", {
+    const response = await fetch("/api/admin/players", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -89,12 +92,11 @@ export function InvitePanel() {
 
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      setFormError(data.error ?? (role === "player" ? "Could not create this player." : "Could not send this invitation."));
+      setFormError(data.error ?? "Could not create this member.");
       setSubmitting(false);
       return;
     }
 
-    setEmail("");
     setName("");
     setDisplayName("");
     setPassword("");
@@ -109,17 +111,7 @@ export function InvitePanel() {
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {role !== "player" && <label className="flex flex-col gap-1 text-sm">
-            Email
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="border border-white/80 bg-black/10 px-4 py-3 text-white focus:outline-2 focus:outline-white"
-            />
-          </label>}
-          {role === "player" && <label className="flex flex-col gap-1 text-sm">
+          <label className="flex flex-col gap-1 text-sm">
             Name (optional)
             <input
               type="text"
@@ -128,16 +120,16 @@ export function InvitePanel() {
               onChange={(event) => setName(event.target.value)}
               className="border border-white/80 bg-black/10 px-4 py-3 text-white focus:outline-2 focus:outline-white"
             />
-          </label>}
+          </label>
           <label className="flex flex-col gap-1 text-sm">
-            {role === "player" ? "Display name / username" : "Display name (optional)"}
+            Username
             <input
               type="text"
-              required={role === "player"}
+              required
               value={displayName}
               onChange={(event) => setDisplayName(event.target.value)}
-              pattern={role === "player" ? "[A-Za-z0-9][A-Za-z0-9_-]{2,31}" : undefined}
-              title={role === "player" ? "Use 3–32 letters, numbers, underscores, or hyphens." : undefined}
+              pattern="[A-Za-z0-9][A-Za-z0-9_-]{2,31}"
+              title="Use 3–32 letters, numbers, underscores, or hyphens."
               className="border border-white/80 bg-black/10 px-4 py-3 text-white focus:outline-2 focus:outline-white"
             />
           </label>
@@ -145,9 +137,7 @@ export function InvitePanel() {
             <span className="font-semibold">Role</span>
             <RolePicker value={role} onChange={setRole} />
           </div>
-          {role === "player" && (
-            <>
-            <label className="flex flex-col gap-1 text-sm">
+          <label className="flex flex-col gap-1 text-sm">
               Initial password
               <input
                 type="password"
@@ -158,7 +148,8 @@ export function InvitePanel() {
                 onChange={(event) => setPassword(event.target.value)}
                 className="border border-white/80 bg-black/10 px-4 py-3 text-white focus:outline-2 focus:outline-white"
               />
-            </label>
+          </label>
+          {role === "player" && (
             <label className="flex flex-col gap-1 text-sm">
               Initial score
               <input
@@ -170,7 +161,6 @@ export function InvitePanel() {
                 className="number-field border border-white/80 bg-black/10 px-4 py-3 text-white focus:outline-2 focus:outline-white"
               />
             </label>
-            </>
           )}
           {formError && <p className="border border-white bg-black/15 px-4 py-3 text-sm text-white">{formError}</p>}
           <button
@@ -178,7 +168,7 @@ export function InvitePanel() {
             disabled={submitting}
             className="border border-white bg-white px-4 py-3 font-semibold text-[#4169e1] transition hover:bg-transparent hover:text-white disabled:opacity-50"
           >
-            {submitting ? (role === "player" ? "Creating..." : "Sending...") : (role === "player" ? "Create player" : "Send invite")}
+            {submitting ? "Creating..." : "Create member"}
           </button>
       </form>
 
@@ -196,45 +186,55 @@ export function InvitePanel() {
   );
 }
 
-export function PlayerAccountsPanel() {
-  const [players, setPlayers] = useState<Array<{ id: string; name: string | null; displayName: string }>>([]);
+type ManagedAccountRole = "spectator" | "player" | "admin";
+type ManagedAccount = { id: string; name: string | null; displayName: string | null; role: ManagedAccountRole };
+
+const managedAccountTabs: Array<{ role: ManagedAccountRole; label: string }> = [
+  { role: "player", label: "Players" },
+  { role: "spectator", label: "Spectators" },
+  { role: "admin", label: "Admins" },
+];
+
+export function UserAccountsPanel({ currentUserId }: { currentUserId: string }) {
+  const [role, setRole] = useState<ManagedAccountRole>("player");
+  const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<{ id: string; displayName: string } | null>(null);
-  const refresh = async () => { const response = await fetch("/api/admin/players"); if (response.ok) setPlayers(await response.json()); else setError("Could not load players."); };
-  useEffect(() => { const timer = window.setTimeout(() => { void refresh(); }, 0); return () => window.clearTimeout(timer); }, []);
+  const [pendingDelete, setPendingDelete] = useState<ManagedAccount | null>(null);
+  const refresh = async (selectedRole = role) => { const response = await fetch(`/api/admin/players?role=${selectedRole}`); if (response.ok) setAccounts(await response.json()); else setError("Could not load users."); };
+  useEffect(() => { const timer = window.setTimeout(() => { void fetch(`/api/admin/players?role=${role}`).then(async (response) => { if (response.ok) setAccounts(await response.json()); else setError("Could not load users."); }); }, 0); return () => window.clearTimeout(timer); }, [role]);
   async function save(id: string, displayName: string, password: string) {
     const response = await fetch(`/api/admin/players/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName, ...(password ? { password } : {}) }) });
-    if (!response.ok) { const body = await response.json().catch(() => ({})); setError(body.error ?? "Could not update player."); return false; }
+    if (!response.ok) { const body = await response.json().catch(() => ({})); setError(body.error ?? "Could not update user."); return false; }
     await refresh();
     return true;
   }
   async function remove(id: string) {
     const response = await fetch(`/api/admin/players/${id}`, { method: "DELETE" });
-    if (!response.ok) { const body = await response.json().catch(() => ({})); setError(body.error ?? "Could not delete player."); return; }
+    if (!response.ok) { const body = await response.json().catch(() => ({})); setError(body.error ?? "Could not delete user."); return; }
     setPendingDelete(null);
     await refresh();
   }
-  return <section className="flex w-full max-w-2xl flex-col gap-4"><div><h2 className="text-2xl font-semibold">Players</h2></div>{players.map((player) => <PlayerRow key={player.id} player={player} onSave={save} onDelete={(id, displayName) => setPendingDelete({ id, displayName })} />)}{players.length === 0 && <p className="text-sm text-white/60">No players yet.</p>}{error && <p className="text-red-300">{error}</p>}{pendingDelete && <DeletePlayerDialog player={pendingDelete} onCancel={() => setPendingDelete(null)} onConfirm={() => void remove(pendingDelete.id)} />}</section>;
+  return <section className="flex w-full max-w-2xl flex-col gap-4"><div><h2 className="text-2xl font-semibold">Users</h2></div><div className="flex gap-2" role="tablist" aria-label="User roles">{managedAccountTabs.map((tab) => <button key={tab.role} type="button" role="tab" aria-selected={role === tab.role} onClick={() => { setRole(tab.role); setError(null); }} className={`border border-white/80 px-3 py-2 text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-white ${role === tab.role ? "bg-white text-[#4169e1]" : "text-white hover:bg-white/15"}`}>{tab.label}</button>)}</div>{accounts.map((account) => <UserRow key={account.id} account={account} onSave={save} onDelete={setPendingDelete} canDelete={account.id !== currentUserId} />)}{accounts.length === 0 && <p className="text-sm text-white/60">No {managedAccountTabs.find((tab) => tab.role === role)?.label.toLowerCase()} yet.</p>}{error && <p role="alert" className="text-red-300">{error}</p>}{pendingDelete && <DeleteUserDialog account={pendingDelete} onCancel={() => setPendingDelete(null)} onConfirm={() => void remove(pendingDelete.id)} />}</section>;
 }
 
-function DeletePlayerDialog({ player, onCancel, onConfirm }: { player: { id: string; displayName: string }; onCancel: () => void; onConfirm: () => void }) {
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" role="presentation"><div role="alertdialog" aria-modal="true" aria-labelledby="delete-player-title" aria-describedby="delete-player-description" className="w-full max-w-md border border-red-200/80 bg-[#4169e1] p-6 shadow-2xl"><p className="text-xs font-bold uppercase tracking-[0.2em] text-red-100">Permanent action</p><h3 id="delete-player-title" className="mt-2 text-2xl font-semibold">Delete {player.displayName}?</h3><p id="delete-player-description" className="mt-3 text-white/80">This permanently removes the account and all of its game history. It cannot be undone.</p><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onCancel} className="border border-white/80 px-4 py-2 font-semibold hover:bg-white/10">Cancel</button><button type="button" onClick={onConfirm} className="border border-red-200 bg-red-200 px-4 py-2 font-semibold text-[#4169e1] hover:bg-transparent hover:text-white">Delete permanently</button></div></div></div>;
+function DeleteUserDialog({ account, onCancel, onConfirm }: { account: ManagedAccount; onCancel: () => void; onConfirm: () => void }) {
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" role="presentation"><div role="alertdialog" aria-modal="true" aria-labelledby="delete-user-title" aria-describedby="delete-user-description" className="w-full max-w-md border border-red-200/80 bg-[#4169e1] p-6 shadow-2xl"><p className="text-xs font-bold uppercase tracking-[0.2em] text-red-100">Permanent action</p><h3 id="delete-user-title" className="mt-2 text-2xl font-semibold">Delete {account.displayName ?? account.name ?? "this account"}?</h3><p id="delete-user-description" className="mt-3 text-white/80">This permanently removes the account and its owned data. It cannot be undone.</p><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onCancel} className="border border-white/80 px-4 py-2 font-semibold hover:bg-white/10">Cancel</button><button type="button" onClick={onConfirm} className="border border-red-200 bg-red-200 px-4 py-2 font-semibold text-[#4169e1] transition hover:bg-transparent hover:text-white">Delete permanently</button></div></div></div>;
 }
 
-function PlayerRow({ player, onSave, onDelete }: { player: { id: string; name: string | null; displayName: string }; onSave: (id: string, displayName: string, password: string) => Promise<boolean>; onDelete: (id: string, displayName: string) => void }) {
-  const [displayName, setDisplayName] = useState(player.displayName); const [password, setPassword] = useState(""); const [passwordSaved, setPasswordSaved] = useState(false);
+function UserRow({ account, onSave, onDelete, canDelete }: { account: ManagedAccount; onSave: (id: string, displayName: string, password: string) => Promise<boolean>; onDelete: (account: ManagedAccount) => void; canDelete: boolean }) {
+  const [displayName, setDisplayName] = useState(account.displayName ?? ""); const [password, setPassword] = useState(""); const [passwordSaved, setPasswordSaved] = useState(false);
   async function savePlayer() {
     const passwordWasProvided = Boolean(password);
-    const saved = await onSave(player.id, displayName, password);
+    const saved = await onSave(account.id, displayName, password);
     if (saved && passwordWasProvided) {
       setPassword("");
       setPasswordSaved(true);
     }
   }
-  return <div className="flex flex-col gap-3 border border-white/80 p-3"><p className="text-sm text-white/60">{player.name ?? "No name"}</p><input aria-label={`Display name for ${player.displayName}`} value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="border border-white/80 bg-black/10 px-3 py-2" /><input aria-label={`New password for ${player.displayName}`} type="password" minLength={12} placeholder="New password (optional)" value={password} onChange={(e) => { setPassword(e.target.value); setPasswordSaved(false); }} className="border border-white/80 bg-black/10 px-3 py-2" />{passwordSaved && <p aria-live="polite" className="text-sm font-medium text-white/80">Password saved successfully.</p>}<div className="flex gap-2"><button type="button" onClick={() => void savePlayer()} className="border border-white bg-white px-3 py-2 font-semibold text-[#4169e1] transition hover:bg-transparent hover:text-white focus-visible:outline-2 focus-visible:outline-white">Save</button><button type="button" onClick={() => void onDelete(player.id, player.displayName)} className="border border-red-300 bg-red-200 px-3 py-2 font-semibold text-[#4169e1] transition hover:bg-transparent hover:text-white focus-visible:outline-2 focus-visible:outline-white">Delete account</button></div></div>;
+  return <div className="flex flex-col gap-3 border border-white/80 p-3"><p className="text-sm text-white/60">{account.name ?? "No name"}</p><label className="flex flex-col gap-1 text-sm"><span>{account.role === "admin" ? "Display name" : "Username"}</span><input aria-label={`${account.role === "admin" ? "Display name" : "Username"} for ${account.displayName ?? account.name ?? "user"}`} value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="border border-white/80 bg-black/10 px-3 py-2" /></label><input aria-label={`New password for ${account.displayName ?? account.name ?? "user"}`} type="password" minLength={12} placeholder="New password (optional)" value={password} onChange={(e) => { setPassword(e.target.value); setPasswordSaved(false); }} className="border border-white/80 bg-black/10 px-3 py-2" />{passwordSaved && <p aria-live="polite" className="text-sm font-medium text-white/80">Password saved successfully.</p>}<div className="flex gap-2"><button type="button" onClick={() => void savePlayer()} className="border border-white bg-white px-3 py-2 font-semibold text-[#4169e1] transition hover:bg-transparent hover:text-white focus-visible:outline-2 focus-visible:outline-white">Save</button>{canDelete ? <button type="button" onClick={() => onDelete(account)} className="border border-red-300 bg-red-200 px-3 py-2 font-semibold text-[#4169e1] transition hover:bg-transparent hover:text-white focus-visible:outline-2 focus-visible:outline-white">Delete account</button> : <p className="self-center text-sm text-white/60">You cannot delete your own account.</p>}</div></div>;
 }
 
-function RolePicker({ value, onChange }: { value: Role; onChange: (role: Role) => void }) {
+function RolePicker({ value, onChange }: { value: ProvisionableRole; onChange: (role: ProvisionableRole) => void }) {
   const [open, setOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
   const selected = roleOptions.find((option) => option.value === value)!;

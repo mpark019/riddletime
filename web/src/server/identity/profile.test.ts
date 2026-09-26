@@ -26,7 +26,7 @@ async function createProfile(role: "spectator" | "player" | "admin") {
 }
 
 describe("self profile updates", () => {
-  it.each(["spectator", "admin"] as const)(
+  it.each(["admin"] as const)(
     "allows a %s to edit name, display name, and avatar without changing another profile",
     async (role) => {
       const id = await createProfile(role);
@@ -63,6 +63,14 @@ describe("self profile updates", () => {
     },
   );
 
+  it("rejects a spectator name or profile-picture update", async () => {
+    const id = await createProfile("spectator");
+    getVerifiedUser.mockResolvedValue({ id });
+
+    await expect(updateOwnProfile({ name: "Changed" })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(updateOwnProfile({ avatarUrl: "https://images.example.test/avatar.png" })).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
   it("allows a player to edit name and avatar while retaining their display name", async () => {
     const id = await createProfile("player");
     const before = await pool.query("select display_name from profiles where id = $1", [id]);
@@ -98,7 +106,7 @@ describe("self profile updates", () => {
 
 describe("profile PATCH contract", () => {
   it("returns the updated caller profile as private, non-cacheable data", async () => {
-    const id = await createProfile("spectator");
+    const id = await createProfile("admin");
     getVerifiedUser.mockResolvedValue({ id });
 
     const response = await PATCH(new Request("http://localhost/api/profile", {
@@ -112,7 +120,7 @@ describe("profile PATCH contract", () => {
     await expect(response.json()).resolves.toMatchObject({
       id,
       displayName: "Route update",
-      role: "spectator",
+      role: "admin",
     });
   });
 

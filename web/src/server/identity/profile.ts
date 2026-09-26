@@ -42,6 +42,9 @@ export async function updateOwnProfile(rawInput: unknown): Promise<Profile> {
 
   return withTransaction(async (client) => {
     const current = await requireProfile(client);
+    if (current.role === "spectator" && ("name" in input || "avatarUrl" in input)) {
+      throw new ForbiddenError("Spectators cannot edit their name or profile picture");
+    }
     if (current.role === "player" && "displayName" in input) {
       throw new ForbiddenError("Players cannot change their display name");
     }
@@ -75,6 +78,7 @@ export async function replaceOwnAvatarUrl(rawAvatarUrl: unknown) {
 
   return withTransaction(async (client) => {
     const current = await requireProfile(client);
+    if (current.role === "spectator") throw new ForbiddenError("Spectators cannot edit their profile picture");
     const { rows } = await client.query(
       `update profiles set avatar_url = $2 where id = $1
        returning id, name, display_name, avatar_url, role`,
@@ -87,6 +91,7 @@ export async function replaceOwnAvatarUrl(rawAvatarUrl: unknown) {
 export async function clearOwnAvatarUrl() {
   return withTransaction(async (client) => {
     const current = await requireProfile(client);
+    if (current.role === "spectator") throw new ForbiddenError("Spectators cannot edit their profile picture");
     const { rows } = await client.query(
       `update profiles set avatar_url = null where id = $1
        returning id, name, display_name, avatar_url, role`,

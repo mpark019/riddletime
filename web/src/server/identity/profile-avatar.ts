@@ -2,7 +2,7 @@ import "server-only";
 import { randomUUID } from "crypto";
 import { withTransaction } from "@/lib/db";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { AppError, BadRequestError } from "@/server/http/errors";
+import { AppError, BadRequestError, ForbiddenError } from "@/server/http/errors";
 import { requireProfileRead } from "./identity";
 import { clearOwnAvatarUrl, replaceOwnAvatarUrl } from "./profile";
 
@@ -66,6 +66,7 @@ async function removeAvatarObject(path: string) {
 
 export async function uploadOwnAvatar(rawFile: unknown) {
   const current = await withTransaction((client) => requireProfileRead(client));
+  if (current.role === "spectator") throw new ForbiddenError("Spectators cannot edit their profile picture");
   const image = await validateAvatarFile(rawFile);
   const objectPath = `${current.id}/${randomUUID()}.${image.extension}`;
   const bucket = createSupabaseAdminClient().storage.from(PROFILE_AVATAR_BUCKET);
