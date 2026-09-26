@@ -57,6 +57,13 @@ body {
   font-family: Georgia, "Times New Roman", serif;
 }
 
+.floating-question-marks img {
+  display: block;
+  filter: drop-shadow(0 0 var(--mark-glow) rgb(255 0 0 / 35%));
+  height: var(--mark-size);
+  width: auto;
+}
+
 @keyframes question-mark-drift {
   0%,
   100% {

@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { Metadata } from "next";
+import Image from "next/image";
 import { Inter } from "next/font/google";
 import "./globals.css";
 
@@ -18,6 +19,9 @@ const questionMarkVariants = [
   { glyph: "﹖", style: "small" },
 ] as const;
 
+const dancingQuestionMark = { style: "dancing" } as const;
+const dancingQuestionMarkFrequency = 0.22;
+
 const questionMarks = createQuestionMarks();
 
 function createQuestionMarks() {
@@ -29,7 +33,9 @@ function createQuestionMarks() {
 
   return Array.from({ length: 96 }, () => {
     const depth = random();
-    const variant = questionMarkVariants[Math.floor(random() * questionMarkVariants.length)];
+    const variant = random() < dancingQuestionMarkFrequency
+      ? dancingQuestionMark
+      : questionMarkVariants[Math.floor(random() * questionMarkVariants.length)];
 
     return {
       blur: `${((1 - depth) * 1.3 + random() * 0.6).toFixed(2)}px`,
@@ -41,7 +47,7 @@ function createQuestionMarks() {
       left: `${(random() * 100).toFixed(2)}%`,
       opacity: `${(0.06 + depth * 0.3 + random() * 0.06).toFixed(2)}`,
       scale: `${(0.7 + depth * 0.3).toFixed(2)}`,
-      size: `${(0.55 + depth * 4.6 + random() * 0.8).toFixed(2)}rem`,
+      size: `${(variant.style === "dancing" ? 1.75 + depth * 3.5 : 0.55 + depth * 4.6 + random() * 0.8).toFixed(2)}rem`,
       top: `${(random() * 100).toFixed(2)}%`,
       variant,
     };
@@ -80,7 +86,9 @@ function FloatingQuestionMarks() {
             top,
           } as CSSProperties}
         >
-          {variant.glyph}
+          {variant.style === "dancing"
+            ? <Image src="/images/dancing-alphabet/dancing-question.gif" alt="" width={140} height={171} unoptimized />
+            : variant.glyph}
         </span>
       ))}
     </div>
