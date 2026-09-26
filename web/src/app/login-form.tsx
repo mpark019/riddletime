@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { playerUsernameEmail } from "@/lib/player-username";
 
 export function LoginForm() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -15,6 +16,17 @@ export function LoginForm() {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
+
+    let email = identifier.trim();
+    if (!email.includes("@")) {
+      try {
+        email = playerUsernameEmail(email);
+      } catch {
+        setError("Enter a valid email address or player username.");
+        setSubmitting(false);
+        return;
+      }
+    }
 
     const supabase = createSupabaseBrowserClient();
     const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -35,13 +47,13 @@ export function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="flex w-full max-w-xl flex-col gap-5">
       <label className="flex flex-col gap-2 text-lg">
-        Email
+        Email or username
         <input
-          type="email"
+          type="text"
           required
-          autoComplete="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          autoComplete="username"
+          value={identifier}
+          onChange={(event) => setIdentifier(event.target.value)}
           className="border border-white/80 bg-black/10 px-4 py-3 text-white placeholder:text-white/50 focus:outline-2 focus:outline-white"
         />
       </label>

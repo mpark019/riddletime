@@ -5,12 +5,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Profile } from "@/server/identity/identity";
 import type { LeaderboardEntry } from "@/server/points/points";
-import { InvitePanel, SignOutButton } from "./home-actions";
+import { InvitePanel, PlayerAccountsPanel, SignOutButton } from "./home-actions";
 import { LeaderboardRealtime } from "./leaderboard-realtime";
 import { PointsDesk, Scoreboard } from "./scoreboard";
 
 type WorkspaceView = "home" | "riddle" | "points" | "settings";
-type SettingsTab = "general" | "invitations";
+type SettingsTab = "general" | "invitations" | "players";
 
 export function HomeWorkspace({
   children,
@@ -121,10 +121,12 @@ function SettingsPage({ profile, isAdmin, tab, onTabChange }: { profile: Profile
       <div className="flex gap-2 md:flex-col" role="tablist" aria-label="Settings sections">
         <SettingsButton active={tab === "general"} onClick={() => onTabChange("general")}>General</SettingsButton>
         {isAdmin && <SettingsButton active={tab === "invitations"} onClick={() => onTabChange("invitations")}>Invitations</SettingsButton>}
+        {isAdmin && <SettingsButton active={tab === "players"} onClick={() => onTabChange("players")}>Players</SettingsButton>}
       </div>
       <div>
         <div hidden={tab !== "general"}><ProfilePanel profile={profile} initials={initials} /></div>
         {isAdmin && <div hidden={tab !== "invitations"}><InvitePanel /></div>}
+        {isAdmin && <div hidden={tab !== "players"}><PlayerAccountsPanel /></div>}
       </div>
     </div>
   </section>;
@@ -263,7 +265,7 @@ function ProfilePanel({ profile, initials }: { profile: Profile; initials: strin
       }} />
       <div>
         <p className="text-sm text-white/60">Signed in as</p>
-        <p className="mt-1 text-lg font-medium">{profile.email ?? profile.displayName ?? profile.name ?? "Member"}</p>
+        <p className="mt-1 text-lg font-medium">{profile.role === "player" ? (profile.displayName ?? "Player") : (profile.email ?? profile.displayName ?? profile.name ?? "Member")}</p>
         <p className="mt-1 text-sm font-semibold uppercase tracking-wide text-white/60">{profile.role}</p>
       </div>
     </div>
