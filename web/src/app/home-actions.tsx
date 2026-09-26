@@ -172,7 +172,7 @@ export function InvitePanel() {
           </button>
       </form>
 
-      <div className="flex flex-col gap-3 border-t border-white/50 pt-4">
+      {/* <div className="flex flex-col gap-3 border-t border-white/50 pt-4">
         <h3 className="text-sm text-white/60">Pending invitations</h3>
         {listLoading && <p className="text-sm text-white/60">Loading...</p>}
         {!listLoading && pending.length === 0 && (
@@ -181,7 +181,7 @@ export function InvitePanel() {
         {pending.map((invitation) => (
           <PendingRow key={invitation.id} invitation={invitation} onChanged={refreshPending} />
         ))}
-      </div>
+      </div> */}
     </section>
   );
 }
