@@ -72,7 +72,7 @@ export function LoginForm() {
       <button
         type="submit"
         disabled={submitting}
-        className="border border-white bg-white px-4 py-3 font-semibold text-[#4169e1] transition hover:bg-transparent hover:text-white disabled:opacity-50"
+        className="border border-white bg-white px-4 py-3 font-semibold text-[#102a43] transition hover:bg-transparent hover:text-white disabled:opacity-50"
       >
         {submitting ? "Signing in..." : "Continue"}
       </button>

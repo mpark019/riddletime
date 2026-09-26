@@ -40,7 +40,7 @@ export function HomeWorkspace({
   return (
     <div className="flex min-h-screen flex-col">
       <LeaderboardRealtime onChanged={refreshRealtimeData} />
-      <header className="flex flex-col items-center gap-4 bg-background px-4 py-5 sm:flex-row sm:justify-between sm:px-8 sm:py-6">
+      <header className="flex flex-col items-center gap-4 px-4 py-5 sm:flex-row sm:justify-between sm:px-8 sm:py-6">
         {children}
         <nav className="fixed inset-x-4 bottom-[max(1rem,env(safe-area-inset-bottom))] z-50 mx-auto flex max-w-md items-center border border-white/80 bg-black/10 p-1 backdrop-blur-sm sm:static sm:mx-0 sm:max-w-none sm:backdrop-blur-none" aria-label="Workspace">
           <PillButton active={view === "home"} onClick={() => selectView("home")}>Home</PillButton>
@@ -61,7 +61,7 @@ export function HomeWorkspace({
 }
 
 function PillButton({ active, children, onClick, ...props }: { active: boolean; children: ReactNode; onClick: () => void; "aria-label"?: string }) {
-  return <button type="button" onClick={onClick} aria-pressed={active} className={`min-w-0 flex-1 px-3 py-2 text-sm font-bold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:flex-none sm:px-5 ${active ? "bg-white text-[#4169e1]" : "text-white/70 hover:bg-white/10 hover:text-white"}`} {...props}>{children}</button>;
+  return <button type="button" onClick={onClick} aria-pressed={active} className={`min-w-0 flex-1 px-3 py-2 text-sm font-bold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:flex-none sm:px-5 ${active ? "bg-white text-[#102a43]" : "text-white/70 hover:bg-white/10 hover:text-white"}`} {...props}>{children}</button>;
 }
 
 function AccountMenu({ active, profile, onOpenSettings }: { active: boolean; profile: Profile; onOpenSettings: () => void }) {
@@ -85,12 +85,12 @@ function AccountMenu({ active, profile, onOpenSettings }: { active: boolean; pro
   }, []);
 
   return <div ref={menuRef} className="relative flex flex-1 border-l border-white/15 pl-1 sm:ml-1 sm:flex-none">
-    <button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open} aria-haspopup="menu" className={`min-w-0 flex-1 px-3 py-2 text-sm font-bold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:flex-none sm:text-left ${active ? "bg-white text-[#4169e1]" : "text-white hover:bg-white/10"}`}>
+    <button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open} aria-haspopup="menu" className={`min-w-0 flex-1 px-3 py-2 text-sm font-bold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:flex-none sm:text-left ${active ? "bg-white text-[#102a43]" : "text-white hover:bg-white/10"}`}>
       <span className="hidden sm:inline">{accountName} · {profile.role}</span>
       <span className="sm:hidden">Settings</span>
-      <span className={`ml-1 hidden sm:inline ${active ? "text-[#4169e1]/60" : "text-white/60"}`} aria-hidden="true">⌄</span>
+      <span className={`ml-1 hidden sm:inline ${active ? "text-[#102a43]/60" : "text-white/60"}`} aria-hidden="true">⌄</span>
     </button>
-    {open && <div role="menu" className="absolute bottom-[calc(100%+0.75rem)] right-0 z-20 w-64 overflow-hidden border border-white/60 bg-[#4169e1] shadow-xl sm:bottom-auto sm:top-[calc(100%+0.75rem)] sm:border-white/80 sm:shadow-none">
+    {open && <div role="menu" className="absolute bottom-[calc(100%+0.75rem)] right-0 z-20 w-64 overflow-hidden border border-white/60 bg-[#00022e] shadow-[0_1.5rem_3rem_rgb(0_0_46_/_60%)] sm:bottom-auto sm:top-[calc(100%+0.75rem)] sm:border-white/80">
       <div className="border-b border-white/50 px-4 py-3">
         <p className="truncate text-sm font-semibold text-white">{accountName}</p>
         <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-white/60">{profile.role}</p>
@@ -142,7 +142,7 @@ function SettingsPage({ profile, isAdmin, tab, onTabChange }: { profile: Profile
 }
 
 function SettingsButton({ active, children, onClick }: { active: boolean; children: ReactNode; onClick: () => void }) {
-  return <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`border border-white/80 px-4 py-3 text-left text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-white ${active ? "bg-white text-[#4169e1]" : "bg-black/10 text-white/70 hover:bg-white/10 hover:text-white"}`}>{children}</button>;
+  return <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`border border-white/80 px-4 py-3 text-left text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-white ${active ? "bg-white text-[#102a43]" : "bg-black/10 text-white/70 hover:bg-white/10 hover:text-white"}`}>{children}</button>;
 }
 
 function ProfilePanel({ profile, initials }: { profile: Profile; initials: string }) {
@@ -286,7 +286,7 @@ function ProfilePanel({ profile, initials }: { profile: Profile; initials: strin
       </div>}
       {error && <p role="alert" className="border border-white bg-black/15 px-4 py-3 text-sm text-white">{error}</p>}
       {saved && <p aria-live="polite" className="text-sm font-medium text-white/80">Profile saved.</p>}
-      {hasTextEdits && <button type="submit" disabled={busy} className="w-full border border-white bg-white px-4 py-3 font-semibold text-[#4169e1] transition hover:bg-transparent hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:w-fit">
+      {hasTextEdits && <button type="submit" disabled={busy} className="w-full border border-white bg-white px-4 py-3 font-semibold text-[#102a43] transition hover:bg-transparent hover:text-white disabled:cursor-not-allowed disabled:opacity-50 sm:w-fit">
         {busy ? "Saving..." : "Save profile"}
       </button>}
     </form>
