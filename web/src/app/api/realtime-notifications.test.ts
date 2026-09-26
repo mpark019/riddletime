@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { announceLeaderboardChanged, createManualAdjustment, deletePointTransaction, submitChallenge } = vi.hoisted(() => ({
+const { announceLeaderboardChanged, createManualAdjustment, createManualAdjustmentForAllPlayers, createManualAdjustmentForPlayers, deletePointTransaction, submitChallenge } = vi.hoisted(() => ({
   announceLeaderboardChanged: vi.fn(),
   createManualAdjustment: vi.fn(),
+  createManualAdjustmentForAllPlayers: vi.fn(),
+  createManualAdjustmentForPlayers: vi.fn(),
   deletePointTransaction: vi.fn(),
   submitChallenge: vi.fn(),
 }));
@@ -10,6 +12,8 @@ const { announceLeaderboardChanged, createManualAdjustment, deletePointTransacti
 vi.mock("@/server/realtime/leaderboard", () => ({ announceLeaderboardChanged }));
 vi.mock("@/server/points/points", () => ({
   createManualAdjustment,
+  createManualAdjustmentForAllPlayers,
+  createManualAdjustmentForPlayers,
   deletePointTransaction,
   manualAdjustmentInput: { parse: vi.fn((input) => input) },
 }));
@@ -24,6 +28,8 @@ const id = "9ebc4332-4cbe-4c1f-b11e-d1b2e4e2e8f0";
 beforeEach(() => {
   announceLeaderboardChanged.mockReset();
   createManualAdjustment.mockReset();
+  createManualAdjustmentForAllPlayers.mockReset();
+  createManualAdjustmentForPlayers.mockReset();
   deletePointTransaction.mockReset();
   submitChallenge.mockReset();
 });

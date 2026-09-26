@@ -6,8 +6,7 @@ import { ConflictError, ForbiddenError, NotFoundError } from "@/server/http/erro
 
 const UUID = z.uuid();
 
-export const manualAdjustmentInput = z.object({
-  userId: UUID,
+const manualAdjustmentFields = {
   amount: z
     .number()
     .int()
@@ -16,8 +15,18 @@ export const manualAdjustmentInput = z.object({
     .refine((amount) => amount !== 0, "amount must not be zero"),
   reason: z.string().trim().optional().transform((reason) => reason || "Manual adjustment"),
   operationKey: z.string().trim().min(1),
+};
+
+export const manualAdjustmentInput = z.object({
+  userId: UUID,
+  ...manualAdjustmentFields,
 });
 export type ManualAdjustmentInput = z.infer<typeof manualAdjustmentInput>;
+
+export const allPlayersManualAdjustmentInput = z.object(manualAdjustmentFields);
+export type AllPlayersManualAdjustmentInput = z.infer<typeof allPlayersManualAdjustmentInput>;
+export const playersManualAdjustmentInput = z.object({ userIds: z.array(UUID).min(1), ...manualAdjustmentFields });
+export type PlayersManualAdjustmentInput = z.infer<typeof playersManualAdjustmentInput>;
 
 export interface LeaderboardEntry {
   userId: string;
@@ -85,7 +94,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
        left join balances b on b.user_id = p.id
        left join riddle_results r on r.user_id = p.id
        where p.role = 'player'
-       order by coalesce(b.total_points, 0) desc, p.id asc`,
+       order by coalesce(b.total_points, 0) desc, lower(p.display_name) asc, p.id asc`,
     );
     return rows.map((row) => ({
       userId: row.user_id as string,
@@ -174,6 +183,112 @@ export async function createManualAdjustment(input: ManualAdjustmentInput) {
       [parsed.userId],
     );
     return { entry, totalPoints: Number(balanceRows[0].total_points), created };
+  });
+}
+
+export async function createManualAdjustmentForAllPlayers(input: AllPlayersManualAdjustmentInput) {
+  const parsed = allPlayersManualAdjustmentInput.parse(input);
+  const actor = await requireUser();
+
+  return withTransaction(async (client) => {
+    const { rows: actorRows } = await client.query(
+      "select id, role from profiles where id = $1 for update",
+      [actor.id],
+    );
+    const actingProfile = actorRows[0];
+    if (!actingProfile || (actingProfile.role !== "admin" && actingProfile.role !== "spectator")) {
+      throw new ForbiddenError("Admin or spectator role required");
+    }
+
+    const operationPrefix = `manual:all:${parsed.operationKey}:`;
+    const findExisting = () => client.query(
+      `select id, user_id, null::text as display_name, amount, kind, reason,
+              submission_id, created_by, operation_key, created_at
+       from point_transactions
+       where left(operation_key, char_length($1)) = $1
+       order by user_id`,
+      [operationPrefix],
+    );
+    const existingRows = (await findExisting()).rows;
+    if (existingRows.length > 0) {
+      const entries = existingRows.map(mapTransaction);
+      if (entries.some((entry) => entry.amount !== parsed.amount || entry.reason !== parsed.reason || entry.createdBy !== actor.id || entry.kind !== "manual_adjustment")) {
+        throw new ConflictError("Operation key was already used for a different adjustment");
+      }
+      return { entries, created: false };
+    }
+
+    const { rows: playerRows } = await client.query(
+      "select id from profiles where role = 'player' order by id for update",
+    );
+    if (playerRows.length === 0) throw new ConflictError("Point adjustments require at least one current player");
+
+    const entries: PointTransaction[] = [];
+    for (const player of playerRows) {
+      const { rows } = await client.query(
+        `insert into point_transactions
+           (user_id, amount, kind, reason, created_by, operation_key)
+         values ($1, $2, 'manual_adjustment', $3, $4, $5)
+         on conflict (operation_key) do nothing
+         returning id, user_id, null::text as display_name, amount, kind, reason,
+                   submission_id, created_by, operation_key, created_at`,
+        [player.id, parsed.amount, parsed.reason, actor.id, `${operationPrefix}${player.id}`],
+      );
+      if (rows[0]) entries.push(mapTransaction(rows[0]));
+    }
+    if (entries.length === playerRows.length) return { entries, created: true };
+
+    const retriedEntries = (await findExisting()).rows.map(mapTransaction);
+    if (
+      retriedEntries.length !== playerRows.length ||
+      retriedEntries.some((entry) => entry.amount !== parsed.amount || entry.reason !== parsed.reason || entry.createdBy !== actor.id || entry.kind !== "manual_adjustment")
+    ) {
+      throw new ConflictError("Operation key was already used for a different adjustment");
+    }
+    return { entries: retriedEntries, created: false };
+  });
+}
+
+export async function createManualAdjustmentForPlayers(input: PlayersManualAdjustmentInput) {
+  const parsed = playersManualAdjustmentInput.parse(input);
+  const actor = await requireUser();
+  const userIds = [...new Set(parsed.userIds)].sort();
+
+  return withTransaction(async (client) => {
+    const { rows: actorRows } = await client.query("select id, role from profiles where id = $1 for update", [actor.id]);
+    const actingProfile = actorRows[0];
+    if (!actingProfile || (actingProfile.role !== "admin" && actingProfile.role !== "spectator")) throw new ForbiddenError("Admin or spectator role required");
+
+    const operationPrefix = `manual:many:${parsed.operationKey}:`;
+    const findExisting = () => client.query(
+      `select id, user_id, null::text as display_name, amount, kind, reason,
+              submission_id, created_by, operation_key, created_at
+       from point_transactions where left(operation_key, char_length($1)) = $1 order by user_id`,
+      [operationPrefix],
+    );
+    const existing = (await findExisting()).rows.map(mapTransaction);
+    if (existing.length > 0) {
+      if (existing.length !== userIds.length || existing.some((entry, index) => entry.userId !== userIds[index] || entry.amount !== parsed.amount || entry.reason !== parsed.reason || entry.createdBy !== actor.id || entry.kind !== "manual_adjustment")) throw new ConflictError("Operation key was already used for a different adjustment");
+      return { entries: existing, created: false };
+    }
+
+    const { rows: recipients } = await client.query("select id, role from profiles where id = any($1::uuid[]) order by id for update", [userIds]);
+    if (recipients.length !== userIds.length || recipients.some((recipient) => recipient.role !== "player")) throw new ConflictError("Point adjustments require current players");
+    const entries: PointTransaction[] = [];
+    for (const recipient of recipients) {
+      const { rows } = await client.query(
+        `insert into point_transactions (user_id, amount, kind, reason, created_by, operation_key)
+         values ($1, $2, 'manual_adjustment', $3, $4, $5)
+         on conflict (operation_key) do nothing
+         returning id, user_id, null::text as display_name, amount, kind, reason, submission_id, created_by, operation_key, created_at`,
+        [recipient.id, parsed.amount, parsed.reason, actor.id, `${operationPrefix}${recipient.id}`],
+      );
+      if (rows[0]) entries.push(mapTransaction(rows[0]));
+    }
+    if (entries.length === recipients.length) return { entries, created: true };
+    const retried = (await findExisting()).rows.map(mapTransaction);
+    if (retried.length !== userIds.length || retried.some((entry, index) => entry.userId !== userIds[index] || entry.amount !== parsed.amount || entry.reason !== parsed.reason || entry.createdBy !== actor.id || entry.kind !== "manual_adjustment")) throw new ConflictError("Operation key was already used for a different adjustment");
+    return { entries: retried, created: false };
   });
 }
 

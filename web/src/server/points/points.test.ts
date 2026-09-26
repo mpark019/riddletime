@@ -10,6 +10,8 @@ vi.mock("@/lib/supabase/server", () => ({ getVerifiedUser }));
 
 const {
   createManualAdjustment,
+  createManualAdjustmentForAllPlayers,
+  createManualAdjustmentForPlayers,
   deletePointTransaction,
   getLeaderboard,
   listPointTransactions,
@@ -82,7 +84,7 @@ describe("leaderboard", () => {
     await expect(getLeaderboard()).rejects.toBeInstanceOf(UnauthorizedError);
   });
 
-  it("returns current players only with shared ranks and stable tie ordering", async () => {
+  it("returns current players only with shared ranks and display-name tie ordering", async () => {
     const viewer = await createProfile("spectator", "Viewer");
     const alpha = await createProfile("player", "Alpha", "Alexandra");
     const bravo = await createProfile("player", "Bravo", "Brandon");
@@ -98,13 +100,30 @@ describe("leaderboard", () => {
     const tiedEntries = result.filter((entry) => entry.userId === alpha || entry.userId === bravo);
 
     expect(result.some((entry) => entry.userId === hidden)).toBe(false);
-    expect(tiedEntries.map((entry) => entry.userId)).toEqual([alpha, bravo].sort());
+    expect(tiedEntries.map((entry) => entry.displayName)).toEqual(["Alpha", "Bravo"]);
     expect(tiedEntries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ userId: alpha, displayName: "Alpha", name: "Alexandra", totalPoints: 40, correctRiddles: 1, incorrectRiddles: 0 }),
         expect.objectContaining({ userId: bravo, displayName: "Bravo", name: "Brandon", totalPoints: 40, correctRiddles: 0, incorrectRiddles: 1 }),
       ]),
     );
+    expect(tiedEntries[0].rank).toBe(tiedEntries[1].rank);
+  });
+
+  it("orders tied players alphabetically by display name instead of UUID", async () => {
+    const viewer = await createProfile("spectator", "Tie viewer");
+    const firstId = await createProfile("player", "Placeholder one");
+    const secondId = await createProfile("player", "Placeholder two");
+    const [lowerId, higherId] = [firstId, secondId].sort();
+    await pool.query("update profiles set display_name = $2 where id = $1", [lowerId, "Zulu"]);
+    await pool.query("update profiles set display_name = $2 where id = $1", [higherId, "Alpha"]);
+    await addPoints(lowerId, 75, "zulu tie");
+    await addPoints(higherId, 75, "alpha tie");
+    getVerifiedUser.mockResolvedValue({ id: viewer });
+
+    const tiedEntries = (await getLeaderboard()).filter((entry) => entry.userId === lowerId || entry.userId === higherId);
+
+    expect(tiedEntries.map((entry) => entry.displayName)).toEqual(["Alpha", "Zulu"]);
     expect(tiedEntries[0].rank).toBe(tiedEntries[1].rank);
   });
 });
@@ -133,6 +152,60 @@ describe("manual point adjustments", () => {
         createdBy: admin,
       },
     });
+  });
+
+  it("applies one retry-safe adjustment to every current player", async () => {
+    const admin = await createProfile("admin", "Bulk admin");
+    const firstPlayer = await createProfile("player", "Bulk first");
+    const secondPlayer = await createProfile("player", "Bulk second");
+    await createProfile("spectator", "Bulk spectator");
+    getVerifiedUser.mockResolvedValue({ id: admin });
+    const input = { amount: -10, reason: "Missed penalty", operationKey: `all:${randomUUID()}` };
+
+    const first = await createManualAdjustmentForAllPlayers(input);
+    const retry = await createManualAdjustmentForAllPlayers(input);
+    const { rows } = await pool.query(
+      "select user_id, amount, reason from point_transactions where operation_key like $1 order by user_id",
+      [`manual:all:${input.operationKey}:%`],
+    );
+
+    expect(first).toMatchObject({ created: true });
+    expect(first.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userId: firstPlayer, amount: -10 }),
+      expect.objectContaining({ userId: secondPlayer, amount: -10 }),
+    ]));
+    expect(retry).toMatchObject({ created: false });
+    expect(rows.filter((row) => row.user_id === firstPlayer || row.user_id === secondPlayer)).toEqual([
+      { user_id: [firstPlayer, secondPlayer].sort()[0], amount: -10, reason: "Missed penalty" },
+      { user_id: [firstPlayer, secondPlayer].sort()[1], amount: -10, reason: "Missed penalty" },
+    ]);
+  });
+
+  it("applies one retry-safe adjustment to selected current players only", async () => {
+    const admin = await createProfile("admin", "Selected admin");
+    const firstPlayer = await createProfile("player", "Selected first");
+    const secondPlayer = await createProfile("player", "Selected second");
+    const untouchedPlayer = await createProfile("player", "Selected untouched");
+    getVerifiedUser.mockResolvedValue({ id: admin });
+    const input = { userIds: [secondPlayer, firstPlayer], amount: 5, reason: "Team bonus", operationKey: `selected:${randomUUID()}` };
+
+    const first = await createManualAdjustmentForPlayers(input);
+    const retry = await createManualAdjustmentForPlayers(input);
+    const { rows } = await pool.query(
+      "select user_id, amount from point_transactions where operation_key like $1 order by user_id",
+      [`manual:many:${input.operationKey}:%`],
+    );
+
+    expect(first).toMatchObject({ created: true, entries: expect.arrayContaining([
+      expect.objectContaining({ userId: firstPlayer, amount: 5 }),
+      expect.objectContaining({ userId: secondPlayer, amount: 5 }),
+    ]) });
+    expect(retry).toMatchObject({ created: false });
+    expect(rows).toEqual([
+      { user_id: [firstPlayer, secondPlayer].sort()[0], amount: 5 },
+      { user_id: [firstPlayer, secondPlayer].sort()[1], amount: 5 },
+    ]);
+    expect(rows.some((row) => row.user_id === untouchedPlayer)).toBe(false);
   });
 
   it("reuses a matching operation key but safely rejects a different payload", async () => {
@@ -199,6 +272,9 @@ describe("manual point adjustments", () => {
         reason: "Nope",
         operationKey: `adjust:${randomUUID()}`,
       }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(
+      createManualAdjustmentForAllPlayers({ amount: 1, reason: "Nope", operationKey: `all:${randomUUID()}` }),
     ).rejects.toBeInstanceOf(ForbiddenError);
     await expect(deletePointTransaction(transactionId)).rejects.toBeInstanceOf(ForbiddenError);
 
