@@ -90,7 +90,7 @@ function AccountMenu({ active, profile, onOpenSettings }: { active: boolean; pro
       <span className="sm:hidden">Settings</span>
       <span className={`ml-1 hidden sm:inline ${active ? "text-[#4169e1]/60" : "text-white/60"}`} aria-hidden="true">⌄</span>
     </button>
-    {open && <div role="menu" className="absolute bottom-[calc(100%+0.75rem)] right-0 z-20 w-64 overflow-hidden border border-white/60 bg-[#18203a]/95 shadow-xl backdrop-blur-md sm:bottom-auto sm:top-[calc(100%+0.75rem)] sm:border-white/80 sm:bg-black/10 sm:shadow-none">
+    {open && <div role="menu" className="absolute bottom-[calc(100%+0.75rem)] right-0 z-20 w-64 overflow-hidden border border-white/60 bg-[#4169e1] shadow-xl sm:bottom-auto sm:top-[calc(100%+0.75rem)] sm:border-white/80 sm:shadow-none">
       <div className="border-b border-white/50 px-4 py-3">
         <p className="truncate text-sm font-semibold text-white">{accountName}</p>
         <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-white/60">{profile.role}</p>
