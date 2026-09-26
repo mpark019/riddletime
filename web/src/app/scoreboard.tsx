@@ -21,21 +21,21 @@ export function Scoreboard({ initialEntries }: { initialEntries: LeaderboardEntr
   const entries = initialEntries;
 
   return (
-    <section className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-8 sm:py-12">
+    <section className="mx-auto flex w-full max-w-6xl flex-col px-4 py-8 sm:px-8 sm:py-12">
       {entries.length === 0 ? (
         <div className="border border-white/80 bg-black/10 px-6 py-14 text-center">
           <p className="font-semibold">No players yet.</p>
           <p className="mt-1 text-sm text-white/70">Players will appear here once they join.</p>
         </div>
       ) : (
-        <div className="overflow-x-auto border border-white/80 bg-black/10">
-          <table className="w-full text-left sm:min-w-[640px]">
+        <div className="overflow-x-auto">
+          <table className="w-full border-y border-white/80 text-left sm:min-w-[640px]">
             <thead className="border-b border-white/50 text-xs font-semibold uppercase tracking-[0.12em] text-white/70">
               <tr>
-                <th className="w-3/4 px-4 py-3 sm:w-auto sm:px-6">Player</th>
-                <th className="w-1/4 px-4 py-3 text-right sm:w-auto">Points</th>
-                <th className="hidden px-4 py-3 text-right sm:table-cell">Riddles correct</th>
-                <th className="hidden px-4 py-3 text-right sm:table-cell sm:px-6">Riddles incorrect</th>
+                <th className="w-20 px-1 py-3 sm:px-2">Rank</th>
+                <th className="px-3 py-3 sm:px-5">Player</th>
+                <th className="hidden w-32 px-3 py-3 text-right sm:table-cell">Correct</th>
+                <th className="w-24 px-1 py-3 text-right sm:w-32 sm:px-2">Points</th>
               </tr>
             </thead>
             <tbody>{entries.map((entry) => <LeaderboardRow key={entry.userId} entry={entry} />)}</tbody>
@@ -50,25 +50,15 @@ export function Scoreboard({ initialEntries }: { initialEntries: LeaderboardEntr
 function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
   return (
     <tr className="border-b border-white/50 last:border-0">
-      <td className="px-4 py-4 sm:px-6">
-        <div className="flex items-center gap-3">
-          <span className="w-5 shrink-0 text-sm tabular-nums text-white/70" aria-label={`Rank ${entry.rank}`}>{entry.rank}</span>
-          {entry.avatarUrl ? (
-            // Avatar URLs are validated server-side and are public leaderboard data.
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={entry.avatarUrl} alt="" className="h-10 w-10 shrink-0 rounded-full border border-white/80 object-cover" />
-          ) : (
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/80 text-sm font-semibold" aria-hidden="true">{entry.displayName.slice(0, 1).toUpperCase()}</span>
-          )}
-          <span className="min-w-0">
-            <span className="block truncate text-base font-medium text-white">{entry.displayName}</span>
-            {entry.name && <span className="block truncate text-sm text-white/70">{entry.name}</span>}
-          </span>
-        </div>
+      <td className="px-1 py-5 text-lg font-semibold tabular-nums text-white/70 sm:px-2 sm:text-xl">{entry.rank}</td>
+      <td className="px-3 py-5 sm:px-5">
+        <span className="min-w-0">
+          <span className="block truncate text-xl font-semibold text-white sm:text-2xl">{entry.displayName}</span>
+          {entry.name && <span className="block truncate text-sm text-white/70">{entry.name}</span>}
+        </span>
       </td>
-      <td className="px-4 py-4 text-right text-lg font-semibold tabular-nums text-white">{number.format(entry.totalPoints)}</td>
-      <td className="hidden px-4 py-4 text-right text-lg tabular-nums text-white sm:table-cell">{number.format(entry.correctRiddles)}</td>
-      <td className="hidden px-4 py-4 text-right text-lg tabular-nums text-white sm:table-cell sm:px-6">{number.format(entry.incorrectRiddles)}</td>
+      <td className="hidden px-3 py-5 text-right text-lg tabular-nums text-white sm:table-cell">{number.format(entry.correctRiddles)} / {number.format(entry.incorrectRiddles)}</td>
+      <td className="px-1 py-5 text-right text-xl font-semibold tabular-nums text-white sm:px-2 sm:text-2xl">{number.format(entry.totalPoints)}</td>
     </tr>
   );
 }
