@@ -52,7 +52,9 @@ function RiddleTimeWordmark() {
               alt=""
               width={width}
               height={height}
-              className={`h-9 w-auto sm:h-14 ${letter === "r" ? "-mr-4 sm:-mr-6" : ""}`}
+              className={letter === "r"
+                ? "h-10 w-auto -mr-4 sm:h-15 sm:-mr-6"
+                : "h-9 w-auto sm:h-14"}
             />
           </span>
         ))}
