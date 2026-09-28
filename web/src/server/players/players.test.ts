@@ -40,6 +40,33 @@ beforeEach(() => {
 });
 
 describe("createMemberAccount", () => {
+  it("passes a one-character password to Auth instead of applying an app minimum", async () => {
+    const adminId = await makeAdmin();
+    const auth = authAdmin(await createAuthUser());
+    getVerifiedUser.mockResolvedValue({ id: adminId });
+
+    await createMemberAccount(
+      { displayName: uniqueUsername("short"), password: "a", role: "player", initialScore: 0 },
+      { authAdmin: auth },
+    );
+
+    expect(auth.createUser).toHaveBeenCalledWith(expect.objectContaining({ password: "a" }));
+  });
+
+  it("rejects an empty password before calling Auth", async () => {
+    const adminId = await makeAdmin();
+    const auth = authAdmin();
+    getVerifiedUser.mockResolvedValue({ id: adminId });
+
+    await expect(
+      createMemberAccount(
+        { displayName: uniqueUsername("empty"), password: "", role: "player", initialScore: 0 },
+        { authAdmin: auth },
+      ),
+    ).rejects.toThrow();
+    expect(auth.createUser).not.toHaveBeenCalled();
+  });
+
   it("creates a player profile and initial score from a display-name login", async () => {
     const adminId = await makeAdmin();
     const playerId = await createAuthUser();
@@ -164,6 +191,17 @@ describe("createMemberAccount", () => {
 });
 
 describe("member account management", () => {
+  it("passes a one-character reset password to Auth instead of applying an app minimum", async () => {
+    const adminId = await makeAdmin();
+    const spectatorId = await createAuthUser();
+    await pool.query("insert into profiles (id, display_name, role) values ($1, 'Watcher', 'spectator')", [spectatorId]);
+    getVerifiedUser.mockResolvedValue({ id: adminId });
+
+    await updateMemberAccount(spectatorId, { password: "a" });
+
+    expect(updateUserById).toHaveBeenCalledWith(spectatorId, { password: "a" });
+  });
+
   it("lists accounts in their selected role tab", async () => {
     const adminId = await makeAdmin();
     const spectatorId = await createAuthUser();

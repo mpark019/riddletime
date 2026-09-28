@@ -129,7 +129,6 @@ function AcceptForm() {
         <input
           type="password"
           required
-          minLength={8}
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           className="rounded border border-white/20 bg-black px-3 py-2 text-white"
