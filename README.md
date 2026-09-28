@@ -1,3 +1,3 @@
 # RiddleTime
 
-riddle riddle riddle
+riddle riddle riddle riddle
