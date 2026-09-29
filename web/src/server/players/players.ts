@@ -2,7 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { withTransaction } from "@/lib/db";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { parsePlayerUsername, playerUsernameEmail } from "@/lib/player-username";
+import { parsePlayerUsername, parsePlayerUsernameDisplay, playerUsernameEmail } from "@/lib/player-username";
 import { requireAdmin } from "@/server/identity/identity";
 import { ConflictError, NotFoundError } from "@/server/http/errors";
 
@@ -94,9 +94,10 @@ export async function updateMemberAccount(id: string, rawInput: unknown) {
     const { rows } = await client.query("select id, role from profiles where id = $1", [id]);
     if (!rows[0]) throw new NotFoundError("Account not found");
     const role = managedAccountRole.parse(rows[0].role);
-    const displayName = input.displayName ? parsePlayerUsername(input.displayName) : input.displayName;
+    const displayName = input.displayName ? parsePlayerUsernameDisplay(input.displayName) : input.displayName;
+    const loginName = input.displayName ? parsePlayerUsername(input.displayName) : undefined;
     if (displayName) {
-      const { rows: duplicate } = await client.query("select id from profiles where lower(display_name) = $1 and id <> $2", [displayName, id]);
+      const { rows: duplicate } = await client.query("select id from profiles where lower(display_name) = $1 and id <> $2", [loginName, id]);
       if (duplicate[0]) throw new ConflictError("That username is already in use");
     }
     return { role, displayName };

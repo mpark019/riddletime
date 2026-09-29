@@ -222,17 +222,18 @@ describe("member account management", () => {
     const adminId = await makeAdmin();
     const spectatorId = await createAuthUser("watcher@example.test");
     const newUsername = uniqueUsername("renamed");
+    const displayName = newUsername.toUpperCase();
     await pool.query("insert into profiles (id, display_name, role) values ($1, 'Watcher', 'spectator')", [spectatorId]);
     getVerifiedUser.mockResolvedValue({ id: adminId });
 
-    await updateMemberAccount(spectatorId, { displayName: newUsername, password: "correct-horse-battery" });
+    await updateMemberAccount(spectatorId, { displayName, password: "correct-horse-battery" });
 
     expect(updateUserById).toHaveBeenCalledWith(spectatorId, {
       email: `${newUsername}@players.riddletime.invalid`,
       email_confirm: true,
       password: "correct-horse-battery",
     });
-    await expect(pool.query("select display_name from profiles where id = $1", [spectatorId])).resolves.toMatchObject({ rows: [{ display_name: newUsername }] });
+    await expect(pool.query("select display_name from profiles where id = $1", [spectatorId])).resolves.toMatchObject({ rows: [{ display_name: displayName }] });
   });
 
   it("permanently deletes a non-self spectator but rejects self-deletion", async () => {
