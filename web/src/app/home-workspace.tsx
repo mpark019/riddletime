@@ -53,7 +53,7 @@ export function HomeWorkspace({
       <main className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-0">
         {view === "home" && <Scoreboard initialEntries={leaderboard} />}
         {view === "riddle" && <RiddlePlaceholder />}
-        {view === "points" && canManagePoints && <PointsDesk players={leaderboard} onChanged={async () => router.refresh()} refreshVersion={realtimeRefreshVersion} />}
+        {view === "points" && canManagePoints && <PointsDesk players={leaderboard} canViewAudit={profile.role === "admin"} onChanged={async () => router.refresh()} refreshVersion={realtimeRefreshVersion} />}
         {view === "settings" && <SettingsPage profile={profile} isAdmin={profile.role === "admin"} tab={settingsTab} onTabChange={setSettingsTab} />}
       </main>
     </div>

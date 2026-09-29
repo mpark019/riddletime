@@ -63,7 +63,7 @@ function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
   );
 }
 
-export function PointsDesk({ players, onChanged, refreshVersion = 0 }: { players: LeaderboardEntry[]; onChanged: () => Promise<void>; refreshVersion?: number }) {
+export function PointsDesk({ players, canViewAudit, onChanged, refreshVersion = 0 }: { players: LeaderboardEntry[]; canViewAudit: boolean; onChanged: () => Promise<void>; refreshVersion?: number }) {
   const [tab, setTab] = useState<PointsDeskTab>("adjustment");
   const [auditRefreshVersion, setAuditRefreshVersion] = useState(0);
 
@@ -79,12 +79,12 @@ export function PointsDesk({ players, onChanged, refreshVersion = 0 }: { players
           <h2 id="points-desk-title" className="text-[26px] font-semibold tracking-tight lg:text-[34px]">Points</h2>
           <div className="inline-flex border border-white/80" role="tablist" aria-label="Points sections">
             <TabButton active={tab === "adjustment"} onClick={() => setTab("adjustment")}>Adjustment</TabButton>
-            <TabButton active={tab === "audit"} onClick={() => setTab("audit")}>Audit trail</TabButton>
+            {canViewAudit && <TabButton active={tab === "audit"} onClick={() => setTab("audit")}>Audit trail</TabButton>}
           </div>
         </header>
         <div className="flex min-h-0 flex-1">
           <div className="flex min-h-0 w-full flex-1" hidden={tab !== "adjustment"}><AdjustmentForm players={players} onChanged={handlePointsChanged} /></div>
-          <div className="w-full p-5 lg:p-10" hidden={tab !== "audit"}><AuditTrail onChanged={handlePointsChanged} refreshVersion={auditRefreshVersion + refreshVersion} /></div>
+          {canViewAudit && <div className="w-full p-5 lg:p-10" hidden={tab !== "audit"}><AuditTrail onChanged={handlePointsChanged} refreshVersion={auditRefreshVersion + refreshVersion} /></div>}
         </div>
       </div>
     </section>

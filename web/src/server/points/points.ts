@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { withTransaction } from "@/lib/db";
-import { requirePointsManager, requirePointsManagerRead, requireProfileRead, requireUser } from "@/server/identity/identity";
+import { requireAdminRead, requirePointsManager, requireProfileRead, requireUser } from "@/server/identity/identity";
 import { ConflictError, ForbiddenError, NotFoundError } from "@/server/http/errors";
 
 const UUID = z.uuid();
@@ -111,7 +111,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
 
 export async function listPointTransactions(): Promise<PointTransaction[]> {
   return withTransaction(async (client) => {
-    await requirePointsManagerRead(client);
+    await requireAdminRead(client);
     const { rows } = await client.query(
       `select pt.id, pt.user_id, p.display_name, pt.amount, pt.kind, pt.reason,
               pt.submission_id, pt.created_by, pt.operation_key, pt.created_at

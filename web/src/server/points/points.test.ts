@@ -257,7 +257,7 @@ describe("manual point adjustments", () => {
     expect(result.entry.operationKey).toMatch(/^manual:result:/);
   });
 
-  it("allows spectators and admins to manage points, but rejects players", async () => {
+  it("allows spectators to correct and undo points without viewing the audit log", async () => {
     const admin = await createProfile("admin", "Admin");
     const player = await createProfile("player", "Player");
     const spectator = await createProfile("spectator", "Spectator");
@@ -279,14 +279,12 @@ describe("manual point adjustments", () => {
     await expect(deletePointTransaction(transactionId)).rejects.toBeInstanceOf(ForbiddenError);
 
     getVerifiedUser.mockResolvedValue({ id: spectator });
-    expect(await listPointTransactions()).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: transactionId })]),
-    );
+    await expect(listPointTransactions()).rejects.toBeInstanceOf(ForbiddenError);
     await expect(
       createManualAdjustment({
         userId: player,
         amount: 1,
-        reason: "Spectator correction",
+        reason: "Spectator correction to undo a mistake",
         operationKey: `adjust:${randomUUID()}`,
       }),
     ).resolves.toMatchObject({ entry: { createdBy: spectator, amount: 1 } });
