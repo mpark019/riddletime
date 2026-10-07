@@ -116,7 +116,7 @@ function AcceptForm() {
     <form onSubmit={handleSubmit} className="flex w-full max-w-sm flex-col gap-4 p-8">
       <h1 className="text-xl font-normal">Set your password</h1>
       <label className="flex flex-col gap-1">
-        Name <span className="text-sm text-white/60">(optional)</span>
+        Name <span className="text-sm text-white">(optional)</span>
         <input
           type="text"
           value={name}

@@ -41,9 +41,21 @@ function transactionResponse(transaction: PointTransaction) {
   };
 }
 
-export async function GET() {
+const pageQuerySchema = z.object({
+  limit: z.coerce.number().optional(),
+  offset: z.coerce.number().optional(),
+  query: z.string().optional(),
+});
+
+export async function GET(request: Request) {
   try {
-    return ok((await listPointTransactions()).map(transactionResponse), {
+    const params = new URL(request.url).searchParams;
+    const page = pageQuerySchema.parse({
+      limit: params.get("limit") ?? undefined,
+      offset: params.get("offset") ?? undefined,
+      query: params.get("q") ?? undefined,
+    });
+    return ok((await listPointTransactions(page)).map(transactionResponse), {
       headers: { "Cache-Control": "private, no-store" },
     });
   } catch (err) {

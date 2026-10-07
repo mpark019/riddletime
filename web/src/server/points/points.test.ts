@@ -348,3 +348,48 @@ describe("point-transaction HTTP contract", () => {
     });
   });
 });
+
+describe("audit trail pagination", () => {
+  beforeEach(() => {
+    getVerifiedUser.mockReset();
+  });
+
+  it("returns the requested slice of the newest-first ledger", async () => {
+    const admin = await createProfile("admin", "Pager admin");
+    const player = await createProfile("player", "Pager player");
+    for (const label of ["page-a", "page-b", "page-c"]) await addPoints(player, 1, label);
+    getVerifiedUser.mockResolvedValue({ id: admin });
+
+    const all = await listPointTransactions();
+    const page = await listPointTransactions({ limit: 2, offset: 1 });
+
+    expect(page.map((entry) => entry.id)).toEqual(all.slice(1, 3).map((entry) => entry.id));
+  });
+
+  it("filters entries by a case-insensitive match on display name or name", async () => {
+    const admin = await createProfile("admin", "Search admin");
+    const target = await createProfile("player", "Zzfinder Alpha", "Quentin Vale");
+    const other = await createProfile("player", "Zzother Beta");
+    await addPoints(target, 3, "search-target");
+    await addPoints(other, 4, "search-other");
+    getVerifiedUser.mockResolvedValue({ id: admin });
+
+    const byDisplayName = await listPointTransactions({ query: "zzFINDER" });
+    const byName = await listPointTransactions({ query: "quentin v" });
+    const literal = await listPointTransactions({ query: "zz%" });
+
+    expect(byDisplayName.map((entry) => entry.userId)).toEqual([target]);
+    expect(byName.map((entry) => entry.userId)).toEqual([target]);
+    expect(literal).toEqual([]);
+  });
+
+  it("rejects out-of-range or fractional paging values", async () => {
+    const admin = await createProfile("admin", "Pager validator");
+    getVerifiedUser.mockResolvedValue({ id: admin });
+
+    await expect(listPointTransactions({ limit: 0 })).rejects.toThrow();
+    await expect(listPointTransactions({ limit: 101 })).rejects.toThrow();
+    await expect(listPointTransactions({ limit: 1.5 })).rejects.toThrow();
+    await expect(listPointTransactions({ offset: -1 })).rejects.toThrow();
+  });
+});

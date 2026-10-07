@@ -109,7 +109,16 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   });
 }
 
-export async function listPointTransactions(): Promise<PointTransaction[]> {
+export const pointTransactionPage = z.object({
+  limit: z.number().int().min(1).max(100).optional(),
+  offset: z.number().int().min(0).optional(),
+  query: z.string().trim().max(100).optional(),
+});
+export type PointTransactionPage = z.infer<typeof pointTransactionPage>;
+
+export async function listPointTransactions(page: PointTransactionPage = {}): Promise<PointTransaction[]> {
+  const { limit, offset, query } = pointTransactionPage.parse(page);
+  const namePattern = query ? `%${query.replace(/[\\%_]/g, "\\$&")}%` : null;
   return withTransaction(async (client) => {
     await requireAdminRead(client);
     const { rows } = await client.query(
@@ -117,7 +126,10 @@ export async function listPointTransactions(): Promise<PointTransaction[]> {
               pt.submission_id, pt.created_by, pt.operation_key, pt.created_at
        from point_transactions pt
        join profiles p on p.id = pt.user_id
-       order by pt.created_at desc, pt.id desc`,
+       where $3::text is null or p.display_name ilike $3 or p.name ilike $3
+       order by pt.created_at desc, pt.id desc
+       limit $1 offset $2`,
+      [limit ?? null, offset ?? 0, namePattern],
     );
     return rows.map(mapTransaction);
   });

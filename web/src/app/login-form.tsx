@@ -54,7 +54,7 @@ export function LoginForm() {
           autoComplete="username"
           value={identifier}
           onChange={(event) => setIdentifier(event.target.value)}
-          className="border border-white/80 bg-black/10 px-4 py-3 text-white placeholder:text-white/50 focus:outline-2 focus:outline-white"
+          className="rounded-md border border-white/80 bg-black/10 px-4 py-3 text-white placeholder:text-white focus:outline-2 focus:outline-white"
         />
       </label>
       <label className="flex flex-col gap-2 text-lg">
@@ -65,14 +65,14 @@ export function LoginForm() {
           autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="border border-white/80 bg-black/10 px-4 py-3 text-white placeholder:text-white/50 focus:outline-2 focus:outline-white"
+          className="rounded-md border border-white/80 bg-black/10 px-4 py-3 text-white placeholder:text-white focus:outline-2 focus:outline-white"
         />
       </label>
-      {error && <p className="border border-white bg-black/15 px-4 py-3 text-sm text-white">{error}</p>}
+      {error && <p className="rounded-md border border-white bg-black/15 px-4 py-3 text-sm text-white">{error}</p>}
       <button
         type="submit"
         disabled={submitting}
-        className="border border-white bg-white px-4 py-3 font-semibold text-[#102a43] transition hover:bg-transparent hover:text-white disabled:opacity-50"
+        className="rounded-md border border-white bg-white px-4 py-3 font-semibold text-black transition hover:bg-transparent hover:text-white disabled:opacity-50"
       >
         {submitting ? "Signing in..." : "Continue"}
       </button>
