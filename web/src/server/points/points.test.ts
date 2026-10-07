@@ -115,23 +115,23 @@ describe("leaderboard", () => {
     const firstId = await createProfile("player", "Placeholder one");
     const secondId = await createProfile("player", "Placeholder two");
     const [lowerId, higherId] = [firstId, secondId].sort();
-    await pool.query("update profiles set display_name = $2 where id = $1", [lowerId, "Zulu"]);
-    await pool.query("update profiles set display_name = $2 where id = $1", [higherId, "Alpha"]);
+    await pool.query("update profiles set display_name = $2 where id = $1", [lowerId, "Zulu tie"]);
+    await pool.query("update profiles set display_name = $2 where id = $1", [higherId, "Alpha tie"]);
     await addPoints(lowerId, 75, "zulu tie");
     await addPoints(higherId, 75, "alpha tie");
     getVerifiedUser.mockResolvedValue({ id: viewer });
 
     const tiedEntries = (await getLeaderboard()).filter((entry) => entry.userId === lowerId || entry.userId === higherId);
 
-    expect(tiedEntries.map((entry) => entry.displayName)).toEqual(["Alpha", "Zulu"]);
+    expect(tiedEntries.map((entry) => entry.displayName)).toEqual(["Alpha tie", "Zulu tie"]);
     expect(tiedEntries[0].rank).toBe(tiedEntries[1].rank);
   });
 });
 
 describe("manual point adjustments", () => {
   it("creates a signed adjustment and reports the resulting ledger balance", async () => {
-    const admin = await createProfile("admin", "Admin");
-    const player = await createProfile("player", "Player");
+    const admin = await createProfile("admin", "Adjustment admin");
+    const player = await createProfile("player", "Adjustment player");
     getVerifiedUser.mockResolvedValue({ id: admin });
 
     const result = await createManualAdjustment({
@@ -209,8 +209,8 @@ describe("manual point adjustments", () => {
   });
 
   it("reuses a matching operation key but safely rejects a different payload", async () => {
-    const admin = await createProfile("admin", "Admin");
-    const player = await createProfile("player", "Player");
+    const admin = await createProfile("admin", "Retry admin");
+    const player = await createProfile("player", "Retry player");
     getVerifiedUser.mockResolvedValue({ id: admin });
     const input = {
       userId: player,
@@ -230,8 +230,8 @@ describe("manual point adjustments", () => {
   });
 
   it("rejects a non-player and unknown recipient", async () => {
-    const admin = await createProfile("admin", "Admin");
-    const spectator = await createProfile("spectator", "Spectator");
+    const admin = await createProfile("admin", "Rejection admin");
+    const spectator = await createProfile("spectator", "Rejection spectator");
     getVerifiedUser.mockResolvedValue({ id: admin });
     const input = { amount: 1, reason: "Nope", operationKey: randomUUID() };
 
@@ -244,8 +244,8 @@ describe("manual point adjustments", () => {
   });
 
   it("namespaces supplied keys so they cannot collide with challenge results", async () => {
-    const admin = await createProfile("admin", "Admin");
-    const player = await createProfile("player", "Player");
+    const admin = await createProfile("admin", "Namespace admin");
+    const player = await createProfile("player", "Namespace player");
     getVerifiedUser.mockResolvedValue({ id: admin });
 
     const result = await createManualAdjustment({
@@ -258,9 +258,9 @@ describe("manual point adjustments", () => {
   });
 
   it("allows spectators to correct and undo points without viewing the audit log", async () => {
-    const admin = await createProfile("admin", "Admin");
-    const player = await createProfile("player", "Player");
-    const spectator = await createProfile("spectator", "Spectator");
+    const admin = await createProfile("admin", "Access admin");
+    const player = await createProfile("player", "Access player");
+    const spectator = await createProfile("spectator", "Access spectator");
     const transactionId = await addPoints(player, 10, "delete-me");
     getVerifiedUser.mockResolvedValue({ id: player });
 
@@ -300,8 +300,8 @@ describe("manual point adjustments", () => {
 
 describe("point-transaction HTTP contract", () => {
   it("accepts an omitted reason and stores the default audit explanation", async () => {
-    const admin = await createProfile("admin", "Admin");
-    const player = await createProfile("player", "Player");
+    const admin = await createProfile("admin", "Default reason admin");
+    const player = await createProfile("player", "Default reason player");
     getVerifiedUser.mockResolvedValue({ id: admin });
 
     const response = await postPointTransaction(
@@ -323,8 +323,8 @@ describe("point-transaction HTTP contract", () => {
   });
 
   it("accepts the documented snake_case body and returns snake_case fields", async () => {
-    const admin = await createProfile("admin", "Admin");
-    const player = await createProfile("player", "Player");
+    const admin = await createProfile("admin", "HTTP shape admin");
+    const player = await createProfile("player", "HTTP shape player");
     getVerifiedUser.mockResolvedValue({ id: admin });
 
     const operationKey = randomUUID();

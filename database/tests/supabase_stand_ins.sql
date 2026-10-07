@@ -19,3 +19,19 @@ create table storage.buckets (
   file_size_limit bigint,
   allowed_mime_types text[]
 );
+
+-- Hosted Supabase provides these; the migrations reference them.
+create schema realtime;
+create table realtime.messages (
+  extension text not null,
+  topic text not null
+);
+alter table realtime.messages enable row level security;
+
+create function realtime.topic()
+returns text
+language sql
+stable
+as $$
+  select current_setting('realtime.topic', true)
+$$;

@@ -43,17 +43,18 @@ describe("requireProfile", () => {
 
   it("returns the profile for an existing account", async () => {
     const authId = await createAuthUser();
+    const displayName = `Spec Tester ${authId}`;
     getVerifiedUser.mockResolvedValue({ id: authId });
     await withTransaction(async (client) => {
       await client.query(
-        "insert into profiles (id, display_name, role) values ($1, 'Spec Tester', 'player')",
-        [authId],
+        "insert into profiles (id, display_name, role) values ($1, $2, 'player')",
+        [authId, displayName],
       );
       const profile = await requireProfile(client);
       expect(profile).toEqual({
         id: authId,
         name: null,
-        displayName: "Spec Tester",
+        displayName,
         avatarUrl: null,
         role: "player",
       });
@@ -101,7 +102,7 @@ describe("requireAdmin / requirePlayer", () => {
     getVerifiedUser.mockResolvedValue({ id: authId });
     await withTransaction(async (client) => {
       await client.query(
-        "insert into profiles (id, display_name, role) values ($1, 'Spec Tester', 'player')",
+        "insert into profiles (id, display_name, role) values ($1, concat('Spec Tester ', ($1::uuid)::text), 'player')",
         [authId],
       );
       await expect(requireAdmin(client)).rejects.toBeInstanceOf(
@@ -115,7 +116,7 @@ describe("requireAdmin / requirePlayer", () => {
     getVerifiedUser.mockResolvedValue({ id: authId });
     await withTransaction(async (client) => {
       await client.query(
-        "insert into profiles (id, display_name, role) values ($1, 'Spec Tester', 'admin')",
+        "insert into profiles (id, display_name, role) values ($1, concat('Spec Tester ', ($1::uuid)::text), 'admin')",
         [authId],
       );
       await expect(requirePlayer(client)).rejects.toBeInstanceOf(

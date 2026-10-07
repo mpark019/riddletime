@@ -7,7 +7,7 @@ describe("point transaction retention", () => {
     const playerId = await createAuthUser();
     const adminId = await createAuthUser();
     await pool.query(
-      "insert into profiles (id, display_name, role) values ($1, 'Player', 'player'), ($2, 'Admin', 'admin')",
+      "insert into profiles (id, display_name, role) values ($1, concat('Player ', ($1::uuid)::text), 'player'), ($2, concat('Admin ', ($2::uuid)::text), 'admin')",
       [playerId, adminId],
     );
     const { rows } = await pool.query(

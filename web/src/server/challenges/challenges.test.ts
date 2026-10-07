@@ -21,7 +21,7 @@ beforeEach(() => {
 async function ensureTodaysSharedRiddle() {
   const adminId = await createAuthUser();
   await pool.query(
-    "insert into profiles (id, display_name, role) values ($1, 'Admin', 'admin')",
+    "insert into profiles (id, display_name, role) values ($1, concat('Admin ', ($1::uuid)::text), 'admin')",
     [adminId],
   );
 
@@ -72,7 +72,7 @@ async function ensureTodaysSharedRiddle() {
 async function createPlayer() {
   const id = await createAuthUser();
   await pool.query(
-    "insert into profiles (id, display_name, role) values ($1, 'Player', 'player')",
+    "insert into profiles (id, display_name, role) values ($1, concat('Player ', ($1::uuid)::text), 'player')",
     [id],
   );
   return id;
@@ -209,7 +209,7 @@ describe("getTodayChallenge access", () => {
     const { dailyId } = await ensureTodaysSharedRiddle();
     const adminId = await createAuthUser();
     await pool.query(
-      "insert into profiles (id, display_name, role) values ($1, 'Admin Viewer', 'admin')",
+      "insert into profiles (id, display_name, role) values ($1, concat('Admin Viewer ', ($1::uuid)::text), 'admin')",
       [adminId],
     );
     getVerifiedUser.mockResolvedValue({ id: adminId });
@@ -224,7 +224,7 @@ describe("getTodayChallenge access", () => {
     const { dailyId } = await ensureTodaysSharedRiddle();
     const spectatorId = await createAuthUser();
     await pool.query(
-      "insert into profiles (id, display_name, role) values ($1, 'Spectator Viewer', 'spectator')",
+      "insert into profiles (id, display_name, role) values ($1, concat('Spectator Viewer ', ($1::uuid)::text), 'spectator')",
       [spectatorId],
     );
     getVerifiedUser.mockResolvedValue({ id: spectatorId });
@@ -251,7 +251,7 @@ describe("stored puzzle shape validation", () => {
     const daysAgo = 1000 + Math.floor(Math.random() * 1_000_000);
     const adminId = await createAuthUser();
     await pool.query(
-      "insert into profiles (id, display_name, role) values ($1, 'Admin', 'admin')",
+      "insert into profiles (id, display_name, role) values ($1, concat('Admin ', ($1::uuid)::text), 'admin')",
       [adminId],
     );
     const { rows: dailyRows } = await pool.query(
@@ -277,7 +277,7 @@ describe("stored puzzle shape validation", () => {
 
     const playerId = await createAuthUser();
     await pool.query(
-      "insert into profiles (id, display_name, role) values ($1, 'Player', 'player')",
+      "insert into profiles (id, display_name, role) values ($1, concat('Player ', ($1::uuid)::text), 'player')",
       [playerId],
     );
     const { rows: submissionRows } = await pool.query(

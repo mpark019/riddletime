@@ -26,7 +26,7 @@ const { ConflictError, ForbiddenError, NotFoundError } = await import("@/server/
 async function makeAdmin() {
   const id = await createAuthUser();
   await pool.query(
-    "insert into profiles (id, display_name, role) values ($1, 'Admin', 'admin')",
+    "insert into profiles (id, display_name, role) values ($1, concat('Admin ', ($1::uuid)::text), 'admin')",
     [id],
   );
   return id;
@@ -195,7 +195,7 @@ describe("createInvitation", () => {
   it("rejects a non-admin actor", async () => {
     const playerId = await createAuthUser();
     await pool.query(
-      "insert into profiles (id, display_name, role) values ($1, 'Not Admin', 'player')",
+      "insert into profiles (id, display_name, role) values ($1, concat('Not Admin ', ($1::uuid)::text), 'player')",
       [playerId],
     );
     getVerifiedUser.mockResolvedValue({ id: playerId });
@@ -245,21 +245,22 @@ describe("acceptInvitation", () => {
     getVerifiedUser.mockResolvedValue({ id: adminId });
     const recipientEmail = uniqueEmail("recipient");
     const recipientAuthId = await createAuthUser(recipientEmail);
+    const displayName = `Recipient ${recipientAuthId}`;
     fakeSender.authUserId = recipientAuthId;
     const { id } = await createInvitation(
       {
         email: recipientEmail,
-        displayName: "Recipient",
+        displayName,
         role,
         ...(initialScore === undefined ? {} : { initialScore }),
       },
       { inviteSender: inviteSender() },
     );
-    return { invitationId: id, recipientAuthId, recipientEmail };
+    return { invitationId: id, recipientAuthId, recipientEmail, displayName };
   }
 
   it("onboards a player: profile + opening balance in one transaction", async () => {
-    const { invitationId, recipientAuthId, recipientEmail } = await inviteAndBind(
+    const { invitationId, recipientAuthId, recipientEmail, displayName } = await inviteAndBind(
       "player",
       100,
     );
@@ -278,7 +279,7 @@ describe("acceptInvitation", () => {
     );
     expect(profileRows[0]).toMatchObject({
       name: "Actual Player",
-      display_name: "Recipient",
+      display_name: displayName,
       role: "player",
     });
 
@@ -541,7 +542,7 @@ describe("resendInvitation", () => {
   it("rejects a non-admin actor", async () => {
     const playerId = await createAuthUser();
     await pool.query(
-      "insert into profiles (id, display_name, role) values ($1, 'Not Admin', 'player')",
+      "insert into profiles (id, display_name, role) values ($1, concat('Not Admin ', ($1::uuid)::text), 'player')",
       [playerId],
     );
     getVerifiedUser.mockResolvedValue({ id: playerId });
@@ -629,7 +630,7 @@ describe("deleteInvitation", () => {
   it("rejects a non-admin actor", async () => {
     const playerId = await createAuthUser();
     await pool.query(
-      "insert into profiles (id, display_name, role) values ($1, 'Not Admin', 'player')",
+      "insert into profiles (id, display_name, role) values ($1, concat('Not Admin ', ($1::uuid)::text), 'player')",
       [playerId],
     );
     getVerifiedUser.mockResolvedValue({ id: playerId });
@@ -669,7 +670,7 @@ describe("listPendingInvitations", () => {
   it("rejects a non-admin actor", async () => {
     const playerId = await createAuthUser();
     await pool.query(
-      "insert into profiles (id, display_name, role) values ($1, 'Not Admin', 'player')",
+      "insert into profiles (id, display_name, role) values ($1, concat('Not Admin ', ($1::uuid)::text), 'player')",
       [playerId],
     );
     getVerifiedUser.mockResolvedValue({ id: playerId });

@@ -15,18 +15,11 @@ describe("profile avatar bucket migration", () => {
 
     try {
       await client.query("begin");
-      await client.query("create schema storage");
-      await client.query(`create table storage.buckets (
-        id text primary key,
-        name text not null unique,
-        public boolean not null default false,
-        file_size_limit bigint,
-        allowed_mime_types text[]
-      )`);
+      await client.query("delete from storage.buckets where id = 'profile-avatars'");
       await client.query(migrationBody);
 
       const { rows } = await client.query(
-        "select id, name, public, file_size_limit, allowed_mime_types from storage.buckets",
+        "select id, name, public, file_size_limit, allowed_mime_types from storage.buckets where id = 'profile-avatars'",
       );
       expect(rows).toEqual([{
         id: "profile-avatars",

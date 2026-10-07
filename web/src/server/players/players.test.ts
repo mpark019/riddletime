@@ -16,7 +16,7 @@ const { createMemberAccount, deleteMemberAccount, listMemberAccounts, updateMemb
 async function makeAdmin() {
   const id = await createAuthUser();
   await pool.query(
-    "insert into profiles (id, display_name, role) values ($1, 'Admin', 'admin')",
+    "insert into profiles (id, display_name, role) values ($1, concat('Admin ', ($1::uuid)::text), 'admin')",
     [id],
   );
   return id;
@@ -194,7 +194,7 @@ describe("member account management", () => {
   it("passes a one-character reset password to Auth instead of applying an app minimum", async () => {
     const adminId = await makeAdmin();
     const spectatorId = await createAuthUser();
-    await pool.query("insert into profiles (id, display_name, role) values ($1, 'Watcher', 'spectator')", [spectatorId]);
+    await pool.query("insert into profiles (id, display_name, role) values ($1, concat('Watcher ', ($1::uuid)::text), 'spectator')", [spectatorId]);
     getVerifiedUser.mockResolvedValue({ id: adminId });
 
     await updateMemberAccount(spectatorId, { password: "a" });
@@ -206,14 +206,15 @@ describe("member account management", () => {
     const adminId = await makeAdmin();
     const spectatorId = await createAuthUser();
     const playerId = await createAuthUser();
+    const spectatorName = `Watcher ${spectatorId}`;
     await pool.query(
-      "insert into profiles (id, display_name, role) values ($1, 'Watcher', 'spectator'), ($2, 'Runner', 'player')",
-      [spectatorId, playerId],
+      "insert into profiles (id, display_name, role) values ($1, $3, 'spectator'), ($2, concat('Runner ', ($2::uuid)::text), 'player')",
+      [spectatorId, playerId, spectatorName],
     );
     getVerifiedUser.mockResolvedValue({ id: adminId });
 
     await expect(listMemberAccounts("spectator")).resolves.toContainEqual(
-      expect.objectContaining({ id: spectatorId, displayName: "Watcher", role: "spectator" }),
+      expect.objectContaining({ id: spectatorId, displayName: spectatorName, role: "spectator" }),
     );
     await expect(listMemberAccounts("invalid")).rejects.toThrow();
   });
@@ -223,7 +224,7 @@ describe("member account management", () => {
     const spectatorId = await createAuthUser("watcher@example.test");
     const newUsername = uniqueUsername("renamed");
     const displayName = newUsername.toUpperCase();
-    await pool.query("insert into profiles (id, display_name, role) values ($1, 'Watcher', 'spectator')", [spectatorId]);
+    await pool.query("insert into profiles (id, display_name, role) values ($1, concat('Watcher ', ($1::uuid)::text), 'spectator')", [spectatorId]);
     getVerifiedUser.mockResolvedValue({ id: adminId });
 
     await updateMemberAccount(spectatorId, { displayName, password: "correct-horse-battery" });
@@ -239,7 +240,7 @@ describe("member account management", () => {
   it("permanently deletes a non-self spectator but rejects self-deletion", async () => {
     const adminId = await makeAdmin();
     const spectatorId = await createAuthUser();
-    await pool.query("insert into profiles (id, display_name, role) values ($1, 'Watcher', 'spectator')", [spectatorId]);
+    await pool.query("insert into profiles (id, display_name, role) values ($1, concat('Watcher ', ($1::uuid)::text), 'spectator')", [spectatorId]);
     getVerifiedUser.mockResolvedValue({ id: adminId });
 
     await expect(deleteMemberAccount(adminId)).rejects.toThrow("cannot delete your own account");
