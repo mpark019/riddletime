@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { LeaderboardEntry } from "@/server/points/points";
+import { FloatingQuestionMarks } from "./floating-question-marks";
 
 type PointTransaction = {
   id: string;
@@ -21,16 +22,16 @@ export function Scoreboard({ initialEntries }: { initialEntries: LeaderboardEntr
   const entries = initialEntries;
 
   return (
-    <section className="mx-auto flex w-full max-w-6xl flex-col px-4 py-8 sm:px-8 sm:py-12">
+    <section className="mx-auto flex w-[calc(100%-2rem)] max-w-[1280px] flex-col py-8 sm:py-12">
       {entries.length === 0 ? (
-        <div className="border border-white/80 bg-black/10 px-6 py-14 text-center">
+        <div className="rounded-md border border-white/80 bg-black/10 px-6 py-14 text-center">
           <p className="font-semibold">No players yet.</p>
-          <p className="mt-1 text-sm text-white/70">Players will appear here once they join.</p>
+          <p className="mt-1 text-sm text-white">Players will appear here once they join.</p>
         </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-y border-white/80 text-left sm:min-w-[640px]">
-            <thead className="border-b border-white/50 text-xs font-semibold uppercase tracking-[0.12em] text-white/70">
+            <thead className="border-b border-white/25 text-xs font-semibold uppercase tracking-[0.12em] text-white">
               <tr>
                 <th className="w-20 px-1 py-3 sm:px-2">Rank</th>
                 <th className="px-3 py-3 sm:px-5">Player</th>
@@ -49,12 +50,12 @@ export function Scoreboard({ initialEntries }: { initialEntries: LeaderboardEntr
 
 function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
   return (
-    <tr className="border-b border-white/50 last:border-0">
-      <td className="px-1 py-5 text-lg font-semibold tabular-nums text-white/70 sm:px-2 sm:text-xl">{entry.rank}</td>
+    <tr className="border-b border-white/25 last:border-0">
+      <td className="px-1 py-5 text-lg font-semibold tabular-nums text-white sm:px-2 sm:text-xl">{entry.rank}</td>
       <td className="px-3 py-5 sm:px-5">
         <span className="min-w-0">
           <span className="block truncate text-xl font-semibold text-white sm:text-2xl">{entry.displayName}</span>
-          {entry.name && <span className="block truncate text-sm text-white/70">{entry.name}</span>}
+          {entry.name && <span className="block truncate text-sm text-white">{entry.name}</span>}
         </span>
       </td>
       <td className="hidden px-3 py-5 text-right text-lg tabular-nums text-white sm:table-cell">{number.format(entry.correctRiddles)} / {number.format(entry.incorrectRiddles)}</td>
@@ -73,18 +74,18 @@ export function PointsDesk({ players, canViewAudit, onChanged, refreshVersion = 
   }
 
   return (
-    <section className="mx-auto w-full max-w-[1280px] lg:px-10 lg:py-10" aria-labelledby="points-desk-title">
-      <div className="flex min-h-[calc(100svh-5rem)] flex-col bg-black/10 lg:min-h-[800px] lg:border lg:border-white/50">
-        <header className="flex items-center justify-between gap-3 px-5 pb-3 pt-4 lg:border-b lg:border-white/50 lg:px-10 lg:py-6">
+    <section className="mx-auto w-[calc(100%-2rem)] max-w-[1280px] py-6 lg:py-10" aria-labelledby="points-desk-title">
+      <div className="flex flex-col">
+        <header className="flex items-center justify-between gap-3 pb-3 pt-2 lg:py-4">
           <h2 id="points-desk-title" className="text-[26px] font-semibold tracking-tight lg:text-[34px]">Points</h2>
-          <div className="inline-flex border border-white/80" role="tablist" aria-label="Points sections">
+          {canViewAudit && <div className="inline-flex overflow-hidden rounded-md border border-white/80" role="tablist" aria-label="Points sections">
             <TabButton active={tab === "adjustment"} onClick={() => setTab("adjustment")}>Adjustment</TabButton>
-            {canViewAudit && <TabButton active={tab === "audit"} onClick={() => setTab("audit")}>Audit trail</TabButton>}
-          </div>
+            <TabButton active={tab === "audit"} onClick={() => setTab("audit")}>Audit trail</TabButton>
+          </div>}
         </header>
         <div className="flex min-h-0 flex-1">
           <div className="flex min-h-0 w-full flex-1" hidden={tab !== "adjustment"}><AdjustmentForm players={players} onChanged={handlePointsChanged} /></div>
-          {canViewAudit && <div className="w-full p-5 lg:p-10" hidden={tab !== "audit"}><AuditTrail onChanged={handlePointsChanged} refreshVersion={auditRefreshVersion + refreshVersion} /></div>}
+          {canViewAudit && <div className="w-full py-5" hidden={tab !== "audit"}><AuditTrail onChanged={handlePointsChanged} refreshVersion={auditRefreshVersion + refreshVersion} /></div>}
         </div>
       </div>
     </section>
@@ -92,7 +93,7 @@ export function PointsDesk({ players, canViewAudit, onChanged, refreshVersion = 
 }
 
 function TabButton({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
-  return <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`h-9 px-3 text-sm font-semibold transition lg:h-11 lg:px-5 lg:text-base ${active ? "bg-white text-[#2F4BBE]" : "text-white hover:bg-white/15"}`}>{children === "Adjustment" ? <><span className="lg:hidden">Adjust</span><span className="hidden lg:inline">Adjustment</span></> : children}</button>;
+  return <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`h-9 px-3 text-sm font-semibold transition lg:h-11 lg:px-5 lg:text-base ${active ? "navy-surface relative isolate" : "text-white hover:bg-white/15"}`}>{active && <FloatingQuestionMarks contained compact start={4} />}{children === "Adjustment" ? <><span className="lg:hidden">Adjust</span><span className="hidden lg:inline">Adjustment</span></> : children}</button>;
 }
 
 type RecentAdjustment = {
@@ -242,48 +243,72 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
 
   return (
     <>
-    <form noValidate onSubmit={(event) => event.preventDefault()} className="flex min-h-0 w-full flex-1 flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_380px]">
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden px-5 lg:gap-5 lg:overflow-visible lg:px-10 lg:py-7">
+    <form noValidate onSubmit={(event) => event.preventDefault()} className="flex min-h-0 w-full flex-1 flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-8">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:gap-5 lg:overflow-visible">
         <div className="flex justify-start">
           <div className="flex w-full gap-2 lg:w-auto lg:gap-3">
-            <label className="flex h-11 min-w-0 flex-1 items-center border border-white/50 bg-black/10 px-3 focus-within:outline-2 focus-within:outline-white lg:w-60 lg:flex-none"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="mr-2 h-4 w-4 shrink-0 text-white/80 lg:mr-3"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg><input type="search" aria-label="Filter players" value={playerQuery} onChange={(event) => setPlayerQuery(event.target.value)} placeholder="Filter" className="min-w-0 flex-1 bg-transparent text-base text-white placeholder:text-white/70 focus:outline-none lg:text-[15px]" /></label>
-            <button type="button" onClick={toggleAllPlayers} aria-pressed={allPlayersSelected} className={`h-11 shrink-0 border px-3 text-[15px] font-semibold lg:px-4 ${allPlayersSelected ? "border-white bg-white text-[#2F4BBE]" : "border-white text-white hover:bg-white/15"}`}>{allPlayersSelected ? "Clear all" : playerQuery.trim() ? <><span className="lg:hidden">Select shown</span><span className="hidden lg:inline">Select {matchingPlayers.length} shown</span></> : <><span className="lg:hidden">All ({players.length})</span><span className="hidden lg:inline">Select all ({players.length})</span></>}</button>
+            <label className="flex h-11 min-w-0 flex-1 items-center rounded-md border border-white/25 bg-black/[0.04] px-3 focus-within:outline-2 focus-within:outline-white lg:w-60 lg:flex-none"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="mr-2 h-4 w-4 shrink-0 text-white lg:mr-3"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg><input type="search" aria-label="Filter players" value={playerQuery} onChange={(event) => setPlayerQuery(event.target.value)} placeholder="Filter" className="min-w-0 flex-1 bg-transparent text-base text-white placeholder:text-white focus:outline-none lg:text-[15px]" /></label>
+            <button type="button" onClick={toggleAllPlayers} aria-pressed={allPlayersSelected} className={`h-11 shrink-0 rounded-md border px-3 text-[15px] font-semibold lg:px-4 ${allPlayersSelected ? "navy-surface relative isolate overflow-hidden border-transparent" : "border-white text-white hover:bg-white/15"}`}>{allPlayersSelected && <FloatingQuestionMarks contained compact start={2} />}{allPlayersSelected ? "Clear all" : playerQuery.trim() ? <><span className="lg:hidden">Select shown</span><span className="hidden lg:inline">Select {matchingPlayers.length} shown</span></> : <><span className="lg:hidden">All ({players.length})</span><span className="hidden lg:inline">Select all ({players.length})</span></>}</button>
           </div>
         </div>
-        <p className="truncate py-2 text-sm text-white/80 lg:hidden" aria-live="polite">{mobileSelectionSummary || "\u00a0"}</p>
-        <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-2 overflow-y-auto pb-4 lg:flex-none lg:gap-3 lg:overflow-visible lg:pb-0 xl:grid-cols-4">{matchingPlayers.map((player) => { const selected = selectedUserIds.includes(player.userId); return <button key={player.userId} type="button" aria-pressed={selected} onClick={() => togglePlayer(player.userId)} className={`flex h-[72px] items-center gap-2.5 border px-3 text-left transition focus-visible:outline-2 focus-visible:outline-white lg:h-[88px] lg:gap-3 lg:px-4 ${selected ? "border-white bg-white text-[#2F4BBE]" : "border-white/50 text-white hover:bg-white/10"}`}><span className={`flex h-5 w-5 shrink-0 items-center justify-center border text-xs font-bold lg:h-[22px] lg:w-[22px] ${selected ? "border-[#3450C4] bg-[#3450C4] text-white" : "border-white/70"}`} aria-hidden="true">{selected ? "✓" : ""}</span><span className="min-w-0"><span className="block truncate text-base font-semibold lg:text-[17px]">{player.displayName}</span>{player.name && <span className={`block truncate text-[13px] lg:text-sm ${selected ? "text-[#4A5FB8]" : "text-white/70"}`}>{player.name}</span>}<span className={`block text-[13px] tabular-nums lg:text-sm ${selected ? "text-[#4A5FB8]" : "text-white/80"}`}>{number.format(player.totalPoints)} pts</span></span></button>; })}</div>
-        {matchingPlayers.length === 0 && <p className="pb-4 text-[15px] text-white/80">No players match “{playerQuery}”.</p>}
+        <p className="truncate py-2 text-sm text-white lg:hidden" aria-live="polite">{mobileSelectionSummary || "\u00a0"}</p>
+        <div className="grid max-h-[calc(6*72px+5*0.5rem+1rem)] min-h-0 flex-none grid-cols-2 content-start gap-2 overflow-y-auto overscroll-contain pb-4 lg:max-h-none lg:gap-4 lg:overflow-visible lg:pb-0 xl:grid-cols-4">{matchingPlayers.map((player, index) => { const selected = selectedUserIds.includes(player.userId); return <button key={player.userId} type="button" aria-pressed={selected} onClick={() => togglePlayer(player.userId)} className={`flex h-[72px] items-center gap-2.5 rounded-md border px-3 text-left transition focus-visible:outline-2 focus-visible:outline-white lg:h-[72px] lg:gap-3 lg:px-4 ${selected ? "navy-surface relative isolate overflow-hidden border-transparent" : "border-white/25 text-white hover:bg-white/10"}`}>{selected && <FloatingQuestionMarks contained compact start={index * 3} />}<span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-bold lg:h-[22px] lg:w-[22px] ${selected ? "border-white bg-white text-black" : "border-white/25"}`} aria-hidden="true">{selected ? "✓" : ""}</span><span className="min-w-0 flex-1"><span className="block truncate text-base font-semibold lg:text-[17px]">{player.displayName}</span>{player.name && <span className="block truncate text-[13px] lg:text-sm">{player.name}</span>}</span><span className="shrink-0 text-sm font-semibold tabular-nums">{number.format(player.totalPoints)}</span></button>; })}</div>
+        {matchingPlayers.length === 0 && <p className="pb-4 text-[15px] text-white">No players match “{playerQuery}”.</p>}
       </section>
-      <section className="flex min-h-0 shrink-0 flex-col gap-2 border-t border-white/50 bg-black/10 px-5 py-3 lg:min-h-[520px] lg:gap-[22px] lg:border-l lg:border-t-0 lg:bg-black/5 lg:px-8 lg:py-7">
-        <p className="hidden text-[15px] leading-snug text-white/80 lg:block">{selectionSummary}</p>
-        <fieldset><legend className="sr-only lg:not-sr-only lg:text-[15px] lg:font-semibold">Amount</legend><div className="grid grid-cols-[repeat(4,minmax(0,52px))_minmax(0,1fr)] gap-1.5 lg:mt-2 lg:gap-2">{[1, 5, 10, 25].map((value) => <button key={value} type="button" onClick={() => changeField(() => { setAmount(value); setCustomAmount(""); })} aria-pressed={customAmount === "" && amount === value} className={`h-11 min-w-0 border px-2 font-semibold tabular-nums ${customAmount === "" && amount === value ? "border-white bg-white text-[#2F4BBE]" : "border-white/50 text-white hover:bg-white/10"}`}>{value}</button>)}<input type="number" inputMode="numeric" min="1" step="1" aria-label="Custom amount" value={customAmount} onChange={(event) => changeField(() => setCustomAmount(event.target.value))} placeholder="Other" className={`number-field h-11 w-full min-w-0 border bg-[#00022e]/70 px-2 font-semibold tabular-nums text-white placeholder:text-white/70 transition focus:bg-[#00022e]/90 focus:outline-2 focus:outline-white lg:bg-black/10 lg:px-3 lg:focus:bg-black/20 ${customAmount === "" ? "border-white/50" : "border-2 border-white"}`} /></div></fieldset>
-        <label className="lg:hidden"><span className="sr-only">Reason (optional)</span><input value={reason} onChange={(event) => changeField(() => setReason(event.target.value))} aria-label="Reason (optional)" placeholder="Reason (optional)" className="h-11 w-full border border-white/50 bg-[#00022e]/70 px-3 text-base text-white placeholder:text-white/70 transition focus:bg-[#00022e]/90 focus:outline-2 focus:outline-white" /></label>
-        <label className="hidden flex-col gap-2 text-[15px] font-semibold text-white lg:flex"><span>Reason <span className="font-normal text-white/80">(optional)</span></span><input value={reason} onChange={(event) => changeField(() => setReason(event.target.value))} placeholder="wha happen" className="h-11 border border-white/50 bg-black/10 px-3.5 text-[15px] font-normal text-white placeholder:text-white/70 focus:outline-2 focus:outline-white" /></label>
-        <div className="grid grid-cols-2 gap-2 lg:gap-3"><button type="button" onClick={() => void saveAdjustment(-1)} disabled={busy || !validAdjustment} className="flex h-14 min-w-0 flex-col items-center justify-center border border-white px-2 text-white disabled:cursor-not-allowed disabled:opacity-45 lg:h-[76px] lg:px-3"><span className="text-xl font-bold tabular-nums lg:text-2xl">− {Number.isInteger(effectiveAmount) && effectiveAmount > 0 ? number.format(effectiveAmount) : 0}</span><span className="max-w-full truncate text-xs font-medium lg:text-[13px]">{busy ? "Saving..." : actionHint ?? `from ${selectedTarget}`}</span></button><button type="button" onClick={() => void saveAdjustment(1)} disabled={busy || !validAdjustment} className="flex h-14 min-w-0 flex-col items-center justify-center border border-white bg-white px-2 text-[#2F4BBE] disabled:cursor-not-allowed disabled:opacity-45 lg:h-[76px] lg:px-3"><span className="text-xl font-bold tabular-nums lg:text-2xl">+ {Number.isInteger(effectiveAmount) && effectiveAmount > 0 ? number.format(effectiveAmount) : 0}</span><span className="max-w-full truncate text-xs font-medium lg:text-[13px]">{busy ? "Saving..." : actionHint ?? `to ${selectedTarget}`}</span></button></div>
-        <div className="hidden min-h-0 flex-1 border-t border-white/50 pt-[18px] lg:block"><h4 className="text-[15px] font-semibold">Recent</h4>{recentAdjustments.length === 0 ? <p className="mt-2 text-sm text-white/80">i have nathan</p> : <div className="mt-3 flex flex-col gap-3">{recentAdjustments.map((entry, index) => <div key={entry.key} className={`flex min-h-10 items-center gap-3 ${entry.undone ? "opacity-60" : ""}`}><span className={`min-w-11 px-1.5 py-1 text-center text-sm font-bold tabular-nums ${entry.delta > 0 ? "bg-white text-[#2F4BBE]" : "bg-[#FFB27A] text-[#3A2206]"}`}>{entry.delta > 0 ? "+" : "−"}{number.format(Math.abs(entry.delta))}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{entry.who}</span><span className="block truncate text-[13px] text-white/80">{entry.reason}</span></span>{index === 0 && !entry.undone ? <button type="button" onClick={() => void undoAdjustment(entry)} disabled={undoBusyKey !== null} className="h-9 border border-white px-3 text-sm font-semibold disabled:opacity-50">{undoBusyKey === entry.key ? "Undoing..." : "Undo"}</button> : entry.undone ? <span className="text-[13px] text-white/80">Undone</span> : null}</div>)}</div>}</div>
+      <section className="app-header relative isolate flex min-h-0 shrink-0 flex-col gap-2 rounded-md border-t px-5 py-3 lg:gap-[22px] lg:self-start lg:px-6 lg:py-6"><FloatingQuestionMarks contained />
+        <p className="hidden text-[15px] leading-snug text-white lg:block">{selectionSummary}</p>
+        <fieldset><legend className="sr-only lg:not-sr-only lg:text-[15px] lg:font-semibold">Amount</legend><div className="grid grid-cols-[repeat(4,minmax(0,52px))_minmax(0,1fr)] gap-1.5 lg:mt-2 lg:gap-2">{[1, 5, 10, 25].map((value) => <button key={value} type="button" onClick={() => changeField(() => { setAmount(value); setCustomAmount(""); })} aria-pressed={customAmount === "" && amount === value} className={`h-11 min-w-0 rounded-md border px-2 font-semibold tabular-nums ${customAmount === "" && amount === value ? "border-white bg-white text-on-fill" : "border-white/25 text-white hover:bg-white/10"}`}>{value}</button>)}<input type="number" inputMode="numeric" min="1" step="1" aria-label="Custom amount" value={customAmount} onChange={(event) => changeField(() => setCustomAmount(event.target.value))} placeholder="Other" className={`number-field h-11 w-full min-w-0 rounded-md border bg-surface-solid px-2 font-semibold tabular-nums text-white placeholder:text-white transition focus:outline-2 focus:outline-white lg:px-3 ${customAmount === "" ? "border-white/25" : "rounded-md border-2 border-white"}`} /></div></fieldset>
+        <label className="lg:hidden"><span className="sr-only">Reason (optional)</span><input value={reason} onChange={(event) => changeField(() => setReason(event.target.value))} aria-label="Reason (optional)" placeholder="Reason (optional)" className="h-11 w-full rounded-md border border-white/25 bg-surface-solid/70 px-3 text-base text-white placeholder:text-white transition focus:bg-surface-solid/90 focus:outline-2 focus:outline-white" /></label>
+        <label className="hidden flex-col gap-2 text-[15px] font-semibold text-white lg:flex"><span>Reason <span className="font-normal text-white">(optional)</span></span><input value={reason} onChange={(event) => changeField(() => setReason(event.target.value))} placeholder="What was this for?" className="h-11 rounded-md border border-white/25 bg-white/10 px-3.5 text-[15px] font-normal text-white placeholder:text-white focus:outline-2 focus:outline-white" /></label>
+        <div className="grid grid-cols-2 gap-2 lg:gap-3"><button type="button" onClick={() => void saveAdjustment(-1)} disabled={busy || !validAdjustment} className="flex h-14 min-w-0 flex-col items-center justify-center rounded-md border-2 border-[#c00000] bg-[#f00000] px-2 text-white transition enabled:hover:bg-[#d60000] disabled:cursor-not-allowed disabled:border-white/25 disabled:bg-white/10 disabled:text-white lg:h-[76px] lg:px-3"><span className="text-xl font-bold tabular-nums lg:text-2xl">− {Number.isInteger(effectiveAmount) && effectiveAmount > 0 ? number.format(effectiveAmount) : 0}</span><span className="max-w-full truncate text-xs font-medium lg:text-[13px]">{busy ? "Saving..." : actionHint ?? `from ${selectedTarget}`}</span></button><button type="button" onClick={() => void saveAdjustment(1)} disabled={busy || !validAdjustment} className="flex h-14 min-w-0 flex-col items-center justify-center rounded-md border-2 border-[#006f08] bg-[#00940a] px-2 text-white transition enabled:hover:bg-[#00800a] disabled:cursor-not-allowed disabled:border-white/25 disabled:bg-white/10 disabled:text-white lg:h-[76px] lg:px-3"><span className="text-xl font-bold tabular-nums lg:text-2xl">+ {Number.isInteger(effectiveAmount) && effectiveAmount > 0 ? number.format(effectiveAmount) : 0}</span><span className="max-w-full truncate text-xs font-medium lg:text-[13px]">{busy ? "Saving..." : actionHint ?? `to ${selectedTarget}`}</span></button></div>
+        <div className="hidden min-h-0 flex-1 border-t border-white/25 pt-[18px] lg:block"><h4 className="text-[15px] font-semibold">Recent</h4>{recentAdjustments.length === 0 ? <p className="mt-2 text-sm text-white">No recent adjustments</p> : <div className="mt-3 flex flex-col gap-3">{recentAdjustments.map((entry, index) => <div key={entry.key} className={`flex min-h-10 items-center gap-3 ${entry.undone ? "opacity-60" : ""}`}><span className={`min-w-11 px-1.5 py-1 text-center text-sm font-bold tabular-nums ${entry.delta > 0 ? "bg-[#00940a] text-white ring-2 ring-[#006f08]" : "bg-[#f00000] text-white ring-2 ring-[#c00000]"}`}>{entry.delta > 0 ? "+" : "−"}{number.format(Math.abs(entry.delta))}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{entry.who}</span><span className="block truncate text-[13px] text-white">{entry.reason}</span></span>{index === 0 && !entry.undone ? <button type="button" onClick={() => void undoAdjustment(entry)} disabled={undoBusyKey !== null} className="h-9 rounded-md border border-white px-3 text-sm font-semibold disabled:opacity-50">{undoBusyKey === entry.key ? "Undoing..." : "Undo"}</button> : entry.undone ? <span className="text-[13px] text-white">Undone</span> : null}</div>)}</div>}</div>
       </section>
-      {error && <p role="alert" className="border-t border-white bg-black/15 px-5 py-3 text-sm text-white lg:col-span-2">{error}</p>}
+      {error && <p role="alert" className="border-t border-white bg-black/[0.06] px-5 py-3 text-sm text-white lg:col-span-2">{error}</p>}
     </form>
     </>
   );
 }
 
+const AUDIT_PAGE_SIZE = 10;
+const auditDateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+
 function AuditTrail({ onChanged, refreshVersion }: { onChanged: () => Promise<void>; refreshVersion: number }) {
   const [transactions, setTransactions] = useState<PointTransaction[]>([]);
+  const [page, setPage] = useState(0);
+  const [searchInput, setSearchInput] = useState("");
+  const [query, setQuery] = useState("");
+  const [hasNext, setHasNext] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingDeletion, setPendingDeletion] = useState<PointTransaction | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setQuery(searchInput.trim());
+      setPage(0);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
     let current = true;
-    fetch("/api/admin/point-transactions", { cache: "no-store" })
+    const params = new URLSearchParams({ limit: String(AUDIT_PAGE_SIZE + 1), offset: String(page * AUDIT_PAGE_SIZE) });
+    if (query) params.set("q", query);
+    fetch(`/api/admin/point-transactions?${params}`, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error();
         return response.json() as Promise<PointTransaction[]>;
       })
       .then((result) => {
-        if (current) setTransactions(result);
+        if (!current) return;
+        if (result.length === 0 && page > 0) {
+          setPage(page - 1);
+          return;
+        }
+        setTransactions(result.slice(0, AUDIT_PAGE_SIZE));
+        setHasNext(result.length > AUDIT_PAGE_SIZE);
+        setError(null);
       })
       .catch(() => {
         if (current) setError("Could not load the audit trail.");
@@ -294,7 +319,7 @@ function AuditTrail({ onChanged, refreshVersion }: { onChanged: () => Promise<vo
     return () => {
       current = false;
     };
-  }, [refreshVersion]);
+  }, [refreshVersion, page, query]);
 
   async function removeTransaction() {
     if (!pendingDeletion) return;
@@ -317,14 +342,35 @@ function AuditTrail({ onChanged, refreshVersion }: { onChanged: () => Promise<vo
     }
   }
 
+  const emptyState = (message: string) => <p className="rounded-md border border-white/25 bg-black/[0.04] px-4 py-10 text-center text-sm">{message}</p>;
+
   return <div className="flex flex-col gap-4">
-    <div><h3 className="text-lg font-semibold">Audit trail</h3></div>
-    {error && <p role="alert" className="border border-white bg-black/15 px-4 py-3 text-sm text-white">{error}</p>}
-    {loading ? <p className="border border-white/80 bg-black/10 px-4 py-6 text-sm text-white/75">Loading point history...</p> : transactions.length === 0 ? <p className="border border-white/80 bg-black/10 px-4 py-6 text-sm text-white/75">No point events yet.</p> : <ul className="border border-white/80">{transactions.map((transaction) => <li key={transaction.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-white/50 bg-black/10 px-4 py-3 last:border-0"><div className="min-w-32 flex-1"><p className="font-semibold text-white">{transaction.display_name ?? transaction.user_id}</p><p className="text-xs text-white/65">{new Date(transaction.created_at).toLocaleString()}</p></div><p className="max-w-full truncate text-sm text-white/80">{transaction.reason}</p><span className="border border-white/80 px-2.5 py-1 text-sm font-semibold tabular-nums text-white">{transaction.amount > 0 ? "+" : ""}{number.format(transaction.amount)}</span><button type="button" disabled={busyId !== null} onClick={() => setPendingDeletion(transaction)} className="text-xs font-semibold uppercase tracking-wide text-white underline-offset-4 hover:underline disabled:opacity-50">Delete</button></li>)}</ul>}
+    <label className="flex h-11 w-full items-center rounded-md border border-white/25 bg-black/[0.04] px-3 focus-within:outline-2 focus-within:outline-white sm:max-w-xs"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="mr-2 h-4 w-4 shrink-0"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg><input type="search" aria-label="Search audit trail by player" value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search player" className="min-w-0 flex-1 bg-transparent text-[15px] placeholder:text-white focus:outline-none" /></label>
+    {error && <p role="alert" className="rounded-md border border-white bg-black/[0.06] px-4 py-3 text-sm">{error}</p>}
+    {loading ? emptyState("Loading point history...") : transactions.length === 0 ? emptyState(query ? `No entries match “${query}”.` : "No point events yet.") : <ul className="flex flex-col gap-2">{transactions.map((transaction) => <AuditRow key={transaction.id} transaction={transaction} disabled={busyId !== null} onDelete={() => setPendingDeletion(transaction)} />)}</ul>}
+    {(page > 0 || hasNext) && <nav className="flex items-center justify-between gap-3 pt-2" aria-label="Audit trail pages">
+      <button type="button" disabled={page === 0} onClick={() => setPage(page - 1)} className="h-10 rounded-md border border-white px-4 text-sm font-semibold transition hover:bg-white/10 disabled:cursor-not-allowed disabled:border-white/25 disabled:hover:bg-transparent">Newer</button>
+      <span className="text-sm font-medium tabular-nums">Page {page + 1}</span>
+      <button type="button" disabled={!hasNext} onClick={() => setPage(page + 1)} className="h-10 rounded-md border border-white px-4 text-sm font-semibold transition hover:bg-white/10 disabled:cursor-not-allowed disabled:border-white/25 disabled:hover:bg-transparent">Older</button>
+    </nav>}
     {pendingDeletion && <ConfirmationDialog transaction={pendingDeletion} busy={busyId === pendingDeletion.id} onCancel={() => setPendingDeletion(null)} onConfirm={removeTransaction} />}
   </div>;
 }
 
+function AuditRow({ transaction, disabled, onDelete }: { transaction: PointTransaction; disabled: boolean; onDelete: () => void }) {
+  const positive = transaction.amount > 0;
+
+  return <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 rounded-md border border-white/25 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_5rem_auto]">
+    <div className="min-w-0">
+      <p className="truncate font-semibold">{transaction.display_name ?? transaction.user_id}</p>
+      <p className="text-xs">{auditDateFormat.format(new Date(transaction.created_at))}</p>
+    </div>
+    <span className={`col-start-2 row-start-1 justify-self-end rounded-md px-2.5 py-1 text-center text-sm font-semibold tabular-nums text-on-fill ring-2 sm:col-start-3 ${positive ? "bg-[#00940a] ring-[#006f08]" : "bg-[#f00000] ring-[#c00000]"}`}>{positive ? "+" : "−"}{number.format(Math.abs(transaction.amount))}</span>
+    <p className="col-start-1 row-start-2 truncate text-sm sm:col-start-2 sm:row-start-1">{transaction.reason}</p>
+    <button type="button" disabled={disabled} onClick={onDelete} className="col-start-2 row-start-2 justify-self-end rounded-md border border-white/25 px-3 py-1.5 text-xs font-semibold transition hover:bg-black/[0.06] disabled:opacity-50 sm:col-start-4 sm:row-start-1">Delete</button>
+  </li>;
+}
+
 function ConfirmationDialog({ transaction, busy, onCancel, onConfirm }: { transaction: PointTransaction; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
-  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-5" role="presentation"><section role="alertdialog" aria-modal="true" aria-labelledby="delete-transaction-title" className="w-full max-w-md border border-white bg-[#102a43] p-6"><h4 id="delete-transaction-title" className="text-xl font-semibold">Delete this point event?</h4><p className="mt-2 text-sm leading-6 text-white/80">This removes the {transaction.amount > 0 ? "+" : ""}{number.format(transaction.amount)} entry for {transaction.display_name ?? "this player"}. It cannot be undone.</p><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onCancel} disabled={busy} className="border border-white/80 px-4 py-2.5 text-sm font-semibold text-white hover:bg-white/15 disabled:opacity-50">Keep it</button><button type="button" onClick={onConfirm} disabled={busy} className="border border-white bg-white px-4 py-2.5 text-sm font-semibold text-[#102a43] disabled:opacity-50">{busy ? "Deleting..." : "Delete event"}</button></div></section></div>;
+  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-5" role="presentation"><section role="alertdialog" aria-modal="true" aria-labelledby="delete-transaction-title" className="w-full max-w-md rounded-md border border-white bg-surface-solid p-6"><h4 id="delete-transaction-title" className="text-xl font-semibold">Delete this point event?</h4><p className="mt-2 text-sm leading-6 text-white">This removes the {transaction.amount > 0 ? "+" : ""}{number.format(transaction.amount)} entry for {transaction.display_name ?? "this player"}. It cannot be undone.</p><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onCancel} disabled={busy} className="rounded-md border border-white/80 px-4 py-2.5 text-sm font-semibold text-white hover:bg-white/15 disabled:opacity-50">Keep it</button><button type="button" onClick={onConfirm} disabled={busy} className="rounded-md border border-[#c00000] bg-[#f00000] px-4 py-2.5 text-sm font-semibold text-on-fill transition hover:bg-[#d60000] disabled:opacity-50">{busy ? "Deleting..." : "Delete event"}</button></div></section></div>;
 }

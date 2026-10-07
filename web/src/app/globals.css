@@ -3,11 +3,24 @@
 :root {
   --background: #00022e;
   --foreground: #ffffff;
+  --on-fill: #000000;
+  --surface-solid: #00022e;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-accent: #000000;
+  --color-on-fill: var(--on-fill);
+  --color-surface-solid: var(--surface-solid);
+}
+
+.light-surface {
+  --color-white: #000000;
+  --on-fill: #ffffff;
+  --surface-solid: #ffffff;
+  background-color: #ffffff;
+  color: #000000;
 }
 
 body {
@@ -26,6 +39,28 @@ body {
   pointer-events: none;
   position: fixed;
   z-index: 0;
+}
+
+.floating-question-marks--contained {
+  border-radius: inherit;
+  position: absolute;
+  z-index: -1;
+}
+
+.app-header,
+.navy-surface {
+  --color-white: #ffffff;
+  --on-fill: #000000;
+  --surface-solid: #00022e;
+  color: #ffffff;
+  background-color: var(--background);
+  background-image:
+    radial-gradient(circle at 18% 0%, rgb(17 49 113 / 45%), transparent 28rem),
+    radial-gradient(circle at 82% 100%, rgb(26 24 86 / 40%), transparent 32rem);
+}
+
+.floating-question-marks--compact span {
+  font-size: calc(var(--mark-size) * 0.4);
 }
 
 .floating-question-marks span {

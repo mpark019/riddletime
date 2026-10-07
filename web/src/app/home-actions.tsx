@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { FloatingQuestionMarks } from "./floating-question-marks";
+import { PrimaryButton } from "./primary-button";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { PendingInvitation } from "@/server/invitations/invitations";
 
@@ -13,7 +15,7 @@ const roleOptions: Array<{ value: ProvisionableRole; label: string }> = [
   { value: "player", label: "Player" },
 ];
 
-export function SignOutButton({ className }: { className?: string }) {
+export function SignOutButton({ className, icon }: { className?: string; icon?: React.ReactNode }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
 
@@ -32,7 +34,7 @@ export function SignOutButton({ className }: { className?: string }) {
       disabled={submitting}
       className={className ?? "rounded-xl border border-white/20 bg-white/5 px-4 py-2 text-sm font-bold text-white transition hover:bg-white/10 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200"}
     >
-      {submitting ? "Signing out..." : "Sign out"}
+      {icon}{submitting ? "Signing out..." : "Sign out"}
     </button>
   );
 }
@@ -118,7 +120,7 @@ export function InvitePanel() {
               autoComplete="name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              className="border border-white/80 bg-black/10 px-4 py-3 text-white focus:outline-2 focus:outline-white"
+              className="rounded-md border border-white/80 bg-black/[0.04] px-4 py-3 text-white focus:outline-2 focus:outline-white"
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
@@ -130,7 +132,7 @@ export function InvitePanel() {
               onChange={(event) => setDisplayName(event.target.value)}
               pattern="[A-Za-z0-9][A-Za-z0-9_-]{2,31}"
               title="Use 3–32 letters, numbers, underscores, or hyphens."
-              className="border border-white/80 bg-black/10 px-4 py-3 text-white focus:outline-2 focus:outline-white"
+              className="rounded-md border border-white/80 bg-black/[0.04] px-4 py-3 text-white focus:outline-2 focus:outline-white"
             />
           </label>
           <div className="flex flex-col gap-1 text-sm">
@@ -145,7 +147,7 @@ export function InvitePanel() {
                 autoComplete="new-password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                className="border border-white/80 bg-black/10 px-4 py-3 text-white focus:outline-2 focus:outline-white"
+                className="rounded-md border border-white/80 bg-black/[0.04] px-4 py-3 text-white focus:outline-2 focus:outline-white"
               />
           </label>
           {role === "player" && (
@@ -157,25 +159,21 @@ export function InvitePanel() {
                 required
                 value={initialScore}
                 onChange={(event) => setInitialScore(event.target.value)}
-                className="number-field border border-white/80 bg-black/10 px-4 py-3 text-white focus:outline-2 focus:outline-white"
+                className="number-field rounded-md border border-white/80 bg-black/[0.04] px-4 py-3 text-white focus:outline-2 focus:outline-white"
               />
             </label>
           )}
-          {formError && <p className="border border-white bg-black/15 px-4 py-3 text-sm text-white">{formError}</p>}
-          <button
-            type="submit"
-            disabled={submitting}
-            className="border border-white bg-white px-4 py-3 font-semibold text-[#102a43] transition hover:bg-transparent hover:text-white disabled:opacity-50"
-          >
+          {formError && <p className="rounded-md border border-white bg-black/[0.06] px-4 py-3 text-sm text-white">{formError}</p>}
+          <PrimaryButton type="submit" disabled={submitting} markStart={12} className="px-4 py-3">
             {submitting ? "Creating..." : "Create member"}
-          </button>
+          </PrimaryButton>
       </form>
 
       {/* <div className="flex flex-col gap-3 border-t border-white/50 pt-4">
-        <h3 className="text-sm text-white/60">Pending invitations</h3>
-        {listLoading && <p className="text-sm text-white/60">Loading...</p>}
+        <h3 className="text-sm text-white">Pending invitations</h3>
+        {listLoading && <p className="text-sm text-white">Loading...</p>}
         {!listLoading && pending.length === 0 && (
-          <p className="text-sm text-white/60">None pending.</p>
+          <p className="text-sm text-white">None pending.</p>
         )}
         {pending.map((invitation) => (
           <PendingRow key={invitation.id} invitation={invitation} onChanged={refreshPending} />
@@ -188,6 +186,10 @@ export function InvitePanel() {
 type ManagedAccountRole = "spectator" | "player" | "admin";
 type ManagedAccount = { id: string; name: string | null; displayName: string | null; role: ManagedAccountRole };
 
+function accountLabel(account?: ManagedAccount | null) {
+  return account?.displayName ?? account?.name ?? "user";
+}
+
 const managedAccountTabs: Array<{ role: ManagedAccountRole; label: string }> = [
   { role: "player", label: "Players" },
   { role: "spectator", label: "Spectators" },
@@ -199,6 +201,9 @@ export function UserAccountsPanel({ currentUserId }: { currentUserId: string }) 
   const [accounts, setAccounts] = useState<ManagedAccount[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ManagedAccount | null>(null);
+  const [editing, setEditing] = useState<ManagedAccount | null>(null);
+  const [query, setQuery] = useState("");
+  const [notice, setNotice] = useState<{ text: string } | null>(null);
   const refresh = async (selectedRole = role) => { const response = await fetch(`/api/admin/players?role=${selectedRole}`); if (response.ok) setAccounts(await response.json()); else setError("Could not load users."); };
   useEffect(() => { const timer = window.setTimeout(() => { void fetch(`/api/admin/players?role=${role}`).then(async (response) => { if (response.ok) setAccounts(await response.json()); else setError("Could not load users."); }); }, 0); return () => window.clearTimeout(timer); }, [role]);
   async function save(id: string, displayName: string, password: string) {
@@ -207,30 +212,73 @@ export function UserAccountsPanel({ currentUserId }: { currentUserId: string }) 
     await refresh();
     return true;
   }
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
   async function remove(id: string) {
+    const deletedLabel = accountLabel(accounts.find((account) => account.id === id));
     const response = await fetch(`/api/admin/players/${id}`, { method: "DELETE" });
     if (!response.ok) { const body = await response.json().catch(() => ({})); setError(body.error ?? "Could not delete user."); return; }
     setPendingDelete(null);
+    setNotice({ text: `Deleted ${deletedLabel}.` });
     await refresh();
   }
-  return <section className="flex w-full max-w-2xl flex-col gap-4"><div><h2 className="text-2xl font-semibold">Users</h2></div><div className="flex gap-2" role="tablist" aria-label="User roles">{managedAccountTabs.map((tab) => <button key={tab.role} type="button" role="tab" aria-selected={role === tab.role} onClick={() => { setRole(tab.role); setError(null); }} className={`border border-white/80 px-3 py-2 text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-white ${role === tab.role ? "bg-white text-[#102a43]" : "text-white hover:bg-white/15"}`}>{tab.label}</button>)}</div>{accounts.map((account) => <UserRow key={account.id} account={account} onSave={save} onDelete={setPendingDelete} canDelete={account.id !== currentUserId} />)}{accounts.length === 0 && <p className="text-sm text-white/60">No {managedAccountTabs.find((tab) => tab.role === role)?.label.toLowerCase()} yet.</p>}{error && <p role="alert" className="text-red-300">{error}</p>}{pendingDelete && <DeleteUserDialog account={pendingDelete} onCancel={() => setPendingDelete(null)} onConfirm={() => void remove(pendingDelete.id)} />}</section>;
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visibleAccounts = accounts.filter((account) => !normalizedQuery || account.name?.toLocaleLowerCase().includes(normalizedQuery) || account.displayName?.toLocaleLowerCase().includes(normalizedQuery));
+  const roleLabel = managedAccountTabs.find((tab) => tab.role === role)?.label ?? "";
+  const nameColumn = role === "admin" ? "Display name" : "Username";
+  const iconButton = "flex h-9 w-9 items-center justify-center rounded-md transition hover:bg-black/[0.06] focus-visible:outline-2 focus-visible:outline-white";
+
+  return <section className="flex w-full flex-col gap-4">
+    <h2 className="text-2xl font-semibold">Users</h2>
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex gap-2" role="tablist" aria-label="User roles">{managedAccountTabs.map((tab) => <button key={tab.role} type="button" role="tab" aria-selected={role === tab.role} onClick={() => { setRole(tab.role); setError(null); setNotice(null); }} className={`rounded-md border border-white/80 px-3 py-2 text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-white ${role === tab.role ? "navy-surface relative isolate overflow-hidden" : "text-white hover:bg-white/15"}`}>{role === tab.role && <FloatingQuestionMarks contained compact start={8} />}{tab.label}</button>)}</div>
+      <label className="flex h-11 w-full items-center rounded-md border border-white/25 bg-black/[0.04] px-3 focus-within:outline-2 focus-within:outline-white sm:max-w-xs"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="mr-2 h-4 w-4 shrink-0"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg><input type="search" aria-label={`Search ${roleLabel.toLowerCase()}`} value={query} onChange={(e) => setQuery(e.target.value)} placeholder={`Search ${roleLabel.toLowerCase()}`} className="min-w-0 flex-1 bg-transparent text-[15px] placeholder:text-white focus:outline-none" /></label>
+    </div>
+    <div aria-live="polite">{notice && <div className="flex items-center gap-3 rounded-md border-2 border-[#2fbf64] bg-[#c9f2d8] px-4 py-3 text-sm font-medium text-black"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span className="min-w-0 flex-1">{notice.text}</span><button type="button" aria-label="Dismiss" onClick={() => setNotice(null)} className="flex h-6 w-6 shrink-0 items-center justify-center rounded hover:bg-black/10">×</button></div>}</div>
+    {error && !editing && <p role="alert" className="text-red-700">{error}</p>}
+    {visibleAccounts.length === 0 ? <p className="rounded-md border border-white/25 bg-black/[0.04] px-4 py-10 text-center text-sm">{normalizedQuery ? `No ${roleLabel.toLowerCase()} match “${query.trim()}”.` : `No ${roleLabel.toLowerCase()} yet.`}</p> : <table className="w-full text-left">
+      <thead><tr className="bg-black/[0.06] text-sm font-semibold"><th className="rounded-l-md px-4 py-3">Name</th><th className="px-4 py-3">{nameColumn}</th><th className="rounded-r-md px-4 py-3 text-right">Actions</th></tr></thead>
+      <tbody>{visibleAccounts.map((account) => <tr key={account.id} className="border-b border-white/15 last:border-0">
+        <td className="px-4 py-3 font-semibold">{account.name ?? "No name"}</td>
+        <td className="px-4 py-3">{account.displayName ?? "—"}</td>
+        <td className="px-2 py-2"><div className="flex justify-end gap-1">
+          <button type="button" aria-label={`Edit ${account.displayName ?? account.name ?? "user"}`} title="Edit" onClick={() => { setError(null); setNotice(null); setEditing(account); }} className={iconButton}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" /></svg></button>
+          {account.id !== currentUserId && <button type="button" aria-label={`Delete ${account.displayName ?? account.name ?? "user"}`} title="Delete" onClick={() => setPendingDelete(account)} className={`${iconButton} text-[#c00000]`}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-[18px] w-[18px]"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /></svg></button>}
+        </div></td>
+      </tr>)}</tbody>
+    </table>}
+    {editing && <EditUserDialog account={editing} error={error} onCancel={() => { setEditing(null); setError(null); }} onSave={async (displayName, password) => { const saved = await save(editing.id, displayName, password); if (saved) { setEditing(null); setNotice({ text: `Saved ${displayName.trim() || accountLabel(editing)}${password ? " and updated the password" : ""}.` }); } return saved; }} />}
+    {pendingDelete && <DeleteUserDialog account={pendingDelete} onCancel={() => setPendingDelete(null)} onConfirm={() => void remove(pendingDelete.id)} />}
+  </section>;
 }
 
 function DeleteUserDialog({ account, onCancel, onConfirm }: { account: ManagedAccount; onCancel: () => void; onConfirm: () => void }) {
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" role="presentation"><div role="alertdialog" aria-modal="true" aria-labelledby="delete-user-title" aria-describedby="delete-user-description" className="w-full max-w-md border border-red-200/80 bg-[#102a43] p-6 shadow-2xl"><p className="text-xs font-bold uppercase tracking-[0.2em] text-red-100">Permanent action</p><h3 id="delete-user-title" className="mt-2 text-2xl font-semibold">Delete {account.displayName ?? account.name ?? "this account"}?</h3><p id="delete-user-description" className="mt-3 text-white/80">This permanently removes the account and its owned data. It cannot be undone.</p><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onCancel} className="border border-white/80 px-4 py-2 font-semibold hover:bg-white/10">Cancel</button><button type="button" onClick={onConfirm} className="border border-red-200 bg-red-200 px-4 py-2 font-semibold text-[#102a43] transition hover:bg-transparent hover:text-white">Delete permanently</button></div></div></div>;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" role="presentation"><div role="alertdialog" aria-modal="true" aria-labelledby="delete-user-title" aria-describedby="delete-user-description" className="w-full max-w-md rounded-md border border-red-200/80 bg-surface-solid p-6 shadow-2xl"><p className="text-xs font-bold uppercase tracking-[0.2em] text-red-800">Permanent action</p><h3 id="delete-user-title" className="mt-2 text-2xl font-semibold">Delete {account.displayName ?? account.name ?? "this account"}?</h3><p id="delete-user-description" className="mt-3 text-white">This permanently removes the account and its owned data. It cannot be undone.</p><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onCancel} className="rounded-md border border-white/80 px-4 py-2 font-semibold hover:bg-white/10">Cancel</button><button type="button" onClick={onConfirm} className="rounded-md border border-[#c00000] bg-[#f00000] px-4 py-2 font-semibold text-on-fill transition hover:bg-[#d60000]">Delete permanently</button></div></div></div>;
 }
 
-function UserRow({ account, onSave, onDelete, canDelete }: { account: ManagedAccount; onSave: (id: string, displayName: string, password: string) => Promise<boolean>; onDelete: (account: ManagedAccount) => void; canDelete: boolean }) {
-  const [displayName, setDisplayName] = useState(account.displayName ?? ""); const [password, setPassword] = useState(""); const [passwordSaved, setPasswordSaved] = useState(false);
-  async function savePlayer() {
-    const passwordWasProvided = Boolean(password);
-    const saved = await onSave(account.id, displayName, password);
-    if (saved && passwordWasProvided) {
-      setPassword("");
-      setPasswordSaved(true);
-    }
+function EditUserDialog({ account, error, onCancel, onSave }: { account: ManagedAccount; error: string | null; onCancel: () => void; onSave: (displayName: string, password: string) => Promise<boolean> }) {
+  const [displayName, setDisplayName] = useState(account.displayName ?? "");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fieldLabel = account.role === "admin" ? "Display name" : "Username";
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    await onSave(displayName, password);
+    setBusy(false);
   }
-  return <div className="flex flex-col gap-3 border border-white/80 p-3"><p className="text-sm text-white/60">{account.name ?? "No name"}</p><label className="flex flex-col gap-1 text-sm"><span>{account.role === "admin" ? "Display name" : "Username"}</span><input aria-label={`${account.role === "admin" ? "Display name" : "Username"} for ${account.displayName ?? account.name ?? "user"}`} value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="border border-white/80 bg-black/10 px-3 py-2" /></label><input aria-label={`New password for ${account.displayName ?? account.name ?? "user"}`} type="password" placeholder="New password (optional)" value={password} onChange={(e) => { setPassword(e.target.value); setPasswordSaved(false); }} className="border border-white/80 bg-black/10 px-3 py-2" />{passwordSaved && <p aria-live="polite" className="text-sm font-medium text-white/80">Password saved successfully.</p>}<div className="flex gap-2"><button type="button" onClick={() => void savePlayer()} className="border border-white bg-white px-3 py-2 font-semibold text-[#102a43] transition hover:bg-transparent hover:text-white focus-visible:outline-2 focus-visible:outline-white">Save</button>{canDelete ? <button type="button" onClick={() => onDelete(account)} className="border border-red-300 bg-red-200 px-3 py-2 font-semibold text-[#102a43] transition hover:bg-transparent hover:text-white focus-visible:outline-2 focus-visible:outline-white">Delete account</button> : <p className="self-center text-sm text-white/60">You cannot delete your own account.</p>}</div></div>;
+
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" role="presentation"><form onSubmit={(event) => void submit(event)} role="dialog" aria-modal="true" aria-labelledby="edit-user-title" className="flex w-full max-w-md flex-col gap-4 rounded-md border border-white bg-surface-solid p-6 shadow-2xl">
+    <h3 id="edit-user-title" className="text-xl font-semibold">Edit {account.name ?? account.displayName ?? "user"}</h3>
+    <label className="flex flex-col gap-1 text-sm font-medium"><span>{fieldLabel}</span><input autoFocus value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="h-11 w-full rounded-md border border-white/25 bg-black/[0.04] px-3 focus:outline-2 focus:outline-white" /></label>
+    <label className="flex flex-col gap-1 text-sm font-medium"><span>New password</span><input type="password" placeholder="Leave blank to keep the current one" value={password} onChange={(e) => setPassword(e.target.value)} className="h-11 w-full rounded-md border border-white/25 bg-black/[0.04] px-3 focus:outline-2 focus:outline-white" /></label>
+    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+    <div className="mt-2 flex justify-end gap-3"><button type="button" onClick={onCancel} className="h-11 rounded-md border border-white/80 px-4 font-semibold hover:bg-white/10">Cancel</button><PrimaryButton type="submit" disabled={busy} markStart={14} className="h-11 px-4">{busy ? "Saving..." : "Save"}</PrimaryButton></div>
+  </form></div>;
 }
 
 function RolePicker({ value, onChange }: { value: ProvisionableRole; onChange: (role: ProvisionableRole) => void }) {
@@ -254,11 +302,11 @@ function RolePicker({ value, onChange }: { value: ProvisionableRole; onChange: (
   }, []);
 
   return <div ref={pickerRef} className="relative">
-    <button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open} aria-haspopup="listbox" className="flex w-full items-center justify-between border border-white/80 bg-black/10 px-4 py-3 text-left font-medium text-white transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white">
+    <button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open} aria-haspopup="listbox" className="flex w-full items-center justify-between rounded-md border border-white/80 bg-black/[0.04] px-4 py-3 text-left font-medium text-white transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white">
       <span>{selected.label}</span><span aria-hidden="true">⌄</span>
     </button>
-    {open && <div role="listbox" aria-label="Member role" className="absolute z-10 mt-2 w-full border border-white bg-[#102a43] p-1">
-      {roleOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={option.value === value} onClick={() => { onChange(option.value); setOpen(false); }} className={`flex w-full items-center justify-between px-3 py-2.5 text-left font-medium transition focus-visible:outline-2 focus-visible:outline-white ${option.value === value ? "bg-white text-[#102a43]" : "text-white hover:bg-white/15"}`}>
+    {open && <div role="listbox" aria-label="Member role" className="absolute z-10 mt-2 w-full rounded-md border border-white bg-surface-solid p-1">
+      {roleOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={option.value === value} onClick={() => { onChange(option.value); setOpen(false); }} className={`flex w-full items-center justify-between px-3 py-2.5 text-left font-medium transition focus-visible:outline-2 focus-visible:outline-white ${option.value === value ? "navy-surface relative isolate overflow-hidden" : "text-white hover:bg-white/15"}`}>{option.value === value && <FloatingQuestionMarks contained compact start={10} />}
         <span>{option.label}</span>{option.value === value && <span aria-hidden="true">✓</span>}
       </button>)}
     </div>}
@@ -309,11 +357,11 @@ function PendingRow({
   }
 
   return (
-    <div className="flex flex-col gap-1 border border-white/80 bg-black/10 p-3 text-sm">
+    <div className="flex flex-col gap-1 rounded-md border border-white/80 bg-black/[0.04] p-3 text-sm">
       <div className="flex items-center justify-between gap-2">
         <div>
           <p>{invitation.email}</p>
-          <p className="text-white/60">
+          <p className="text-white">
             {[invitation.displayName, invitation.role, invitation.deliveryStatus]
               .filter(Boolean)
               .join(" · ")}
@@ -324,7 +372,7 @@ function PendingRow({
             type="button"
             onClick={resend}
             disabled={busy !== null}
-            className="border border-white/80 px-3 py-1 text-white transition hover:bg-white/10 disabled:opacity-50"
+            className="rounded-md border border-white/80 px-3 py-1 text-white transition hover:bg-white/10 disabled:opacity-50"
           >
             {busy === "resend" ? "..." : "Resend"}
           </button>
@@ -332,13 +380,13 @@ function PendingRow({
             type="button"
             onClick={deleteInvite}
             disabled={busy !== null}
-            className="border border-white/80 px-3 py-1 text-white transition hover:bg-white/10 disabled:opacity-50"
+            className="rounded-md border border-white/80 px-3 py-1 text-white transition hover:bg-white/10 disabled:opacity-50"
           >
             {busy === "delete" ? "..." : "Delete"}
           </button>
         </div>
       </div>
-      {error && <p className="text-red-400">{error}</p>}
+      {error && <p className="text-red-700">{error}</p>}
     </div>
   );
 }
