@@ -64,11 +64,12 @@ describe("realtime notifications after durable point changes", () => {
   });
 
   it("notifies for a newly finalized riddle, but not an idempotent retry", async () => {
+    const operationKey = "88fd76a3-a596-4b3c-9a42-bfcf0eb194c3";
     submitChallenge.mockResolvedValueOnce({ finalized: true, alreadyFinalized: false })
       .mockResolvedValueOnce({ finalized: true, alreadyFinalized: true });
     const request = () => new Request(`https://riddletime.test/api/challenge/${id}/submit`, {
       method: "POST",
-      body: JSON.stringify({ response: "piano" }),
+      body: JSON.stringify({ response: "piano", operationKey }),
       headers: { "Content-Type": "application/json" },
     });
     const context = { params: Promise.resolve({ id }) };
@@ -77,5 +78,20 @@ describe("realtime notifications after durable point changes", () => {
     await submit(request(), context);
 
     expect(announceLeaderboardChanged).toHaveBeenCalledTimes(1);
+    expect(submitChallenge).toHaveBeenCalledWith(id, "piano", operationKey);
+  });
+
+  it("accepts an answerless expiry-finalization request", async () => {
+    submitChallenge.mockResolvedValue({ finalized: true, alreadyFinalized: false });
+    const request = new Request(`https://riddletime.test/api/challenge/${id}/submit`, {
+      method: "POST",
+      body: JSON.stringify({ finalizeExpired: true }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const response = await submit(request, { params: Promise.resolve({ id }) });
+
+    expect(response.status).toBe(200);
+    expect(submitChallenge).toHaveBeenCalledWith(id, null);
   });
 });

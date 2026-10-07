@@ -8,6 +8,7 @@ import type { LeaderboardEntry } from "@/server/points/points";
 import { InvitePanel, SignOutButton, UserAccountsPanel } from "./home-actions";
 import { LeaderboardRealtime } from "./leaderboard-realtime";
 import { PointsDesk, Scoreboard } from "./scoreboard";
+import { RiddleGame } from "./riddle-game";
 
 type WorkspaceView = "home" | "riddle" | "points" | "settings";
 type SettingsTab = "general" | "invitations" | "users";
@@ -52,7 +53,7 @@ export function HomeWorkspace({
 
       <main className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-0">
         {view === "home" && <Scoreboard initialEntries={leaderboard} />}
-        {view === "riddle" && <RiddlePlaceholder />}
+        {view === "riddle" && <RiddleGame playerId={profile.id} role={profile.role} onCompleted={refreshRealtimeData} />}
         {view === "points" && canManagePoints && <PointsDesk players={leaderboard} canViewAudit={profile.role === "admin"} onChanged={async () => router.refresh()} refreshVersion={realtimeRefreshVersion} />}
         {view === "settings" && <SettingsPage profile={profile} isAdmin={profile.role === "admin"} tab={settingsTab} onTabChange={setSettingsTab} />}
       </main>
@@ -110,15 +111,6 @@ function InlineProfileField({ id, label, value, placeholder, autoComplete, onCha
       <input id={id} type="text" autoComplete={autoComplete} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="w-full bg-black/15 px-3 py-2 text-lg font-medium text-white transition placeholder:text-white/40 hover:bg-black/25 focus:bg-black/25 focus:outline-2 focus:outline-white/80" />
     </div>
   </div>;
-}
-
-function RiddlePlaceholder() {
-  return <section className="mx-auto flex w-full max-w-4xl flex-col gap-3 px-4 py-8 sm:px-8 sm:py-12">
-    <h2 className="text-3xl font-semibold tracking-tight">Riddle</h2>
-    <div className="border border-white/80 bg-black/10 px-6 py-14 text-center">
-      <p className="font-semibold">Today’s riddle is coming soon.</p>
-    </div>
-  </section>;
 }
 
 function SettingsPage({ profile, isAdmin, tab, onTabChange }: { profile: Profile; isAdmin: boolean; tab: SettingsTab; onTabChange: (tab: SettingsTab) => void }) {
