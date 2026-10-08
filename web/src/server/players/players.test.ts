@@ -219,6 +219,36 @@ describe("member account management", () => {
     await expect(listMemberAccounts("invalid")).rejects.toThrow();
   });
 
+  it("lists accounts by name, with unnamed accounts last", async () => {
+    const adminId = await makeAdmin();
+    const [zoe, amy, unnamed] = [await createAuthUser(), await createAuthUser(), await createAuthUser()];
+    const tag = randomUUID().slice(0, 8);
+    await pool.query(
+      "insert into profiles (id, name, display_name, role) values ($1, $4, $5, 'spectator'), ($2, $6, $7, 'spectator'), ($3, null, $8, 'spectator')",
+      [zoe, amy, unnamed, `Zoe ${tag}`, `a_${tag}`, `amy ${tag}`, `z_${tag}`, `m_${tag}`],
+    );
+    getVerifiedUser.mockResolvedValue({ id: adminId });
+
+    const ids = (await listMemberAccounts("spectator")).map((account) => account.id).filter((id) => [zoe, amy, unnamed].includes(id));
+
+    expect(ids).toEqual([amy, zoe, unnamed]);
+  });
+
+  it("orders numbered names naturally", async () => {
+    const adminId = await makeAdmin();
+    const ids = [await createAuthUser(), await createAuthUser(), await createAuthUser()];
+    const tag = randomUUID().slice(0, 8);
+    await pool.query(
+      "insert into profiles (id, name, display_name, role) values ($1, $4, $5, 'spectator'), ($2, $6, $7, 'spectator'), ($3, $8, $9, 'spectator')",
+      [...ids, `KS10 ${tag}`, `n10_${tag}`, `KS2 ${tag}`, `n2_${tag}`, `KS1 ${tag}`, `n1_${tag}`],
+    );
+    getVerifiedUser.mockResolvedValue({ id: adminId });
+
+    const ordered = (await listMemberAccounts("spectator")).map((account) => account.id).filter((id) => ids.includes(id));
+
+    expect(ordered).toEqual([ids[2], ids[1], ids[0]]);
+  });
+
   it("renames a spectator username and resets their password", async () => {
     const adminId = await makeAdmin();
     const spectatorId = await createAuthUser("watcher@example.test");

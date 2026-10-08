@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { withTransaction } from "@/lib/db";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
+import { compareByName } from "@/lib/account-order";
 import { parsePlayerUsername, parsePlayerUsernameDisplay, playerUsernameEmail } from "@/lib/player-username";
 import { requireAdmin } from "@/server/identity/identity";
 import { ConflictError, NotFoundError } from "@/server/http/errors";
@@ -81,10 +82,12 @@ export async function listMemberAccounts(rawRole: unknown): Promise<ManagedAccou
   return withTransaction(async (client) => {
     await requireAdmin(client);
     const { rows } = await client.query(
-      "select id, name, display_name, avatar_url, role from profiles where role = $1 order by lower(display_name)",
+      "select id, name, display_name, avatar_url, role from profiles where role = $1",
       [role],
     );
-    return rows.map((row) => ({ id: row.id, name: row.name, displayName: row.display_name, avatarUrl: row.avatar_url, role: row.role }));
+    return rows
+      .map((row) => ({ id: row.id, name: row.name, displayName: row.display_name, avatarUrl: row.avatar_url, role: row.role }))
+      .sort(compareByName);
   });
 }
 

@@ -1,7 +1,8 @@
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LeaderboardEntry } from "@/server/points/points";
+import { compareByName } from "@/lib/account-order";
 import { pruneSelection } from "@/lib/point-selection";
 import { FloatingQuestionMarks } from "./floating-question-marks";
 
@@ -115,7 +116,8 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
   const [recentAdjustments, setRecentAdjustments] = useState<RecentAdjustment[]>([]);
   const operationKey = useRef<string | null>(null);
   const effectiveAmount = customAmount === "" ? amount : Number(customAmount);
-  const matchingPlayers = players.filter((player) => {
+  const playersByName = useMemo(() => [...players].sort(compareByName), [players]);
+  const matchingPlayers = playersByName.filter((player) => {
     const query = playerQuery.trim().toLocaleLowerCase();
     return !query || player.displayName.toLocaleLowerCase().includes(query) || player.name?.toLocaleLowerCase().includes(query);
   });
@@ -175,7 +177,7 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
     if (!saved) return;
     operationKey.current = null;
     setReason("");
-    const selectedNames = players.filter((player) => savedUserIds.includes(player.userId)).map((player) => player.displayName);
+    const selectedNames = playersByName.filter((player) => savedUserIds.includes(player.userId)).map((player) => player.displayName);
     const who = savedUserIds.length === players.length
       ? "everyone"
       : selectedNames.length <= 3
@@ -222,7 +224,7 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
     }
   }
 
-  const selectedNames = players.filter((player) => selectedUserIds.includes(player.userId)).map((player) => player.displayName);
+  const selectedNames = playersByName.filter((player) => selectedUserIds.includes(player.userId)).map((player) => player.displayName);
   const allPlayersSelected = players.length > 0 && selectedUserIds.length === players.length;
   const selectionSummary = selectedUserIds.length === 0
     ? "Nobody selected yet."
