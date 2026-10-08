@@ -123,7 +123,7 @@ function toPublicScoringPolicy(policy: ScoringPolicy) {
 
 async function getStaffPreview(client: PoolClient, dailyChallengeId: string) {
   const { rows } = await client.query(
-    `select type, difficulty, prompt, time_limit_seconds, max_attempts, scoring_policy
+    `select type, difficulty, prompt, time_limit_seconds, max_attempts, scoring_policy, config
      from challenges
      where daily_challenge_id = $1 and mode = 'shared'`,
     [dailyChallengeId],
@@ -131,6 +131,8 @@ async function getStaffPreview(client: PoolClient, dailyChallengeId: string) {
   const row = rows[0];
   const policy = scoringPolicySchema.safeParse(row?.scoring_policy);
   if (!row || !policy.success) return null;
+  const config = row.type === "character_puzzle" ? characterConfigSchema.safeParse(row.config) : null;
+  if (config && !config.success) return null;
   return {
     type: row.type as "riddle" | "character_puzzle",
     difficulty: row.difficulty as string,
@@ -138,6 +140,8 @@ async function getStaffPreview(client: PoolClient, dailyChallengeId: string) {
     timeLimitSeconds: row.time_limit_seconds as number,
     maxAttempts: row.max_attempts as number,
     scoringPolicy: toPublicScoringPolicy(policy.data),
+    ...(policy.data.speed_bonuses ? { speedBonuses: policy.data.speed_bonuses } : {}),
+    ...(config?.success ? { config: config.data } : {}),
   };
 }
 

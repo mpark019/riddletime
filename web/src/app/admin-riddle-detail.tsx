@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { formatCountdown } from "@/lib/challenge-state";
+import { difficultyColor } from "@/lib/difficulty";
 import { summarizePlayers } from "@/lib/admin-riddle-stats";
 import type { ScheduledRiddle, ScheduledRiddlePlayer } from "@/server/schedules/schedules";
 
@@ -106,7 +107,7 @@ function RiddleHeader({ riddle, deleting, onDelete }: { riddle: ScheduledRiddle;
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="rounded-full border border-white/40 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide">{typeLabels[riddle.type ?? ""] ?? "Puzzle"}</span>
-        <span className="rounded-full border border-white/25 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-white/70">{riddle.difficulty ?? "?"}</span>
+        <span style={difficultyColor(riddle.difficulty) ? { borderColor: difficultyColor(riddle.difficulty), color: difficultyColor(riddle.difficulty) } : undefined} className="rounded-full border border-white/25 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-white/70">{riddle.difficulty ?? "?"}</span>
         <p className="ml-1 font-semibold tabular-nums">{riddle.activeDate} <span className="ml-1 text-sm font-normal uppercase tracking-wide text-white/55">{riddle.timing}</span></p>
       </div>
       <button type="button" disabled={deleting} onClick={onDelete} className="rounded-md border border-[#f00000] px-3 py-1.5 text-xs font-semibold text-[#f00000] transition hover:bg-[#f00000] hover:text-white disabled:opacity-50">Delete</button>

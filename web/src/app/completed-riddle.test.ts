@@ -294,28 +294,41 @@ describe("NotStartedRiddle", () => {
 });
 
 describe("StaffRiddleView", () => {
-  const html = renderToStaticMarkup(createElement(StaffRiddleView, {
-    preview: {
-      type: "riddle",
-      difficulty: "hard",
-      prompt: "What has keys but no locks?",
-      timeLimitSeconds: 120,
-      maxAttempts: 3,
-      scoringPolicy: { base_points: 100, failure_penalty_points: 20 },
-    },
+  const base = {
+    difficulty: "hard",
+    prompt: "What has keys but no locks?",
+    timeLimitSeconds: 120,
+    maxAttempts: 3,
+    scoringPolicy: { base_points: 100, failure_penalty_points: 20 },
+  };
+  const riddleHtml = renderToStaticMarkup(createElement(StaffRiddleView, {
+    preview: { ...base, type: "riddle", speedBonuses: [{ under_ms: 30000, points: 50 }] },
+  }));
+  const letterHtml = renderToStaticMarkup(createElement(StaffRiddleView, {
+    preview: { ...base, type: "character_puzzle", config: { target_length: 5, character_set: "ABCDEFGHIJKLMNOPQRSTUVWXYZ" } },
   }));
 
-  it("shows the prompt, limits, and stakes (AC-1, AC-2)", () => {
-    expect(html).toContain("What has keys but no locks?");
-    expect(html).toContain("2:00");
-    expect(html).toContain("3 tries");
-    expect(html).toContain("+100");
-    expect(html).toContain("-20");
+  it("shows the same prompt, timer, tries, stakes and speed tiers a player sees (AC-1, AC-2)", () => {
+    expect(riddleHtml).toContain("What has keys but no locks?");
+    expect(riddleHtml).toContain("2:00");
+    expect(riddleHtml).toContain("3/3");
+    expect(riddleHtml).toContain("+100");
+    expect(riddleHtml).toContain("-20");
+    expect(riddleHtml).toContain("Under 30s");
+    expect(riddleHtml).toContain("+50");
   });
 
-  it("offers no way to start or answer (AC-6)", () => {
-    expect(html).not.toContain("<button");
-    expect(html).not.toContain("<input");
-    expect(html).not.toContain("<form");
+  it("shows the empty letter board and keyboard for a letter game", () => {
+    expect(letterHtml).toContain("Letter game");
+    expect(letterHtml).toContain('aria-label="Keyboard"');
+  });
+
+  it("offers no enabled way to start or answer (AC-6)", () => {
+    for (const html of [riddleHtml, letterHtml]) {
+      const controls = html.match(/<(button|input)\b[^>]*>/g) ?? [];
+      expect(controls.length).toBeGreaterThan(0);
+      expect(controls.every((control) => control.includes("disabled"))).toBe(true);
+      expect(html).not.toContain("<form");
+    }
   });
 });

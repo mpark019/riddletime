@@ -593,6 +593,7 @@ describe("getTodayChallenge access", () => {
         timeLimitSeconds: 120,
         maxAttempts: 1,
         scoringPolicy: { base_points: 100 },
+        speedBonuses: [],
       },
     });
   });

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { buildCharacterScheduleRequest, buildManualRiddleScheduleRequest } from "@/lib/admin-riddle-schedule";
+import { DIFFICULTIES, difficultyColor, type Difficulty } from "@/lib/difficulty";
 import { AdminRiddleList } from "./admin-riddle-list";
 import { DatePicker } from "./date-picker";
 import { FloatingQuestionMarks } from "./floating-question-marks";
@@ -20,7 +21,7 @@ const inputClass = "mt-1 w-full rounded-md border border-white/40 bg-black/[0.04
 
 export function AdminRiddleScheduler({ appTimezone, today }: { appTimezone: string; today: string }) {
   const [activeDate, setActiveDate] = useState(today);
-  const [difficulty, setDifficulty] = useState("standard");
+  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [prompt, setPrompt] = useState("");
   const [acceptedAnswers, setAcceptedAnswers] = useState("");
   const [timeLimitSeconds, setTimeLimitSeconds] = useState("120");
@@ -131,9 +132,12 @@ export function AdminRiddleScheduler({ appTimezone, today }: { appTimezone: stri
               <DatePicker id="schedule-play-date" value={activeDate} onChange={setActiveDate} min={today} today={today} className={inputClass} />
               <span className="mt-1 block text-xs font-normal text-white/55">{appTimezone}</span>
             </div>
-            <label className="text-sm font-semibold">Difficulty name
-              <input type="text" required maxLength={100} value={difficulty} onChange={(event) => setDifficulty(event.target.value)} className={inputClass} />
-            </label>
+            <div className="text-sm font-semibold sm:col-span-2">
+              <span id="schedule-difficulty-label">Difficulty</span>
+              <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-labelledby="schedule-difficulty-label">
+                {DIFFICULTIES.map((option) => <DifficultyButton key={option} option={option} active={difficulty === option} onClick={() => setDifficulty(option)} />)}
+              </div>
+            </div>
           </div>
           <div className="mt-5 flex flex-wrap gap-2" aria-label="Schedule type">
             <span className="rounded-full border border-white/30 px-3 py-1 text-sm font-semibold">Shared</span>
@@ -141,7 +145,6 @@ export function AdminRiddleScheduler({ appTimezone, today }: { appTimezone: stri
               <PuzzleKindButton active={puzzleKind === "riddle"} onClick={() => selectPuzzleKind("riddle")}>Riddle</PuzzleKindButton>
               <PuzzleKindButton active={puzzleKind === "character_puzzle"} onClick={() => selectPuzzleKind("character_puzzle")}>Letter game</PuzzleKindButton>
             </div>
-            <span className="rounded-full border border-white/30 px-3 py-1 text-sm font-semibold">Fixed difficulty</span>
           </div>
           {puzzleKind === "riddle" ? <>
           <label className="mt-5 block text-sm font-semibold">Riddle prompt
@@ -216,4 +219,16 @@ function TabButton({ active, children, onClick }: { active: boolean; children: s
 
 function PuzzleKindButton({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
   return <button type="button" role="radio" aria-checked={active} onClick={onClick} className={`px-3 py-1 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-white ${active ? "bg-white/20" : "hover:bg-white/10"}`}>{children}</button>;
+}
+
+function DifficultyButton({ option, active, onClick }: { option: Difficulty; active: boolean; onClick: () => void }) {
+  const color = difficultyColor(option);
+  return <button
+    type="button"
+    role="radio"
+    aria-checked={active}
+    onClick={onClick}
+    style={{ borderColor: color, color: active ? "#fff" : color, backgroundColor: active ? color : undefined }}
+    className="flex min-w-0 items-center justify-center whitespace-nowrap rounded-md border-2 px-2 py-2.5 text-sm font-bold uppercase tracking-wide transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+  >{option}</button>;
 }

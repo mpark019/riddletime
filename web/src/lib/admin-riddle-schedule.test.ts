@@ -5,10 +5,24 @@ import {
 } from "./admin-riddle-schedule";
 
 describe("buildManualRiddleScheduleRequest", () => {
+  it.each(["standard", "", "EXTREME!"])("rejects the unsupported difficulty %j", (difficulty) => {
+    expect(() => buildManualRiddleScheduleRequest({
+      activeDate: "2030-05-06",
+      difficulty,
+      prompt: "What has keys?",
+      acceptedAnswers: "piano",
+      timeLimitSeconds: "120",
+      maxAttempts: "1",
+      basePoints: "100",
+      failurePenaltyPoints: "0",
+      speedBonuses: [],
+    })).toThrow("Choose a difficulty.");
+  });
+
   it("builds the fixed shared-riddle request with speed and failure penalties", () => {
     expect(buildManualRiddleScheduleRequest({
       activeDate: "2030-05-06",
-      difficulty: "standard",
+      difficulty: "medium",
       prompt: " What has keys? ",
       acceptedAnswers: "piano\n a piano \n\n",
       timeLimitSeconds: "120",
@@ -25,7 +39,7 @@ describe("buildManualRiddleScheduleRequest", () => {
       allowed_types: ["riddle"],
       difficulty_selection: "fixed",
       difficulty_presets: {
-        standard: {
+        medium: {
           types: {
             riddle: {
               time_limit_seconds: 120,
@@ -44,7 +58,7 @@ describe("buildManualRiddleScheduleRequest", () => {
           },
         },
       },
-      selected_difficulty: "standard",
+      selected_difficulty: "medium",
       manual_puzzle: {
         type: "riddle",
         prompt: "What has keys?",
@@ -62,7 +76,7 @@ describe("buildManualRiddleScheduleRequest", () => {
   ])("rejects %s before sending", (_label, override) => {
     expect(() => buildManualRiddleScheduleRequest({
       activeDate: "2030-05-06",
-      difficulty: "standard",
+      difficulty: "medium",
       prompt: "A riddle",
       acceptedAnswers: "answer",
       timeLimitSeconds: "120",
@@ -78,7 +92,7 @@ describe("buildManualRiddleScheduleRequest", () => {
 describe("buildCharacterScheduleRequest", () => {
   const form = {
     activeDate: "2030-05-06",
-    difficulty: "standard",
+    difficulty: "medium",
     timeLimitSeconds: "180",
     maxAttempts: "6",
     basePoints: "100",
@@ -94,7 +108,7 @@ describe("buildCharacterScheduleRequest", () => {
       allowed_types: ["character_puzzle"],
       difficulty_selection: "fixed",
       difficulty_presets: {
-        standard: {
+        medium: {
           types: {
             character_puzzle: {
               time_limit_seconds: 180,
@@ -110,7 +124,7 @@ describe("buildCharacterScheduleRequest", () => {
           },
         },
       },
-      selected_difficulty: "standard",
+      selected_difficulty: "medium",
       manual_puzzle: { type: "character_puzzle", target: "CRANE7" },
     });
   });

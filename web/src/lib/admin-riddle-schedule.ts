@@ -1,3 +1,5 @@
+import { isDifficulty } from "./difficulty";
+
 interface ScheduleRulesForm {
   activeDate: string;
   difficulty: string;
@@ -34,7 +36,7 @@ function buildRules(form: ScheduleRulesForm, maxAttemptsLimit = MAX_DATABASE_INT
   const activeDate = form.activeDate.trim();
   const difficulty = form.difficulty.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(activeDate)) throw new Error("Choose a schedule date.");
-  if (!difficulty) throw new Error("Enter a difficulty name.");
+  if (!isDifficulty(difficulty)) throw new Error("Choose a difficulty.");
 
   const timeLimitSeconds = wholeNumber(form.timeLimitSeconds, "Time limit", 1);
   const maxAttempts = wholeNumber(form.maxAttempts, "Maximum attempts", 1);

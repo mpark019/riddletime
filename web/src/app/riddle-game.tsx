@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import type { Role } from "@/server/identity/identity";
 import { sanitizeCharacterInput } from "@/server/challenges/character-puzzle";
+import { difficultyColor } from "@/lib/difficulty";
 import { CharacterBoard, CharacterKeyboard } from "./character-grid";
 import { PrimaryButton } from "./primary-button";
 import {
@@ -438,16 +439,15 @@ export function RiddleGame({
   );
 
   return <RiddleFrame>
-    <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
-      <RiddleStakes policy={play.scoringPolicy} pressure={stakesPressure(secondsRemaining, play.timeLimitSeconds, play.attemptsRemaining, play.maxAttempts)} />
-      <div className="w-full sm:ml-auto sm:w-auto">
-        <p className="mb-2 text-sm font-semibold uppercase tracking-[0.2em] text-white/55 sm:text-right">{play.difficulty}</p>
-        <div className="grid grid-cols-2 gap-3 sm:flex sm:text-right">
-          <Stat label="Time" value={formatCountdown(secondsRemaining)} live urgency={urgency} />
-          <Stat label="Tries left" value={`${play.attemptsRemaining}/${play.maxAttempts}`} urgency={attemptsUrgency(play.attemptsRemaining, play.maxAttempts)} pulse={false} />
-        </div>
-      </div>
-    </div>
+    <PlayHeader
+      policy={play.scoringPolicy}
+      pressure={stakesPressure(secondsRemaining, play.timeLimitSeconds, play.attemptsRemaining, play.maxAttempts)}
+      difficulty={play.difficulty}
+      time={formatCountdown(secondsRemaining)}
+      urgency={urgency}
+      tries={`${play.attemptsRemaining}/${play.maxAttempts}`}
+      triesUrgency={attemptsUrgency(play.attemptsRemaining, play.maxAttempts)}
+    />
 
     {speedTiers.length > 0 && <SpeedTiers tiers={speedTiers} basePoints={play.scoringPolicy.base_points} />}
 
@@ -518,7 +518,7 @@ export function NotStartedRiddle({
 }) {
   return <RiddleFrame>
     <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">Daily challenge</p>
-    <h3 className="mt-3 text-2xl font-semibold capitalize">{play.difficulty ?? "Ready when you are?"}</h3>
+    <h3 style={{ color: difficultyColor(play.difficulty) }} className="mt-3 text-2xl font-bold uppercase">{play.difficulty ?? "Ready when you are?"}</h3>
     <p className="mt-3 max-w-xl text-white/70">Your timer starts only after the game has begun. Refreshing will not reset it.</p>
     {play.scoringPolicy && <div className="mt-6"><RiddleStakes policy={play.scoringPolicy} /></div>}
     {error && <div className="mt-5"><ErrorMessage message={error} /></div>}
@@ -529,13 +529,73 @@ export function NotStartedRiddle({
 }
 
 export function StaffRiddleView({ preview }: { preview: StaffRiddlePreview }) {
+  const { config } = preview;
+  const speedTiers = speedTierStatuses(
+    preview.speedBonuses,
+    preview.timeLimitSeconds,
+    new Date(preview.timeLimitSeconds * 1000).toISOString(),
+    0,
+    0,
+  );
   return <RiddleFrame>
-    <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">Today’s challenge · view only</p>
-    <h3 className="mt-3 text-2xl font-semibold capitalize">{preview.difficulty}</h3>
-    <p className="mt-4 max-w-2xl whitespace-pre-wrap text-lg">{preview.prompt}</p>
-    <p className="mt-4 text-sm text-white/65">{formatCountdown(preview.timeLimitSeconds)} to answer · {preview.maxAttempts} {preview.maxAttempts === 1 ? "try" : "tries"}</p>
-    <div className="mt-6"><RiddleStakes policy={preview.scoringPolicy} /></div>
+    <p className="mb-6 text-xs font-semibold uppercase tracking-[0.14em] text-white/55 sm:text-sm sm:tracking-[0.2em]">View only · players see this when they start</p>
+    <PlayHeader
+      policy={preview.scoringPolicy}
+      difficulty={preview.difficulty}
+      time={formatCountdown(preview.timeLimitSeconds)}
+      tries={`${preview.maxAttempts}/${preview.maxAttempts}`}
+    />
+
+    {speedTiers.length > 0 && <SpeedTiers tiers={speedTiers} basePoints={preview.scoringPolicy.base_points} />}
+
+    {config
+      ? <div className="mt-8 border-t border-white/25 pt-6">
+        <p className="mb-5 text-center text-sm font-semibold uppercase tracking-wide text-white/55">Letter game</p>
+        <CharacterBoard guesses={[]} current="" length={config.target_length} rows={preview.maxAttempts} />
+        <CharacterKeyboard
+          characterSet={config.character_set}
+          guesses={[]}
+          disabled
+          canSubmit={false}
+          onCharacter={noop}
+          onDelete={noop}
+          onEnter={noop}
+        />
+      </div>
+      : <>
+        <p className="mt-8 border-y border-white/25 py-8 text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{preview.prompt}</p>
+        <div className="mt-7">
+          <label htmlFor="riddle-response" className="text-sm font-semibold text-white/70">Your answer</label>
+          <div className="mt-2 flex flex-col gap-3 sm:flex-row">
+            <input id="riddle-response" disabled className="min-w-0 flex-1 rounded-md border border-white/70 bg-black/[0.06] px-4 py-3 text-lg text-white placeholder:text-white/45 disabled:opacity-50" placeholder="Enter your answer" />
+            <PrimaryButton type="button" disabled className="px-6 py-3">Submit answer</PrimaryButton>
+          </div>
+        </div>
+      </>}
   </RiddleFrame>;
+}
+
+function noop() {}
+
+function PlayHeader({ policy, pressure, difficulty, time, urgency = 0, tries, triesUrgency = 0 }: {
+  policy: ScoringPolicy;
+  pressure?: number;
+  difficulty: string;
+  time: string;
+  urgency?: number;
+  tries: string;
+  triesUrgency?: number;
+}) {
+  return <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
+    <RiddleStakes policy={policy} pressure={pressure} />
+    <div className="w-full sm:ml-auto sm:w-auto">
+      <p style={{ color: difficultyColor(difficulty) }} className="mb-2 text-2xl font-extrabold uppercase tracking-[0.2em] text-white/55 sm:text-center">{difficulty}</p>
+      <div className="grid grid-cols-2 gap-3 sm:flex sm:text-right">
+        <Stat label="Time" value={time} live urgency={urgency} />
+        <Stat label="Tries left" value={tries} urgency={triesUrgency} pulse={false} />
+      </div>
+    </div>
+  </div>;
 }
 
 function resultSummary(play: Extract<PlayerChallengeState, { status: "completed" }>) {
@@ -593,21 +653,20 @@ function Stat({ label, value, live = false, urgency = 0, pulse = urgency === 1 }
 
 function SpeedTiers({ tiers, basePoints }: { tiers: ReturnType<typeof speedTierStatuses>; basePoints: number }) {
   return <div className="mt-6">
-    <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Speed bonuses <span className="font-normal normal-case tracking-normal">(on top of {basePoints} points; the best tier you still qualify for applies)</span></h4>
-    <ul className="mt-2 flex flex-wrap gap-2">
+    <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Speed bonuses</h4>
+    <ul className="mt-3 flex flex-wrap gap-3">
       {tiers.map((tier) => <li
         key={tier.underMs}
-        className={`rounded-md border px-3 py-2 text-sm ${
+        className={`min-w-28 rounded-md border px-4 py-2.5 ${
           tier.expired
-            ? "border-white/15 text-white/35 line-through"
+            ? "border-white/15 opacity-40"
             : tier.current
-              ? "border-emerald-300/70 bg-emerald-950/40 font-semibold text-emerald-200"
-              : "border-white/30 text-white/80"
+              ? "border-[#00940a] bg-[#00940a]/10"
+              : "border-white/30"
         }`}
       >
-        Under {tier.underMs / 1000}s: +{tier.points}
-        {tier.expired && <span className="ml-2 inline-block text-xs font-semibold uppercase">expired</span>}
-        {tier.current && <span className="ml-2 text-xs font-semibold uppercase"></span>}
+        <p className="text-xs font-semibold uppercase tracking-wide text-white/55">Under {tier.underMs / 1000}s{tier.expired && " · expired"}</p>
+        <p className={`mt-0.5 text-2xl font-bold tabular-nums ${tier.expired ? "line-through" : "text-[#00940a]"}`}>+{tier.points}</p>
       </li>)}
     </ul>
   </div>;

@@ -68,6 +68,8 @@ export interface StaffRiddlePreview {
   timeLimitSeconds: number;
   maxAttempts: number;
   scoringPolicy: PublicScoringPolicy;
+  speedBonuses?: ScoringPolicy["speed_bonuses"];
+  config?: CharacterConfig;
 }
 
 export type TodayChallengeResponse =
