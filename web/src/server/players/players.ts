@@ -39,10 +39,11 @@ export interface ManagedAccount {
 }
 
 export const updatePlayerAccountInput = z.object({
+  name: z.string().trim().max(100).transform((value) => value || null).optional(),
   displayName: z.string().trim().min(1).optional(),
   password: z.string().min(1, "Password is required.").optional(),
-}).strict().refine((input) => input.displayName !== undefined || input.password !== undefined, {
-  message: "Provide a display name or password.",
+}).strict().refine((input) => input.name !== undefined || input.displayName !== undefined || input.password !== undefined, {
+  message: "Provide a name, display name or password.",
 });
 
 function defaultAuthAdmin(): PlayerAccountAuthAdmin {
@@ -106,8 +107,8 @@ export async function updateMemberAccount(id: string, rawInput: unknown) {
   return withTransaction(async (client) => {
     await requireAdmin(client);
     const { rows } = await client.query(
-      "update profiles set display_name = coalesce($2, display_name) where id = $1 returning id, name, display_name, avatar_url, role",
-      [id, account.displayName ?? null],
+      "update profiles set display_name = coalesce($2, display_name), name = case when $3::boolean then $4 else name end where id = $1 returning id, name, display_name, avatar_url, role",
+      [id, account.displayName ?? null, input.name !== undefined, input.name ?? null],
     );
     if (!rows[0]) throw new NotFoundError("Account not found");
     return { id: rows[0].id, name: rows[0].name, displayName: rows[0].display_name, avatarUrl: rows[0].avatar_url, role: rows[0].role };

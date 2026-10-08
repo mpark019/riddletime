@@ -206,8 +206,8 @@ export function UserAccountsPanel({ currentUserId }: { currentUserId: string }) 
   const [notice, setNotice] = useState<{ text: string } | null>(null);
   const refresh = async (selectedRole = role) => { const response = await fetch(`/api/admin/players?role=${selectedRole}`); if (response.ok) setAccounts(await response.json()); else setError("Could not load users."); };
   useEffect(() => { const timer = window.setTimeout(() => { void fetch(`/api/admin/players?role=${role}`).then(async (response) => { if (response.ok) setAccounts(await response.json()); else setError("Could not load users."); }); }, 0); return () => window.clearTimeout(timer); }, [role]);
-  async function save(id: string, displayName: string, password: string) {
-    const response = await fetch(`/api/admin/players/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ displayName, ...(password ? { password } : {}) }) });
+  async function save(id: string, name: string, displayName: string, password: string) {
+    const response = await fetch(`/api/admin/players/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, displayName, ...(password ? { password } : {}) }) });
     if (!response.ok) { const body = await response.json().catch(() => ({})); setError(body.error ?? "Could not update user."); return false; }
     await refresh();
     return true;
@@ -250,7 +250,7 @@ export function UserAccountsPanel({ currentUserId }: { currentUserId: string }) 
         </div></td>
       </tr>)}</tbody>
     </table>}
-    {editing && <EditUserDialog account={editing} error={error} onCancel={() => { setEditing(null); setError(null); }} onSave={async (displayName, password) => { const saved = await save(editing.id, displayName, password); if (saved) { setEditing(null); setNotice({ text: `Saved ${displayName.trim() || accountLabel(editing)}${password ? " and updated the password" : ""}.` }); } return saved; }} />}
+    {editing && <EditUserDialog account={editing} error={error} onCancel={() => { setEditing(null); setError(null); }} onSave={async (name, displayName, password) => { const saved = await save(editing.id, name, displayName, password); if (saved) { setEditing(null); setNotice({ text: `Saved ${displayName.trim() || accountLabel(editing)}${password ? " and updated the password" : ""}.` }); } return saved; }} />}
     {pendingDelete && <DeleteUserDialog account={pendingDelete} onCancel={() => setPendingDelete(null)} onConfirm={() => void remove(pendingDelete.id)} />}
   </section>;
 }
@@ -259,7 +259,8 @@ function DeleteUserDialog({ account, onCancel, onConfirm }: { account: ManagedAc
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4" role="presentation"><div role="alertdialog" aria-modal="true" aria-labelledby="delete-user-title" aria-describedby="delete-user-description" className="w-full max-w-md rounded-md border border-red-200/80 bg-surface-solid p-6 shadow-2xl"><p className="text-xs font-bold uppercase tracking-[0.2em] text-red-800">Permanent action</p><h3 id="delete-user-title" className="mt-2 text-2xl font-semibold">Delete {account.displayName ?? account.name ?? "this account"}?</h3><p id="delete-user-description" className="mt-3 text-white">This permanently removes the account and its owned data. It cannot be undone.</p><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onCancel} className="rounded-md border border-white/80 px-4 py-2 font-semibold hover:bg-white/10">Cancel</button><button type="button" onClick={onConfirm} className="rounded-md border border-[#c00000] bg-[#f00000] px-4 py-2 font-semibold text-on-fill transition hover:bg-[#d60000]">Delete permanently</button></div></div></div>;
 }
 
-function EditUserDialog({ account, error, onCancel, onSave }: { account: ManagedAccount; error: string | null; onCancel: () => void; onSave: (displayName: string, password: string) => Promise<boolean> }) {
+function EditUserDialog({ account, error, onCancel, onSave }: { account: ManagedAccount; error: string | null; onCancel: () => void; onSave: (name: string, displayName: string, password: string) => Promise<boolean> }) {
+  const [name, setName] = useState(account.name ?? "");
   const [displayName, setDisplayName] = useState(account.displayName ?? "");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -268,13 +269,14 @@ function EditUserDialog({ account, error, onCancel, onSave }: { account: Managed
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
-    await onSave(displayName, password);
+    await onSave(name, displayName, password);
     setBusy(false);
   }
 
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" role="presentation"><form onSubmit={(event) => void submit(event)} role="dialog" aria-modal="true" aria-labelledby="edit-user-title" className="flex w-full max-w-md flex-col gap-4 rounded-md border border-white bg-surface-solid p-6 shadow-2xl">
     <h3 id="edit-user-title" className="text-xl font-semibold">Edit {account.name ?? account.displayName ?? "user"}</h3>
-    <label className="flex flex-col gap-1 text-sm font-medium"><span>{fieldLabel}</span><input autoFocus value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="h-11 w-full rounded-md border border-white/25 bg-black/[0.04] px-3 focus:outline-2 focus:outline-white" /></label>
+    <label className="flex flex-col gap-1 text-sm font-medium"><span>Name</span><input autoFocus maxLength={100} value={name} onChange={(e) => setName(e.target.value)} placeholder="No name" className="h-11 w-full rounded-md border border-white/25 bg-black/[0.04] px-3 focus:outline-2 focus:outline-white" /></label>
+    <label className="flex flex-col gap-1 text-sm font-medium"><span>{fieldLabel}</span><input value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="h-11 w-full rounded-md border border-white/25 bg-black/[0.04] px-3 focus:outline-2 focus:outline-white" /></label>
     <label className="flex flex-col gap-1 text-sm font-medium"><span>New password</span><input type="password" placeholder="Leave blank to keep the current one" value={password} onChange={(e) => setPassword(e.target.value)} className="h-11 w-full rounded-md border border-white/25 bg-black/[0.04] px-3 focus:outline-2 focus:outline-white" /></label>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
     <div className="mt-2 flex justify-end gap-3"><button type="button" onClick={onCancel} className="h-11 rounded-md border border-white/80 px-4 font-semibold hover:bg-white/10">Cancel</button><PrimaryButton type="submit" disabled={busy} markStart={14} className="h-11 px-4">{busy ? "Saving..." : "Save"}</PrimaryButton></div>

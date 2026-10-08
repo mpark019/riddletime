@@ -237,6 +237,19 @@ describe("member account management", () => {
     await expect(pool.query("select display_name from profiles where id = $1", [spectatorId])).resolves.toMatchObject({ rows: [{ display_name: displayName }] });
   });
 
+  it("changes and clears a name without touching the username or Auth", async () => {
+    const adminId = await makeAdmin();
+    const playerId = await createAuthUser();
+    const username = uniqueUsername("named");
+    await pool.query("insert into profiles (id, name, display_name, role) values ($1, 'Old Name', $2, 'player')", [playerId, username]);
+    getVerifiedUser.mockResolvedValue({ id: adminId });
+
+    await expect(updateMemberAccount(playerId, { name: "New Name" })).resolves.toMatchObject({ name: "New Name", displayName: username });
+    await expect(updateMemberAccount(playerId, { name: "" })).resolves.toMatchObject({ name: null, displayName: username });
+    expect(updateUserById).not.toHaveBeenCalled();
+    await expect(pool.query("select name, display_name from profiles where id = $1", [playerId])).resolves.toMatchObject({ rows: [{ name: null, display_name: username }] });
+  });
+
   it("permanently deletes a non-self spectator but rejects self-deletion", async () => {
     const adminId = await makeAdmin();
     const spectatorId = await createAuthUser();

@@ -21,4 +21,14 @@ describe("member-account password validation", () => {
     })).toThrow("Password is required.");
     expect(() => updatePlayerAccountInput.parse({ password: "" })).toThrow("Password is required.");
   });
+
+  it("accepts a name-only edit and treats a blank name as clearing it", () => {
+    expect(updatePlayerAccountInput.parse({ name: "  Brooklyn  " })).toEqual({ name: "Brooklyn" });
+    expect(updatePlayerAccountInput.parse({ name: "   " })).toEqual({ name: null });
+  });
+
+  it("rejects a name longer than 100 characters and an empty edit", () => {
+    expect(() => updatePlayerAccountInput.parse({ name: "x".repeat(101) })).toThrow();
+    expect(() => updatePlayerAccountInput.parse({})).toThrow();
+  });
 });
