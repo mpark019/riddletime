@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { PlayerChallengeState } from "@/lib/challenge-state";
-import { CompletedRiddle, NotStartedRiddle, RiddleStakes, StaffRiddleView } from "./riddle-game";
+import { CompletedRiddle, NotStartedRiddle, RiddleStakes, StaffPlayerRiddles, StaffRiddleView } from "./riddle-game";
 
 type Completed = Extract<PlayerChallengeState, { status: "completed" }>;
 
@@ -332,3 +332,83 @@ describe("StaffRiddleView", () => {
     }
   });
 });
+
+describe("StaffPlayerRiddles (AC-11)", () => {
+  const puzzle = { type: "riddle" as const, difficulty: "easy", maxAttempts: 2, timeLimitSeconds: 90 };
+  const base = { name: null, attempts: 0, timeTakenMs: null, points: null };
+  const players = [
+    { ...base, userId: "b", displayName: "bob", puzzle: null, status: "no_riddle" as const },
+    { ...base, userId: "a", displayName: "ada", puzzle, status: "solved" as const, attempts: 1, timeTakenMs: 42_000, points: 120 },
+    { ...base, userId: "c", displayName: "cy", puzzle, status: "not_started" as const },
+  ];
+
+  it("shows a pill with a status per player and opens on the first player who has a riddle", () => {
+    const html = renderToStaticMarkup(createElement(StaffPlayerRiddles, { players }));
+
+    expect(html).toContain('role="tablist"');
+    for (const text of ["ada", "bob", "cy", "no riddle today", "not started"]) expect(html).toContain(text);
+    expect(html).toContain("Solved");
+    expect(html).toContain("1/2");
+    expect(html).toContain("0:42");
+    expect(html).toContain("+120");
+  });
+
+  it("never shows the puzzle prompt or an answer box", () => {
+    const html = renderToStaticMarkup(createElement(StaffPlayerRiddles, { players }));
+
+    expect(html).not.toContain("Submit answer");
+    expect(html).not.toContain("Your answer");
+  });
+
+  it("describes a player with no riddle", () => {
+    const html = renderToStaticMarkup(createElement(StaffPlayerRiddles, { players: [players[0]] }));
+
+    expect(html).toContain("No riddle today");
+    expect(html).not.toContain("Tries");
+  });
+});
+
+describe("StaffPlayerRiddles with a player's own screen (AC-12)", () => {
+  const puzzle = { type: "riddle" as const, difficulty: "standard", maxAttempts: 2, timeLimitSeconds: 120 };
+  const base = { name: null, attempts: 0, timeTakenMs: null, points: null, puzzle };
+  const inProgress = {
+    status: "in_progress" as const,
+    submissionId: "s", challengeId: "c", type: "riddle" as const, difficulty: "standard", prompt: "Pending prompt",
+    startedAt: "2026-10-07T12:00:00.000Z", deadline: "2026-10-07T12:02:00.000Z", serverTime: "2026-10-07T12:01:00.000Z",
+    timeLimitSeconds: 120, maxAttempts: 2, attempts: 1, attemptsRemaining: 1,
+    guessHistory: [{ response: "wrong one", correct: false }], feedback: null, scoringPolicy: { base_points: 100 },
+  };
+
+  it("renders a completed player's results screen with their answers and no second page title", () => {
+    const html = renderToStaticMarkup(createElement(StaffPlayerRiddles, { players: [
+      { ...base, userId: "a", displayName: "ada", status: "solved" as const, play: completed(true, { base_points: 100, total_points: 100 }) },
+    ] }));
+
+    expect(html).toContain("what ada sees");
+    expect(html).toContain("Solved");
+    expect(html).toContain("Total points");
+    expect(html).toContain("2 + 2 ?");
+    expect(html.match(/<h2/g)).toHaveLength(1);
+  });
+
+  it("renders an in-progress player's prompt, guesses and time left without controls", () => {
+    const html = renderToStaticMarkup(createElement(StaffPlayerRiddles, { players: [
+      { ...base, userId: "a", displayName: "ada", status: "in_progress" as const, play: inProgress },
+    ] }));
+
+    expect(html).toContain("Pending prompt");
+    expect(html).toContain("wrong one");
+    expect(html).toContain("1:00");
+    expect(html).not.toContain("Submit answer");
+  });
+
+  it("shows a not-started player's start screen without a Start button", () => {
+    const html = renderToStaticMarkup(createElement(StaffPlayerRiddles, { players: [
+      { ...base, userId: "a", displayName: "ada", status: "not_started" as const, play: { status: "not_started" as const, available: true, difficulty: "standard", scoringPolicy: { base_points: 100 } } },
+    ] }));
+
+    expect(html).toContain("Daily challenge");
+    expect(html).not.toContain("Start riddle");
+  });
+});
+

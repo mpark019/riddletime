@@ -167,6 +167,39 @@ export const createSharedCharacterPuzzleInput = z.object({
   manual_puzzle: characterPuzzleSchema,
 }).strict().superRefine(refineSelectedPreset);
 
+const MAX_ASSIGNED_PLAYERS = 500;
+
+const assignedPlayersShape = {
+  mode: z.literal("personal"),
+  player_ids: z.array(z.uuid()).min(1).max(MAX_ASSIGNED_PLAYERS),
+};
+
+function refineDistinctPlayers(input: { player_ids: string[] }, context: z.RefinementCtx) {
+  if (new Set(input.player_ids).size !== input.player_ids.length) {
+    context.addIssue({ code: "custom", path: ["player_ids"], message: "Each player can be selected only once" });
+  }
+}
+
+export const assignPersonalRiddleInput = z.object({
+  active_date: z.iso.date(),
+  ...assignedPlayersShape,
+  allowed_types: z.tuple([z.literal("riddle")]),
+  difficulty_selection: z.literal("fixed"),
+  difficulty_presets: z.record(presetNameSchema, presetSchema),
+  selected_difficulty: presetNameSchema,
+  manual_puzzle: manualPuzzleSchema,
+}).strict().superRefine(refineSelectedPreset).superRefine(refineDistinctPlayers);
+
+export const assignPersonalCharacterInput = z.object({
+  active_date: z.iso.date(),
+  ...assignedPlayersShape,
+  allowed_types: z.tuple([z.literal("character_puzzle")]),
+  difficulty_selection: z.literal("fixed"),
+  difficulty_presets: z.record(presetNameSchema, characterPresetSchema),
+  selected_difficulty: presetNameSchema,
+  manual_puzzle: characterPuzzleSchema,
+}).strict().superRefine(refineSelectedPreset).superRefine(refineDistinctPlayers);
+
 export type CreateManualSharedRiddleInput = z.infer<typeof createManualSharedRiddleInput>;
 export type CreateSharedCharacterPuzzleInput = z.infer<typeof createSharedCharacterPuzzleInput>;
 
@@ -317,6 +350,158 @@ export async function createSharedCharacterPuzzle(input: unknown) {
   }));
 }
 
+const NATIVE_SHARED_MESSAGE = "That date already has a riddle for everyone";
+const ALREADY_ASSIGNED_MESSAGE = "Every selected player already has a riddle for that date";
+
+async function lockOrCreatePersonalSchedule(
+  client: PoolClient,
+  adminId: string,
+  schedule: { activeDate: string; presets: object },
+): Promise<string> {
+  const { rows } = await client.query(
+    "select id, mode from daily_challenges where active_date = $1::date for update",
+    [schedule.activeDate],
+  );
+  if (rows[0]) {
+    if (rows[0].mode !== "personal") throw new ConflictError(NATIVE_SHARED_MESSAGE);
+    return rows[0].id as string;
+  }
+  const { rows: created } = await client.query(
+    `insert into daily_challenges
+       (active_date, mode, allowed_types, difficulty_selection,
+        difficulty_presets, selected_difficulty, created_by)
+     values ($1::date, 'personal', array['riddle', 'character_puzzle']::text[],
+             'random_player', $2::jsonb, null, $3)
+     returning id`,
+    [schedule.activeDate, JSON.stringify(schedule.presets), adminId],
+  );
+  return created[0].id as string;
+}
+
+async function assignPersonalPuzzles(
+  client: PoolClient,
+  adminId: string,
+  assignment: {
+    activeDate: string;
+    playerIds: string[];
+    presets: object;
+    difficulty: string;
+  },
+  puzzle: SharedPuzzleRow,
+) {
+  const { rows: dateRows } = await client.query(
+    "select $1::date < current_date as is_past",
+    [assignment.activeDate],
+  );
+  if (dateRows[0].is_past) throw new BadRequestError("Scheduled date cannot be in the past");
+
+  const { rows: players } = await client.query(
+    "select id from profiles where id = any($1::uuid[]) and role = 'player' for share",
+    [assignment.playerIds],
+  );
+  if (players.length !== assignment.playerIds.length) {
+    throw new BadRequestError("Select existing players only");
+  }
+
+  const scheduleId = await lockOrCreatePersonalSchedule(client, adminId, assignment);
+  const { rows: existing } = await client.query(
+    "select assigned_to from challenges where daily_challenge_id = $1 and assigned_to = any($2::uuid[])",
+    [scheduleId, assignment.playerIds],
+  );
+  const alreadyAssigned = new Set(existing.map((row) => row.assigned_to as string));
+  const assignedPlayerIds = assignment.playerIds.filter((id) => !alreadyAssigned.has(id));
+  const skippedPlayerIds = assignment.playerIds.filter((id) => alreadyAssigned.has(id));
+  if (assignedPlayerIds.length === 0) throw new ConflictError(ALREADY_ASSIGNED_MESSAGE);
+
+  await client.query(
+    `insert into challenges
+       (daily_challenge_id, mode, assigned_to, type, difficulty, prompt, config,
+        answer_data, max_attempts, time_limit_seconds, scoring_policy)
+     select $1, 'personal', player_id, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9::jsonb
+     from unnest($10::uuid[]) as player_id`,
+    [
+      scheduleId,
+      puzzle.type,
+      assignment.difficulty,
+      puzzle.prompt,
+      JSON.stringify(puzzle.config),
+      JSON.stringify(puzzle.answerData),
+      puzzle.maxAttempts,
+      puzzle.timeLimitSeconds,
+      JSON.stringify(puzzle.scoringPolicy),
+      assignedPlayerIds,
+    ],
+  );
+
+  return {
+    scheduleId,
+    activeDate: assignment.activeDate,
+    status: "ready" as const,
+    assignedPlayerIds,
+    skippedPlayerIds,
+  };
+}
+
+export async function assignPersonalRiddle(input: unknown) {
+  return withDuplicateDateGuard(() => withTransaction(async (client) => {
+    const admin = await requireAdmin(client);
+    const parsed = assignPersonalRiddleInput.parse(input);
+    const settings = parsed.difficulty_presets[parsed.selected_difficulty].types.riddle;
+    return assignPersonalPuzzles(
+      client,
+      admin.id,
+      {
+        activeDate: parsed.active_date,
+        playerIds: parsed.player_ids,
+        presets: parsed.difficulty_presets,
+        difficulty: parsed.selected_difficulty,
+      },
+      {
+        type: "riddle",
+        prompt: parsed.manual_puzzle.prompt,
+        config: settings.config,
+        answerData: { accepted: parsed.manual_puzzle.accepted_answers },
+        maxAttempts: settings.max_attempts,
+        timeLimitSeconds: settings.time_limit_seconds,
+        scoringPolicy: settings.scoring_policy,
+      },
+    );
+  }));
+}
+
+export async function assignPersonalCharacterPuzzle(input: unknown) {
+  return withDuplicateDateGuard(() => withTransaction(async (client) => {
+    const admin = await requireAdmin(client);
+    const parsed = assignPersonalCharacterInput.parse(input);
+    const settings = parsed.difficulty_presets[parsed.selected_difficulty].types.character_puzzle;
+    const target = parsed.manual_puzzle.target;
+    const config: CharacterConfig = { target_length: target.length, character_set: CHARACTER_SET };
+    return assignPersonalPuzzles(
+      client,
+      admin.id,
+      {
+        activeDate: parsed.active_date,
+        playerIds: parsed.player_ids,
+        presets: parsed.difficulty_presets,
+        difficulty: parsed.selected_difficulty,
+      },
+      {
+        type: "character_puzzle",
+        prompt: "Letter game",
+        config,
+        answerData: { target },
+        maxAttempts: settings.max_attempts,
+        timeLimitSeconds: settings.time_limit_seconds,
+        scoringPolicy: settings.scoring_policy,
+      },
+    );
+  }));
+}
+
+export function isPersonalScheduleRequest(input: unknown): boolean {
+  return (input as { mode?: unknown } | null)?.mode === "personal";
+}
+
 export function isCharacterScheduleRequest(input: unknown): boolean {
   const allowed = (input as { allowed_types?: unknown } | null)?.allowed_types;
   return Array.isArray(allowed) && allowed.includes("character_puzzle");
@@ -325,6 +510,8 @@ export function isCharacterScheduleRequest(input: unknown): boolean {
 export interface ScheduledRiddle {
   id: string;
   activeDate: string;
+  mode: "shared" | "personal";
+  assignedCount: number;
   timing: "past" | "today" | "upcoming";
   type: string | null;
   difficulty: string | null;
@@ -337,10 +524,20 @@ export interface ScheduledRiddle {
   finishedCount: number;
 }
 
+export interface AssignedPuzzle {
+  type: string;
+  difficulty: string;
+  prompt: string;
+  acceptedAnswers: string[];
+  maxAttempts: number;
+  timeLimitSeconds: number;
+}
+
 export interface ScheduledRiddlePlayer {
   userId: string;
   displayName: string;
-  status: "not_started" | "in_progress" | "expired" | "completed";
+  status: "not_assigned" | "not_started" | "in_progress" | "expired" | "completed";
+  puzzle: AssignedPuzzle | null;
   correct: boolean | null;
   attempts: number;
   guesses: Array<{ response: string; correct: boolean }>;
@@ -362,21 +559,26 @@ async function selectSchedules(client: PoolClient, scheduleId: string | null): P
             case when d.active_date < current_date then 'past'
                  when d.active_date = current_date then 'today'
                  else 'upcoming' end as timing,
-            c.type, d.selected_difficulty, c.prompt, c.answer_data, c.time_limit_seconds,
+            d.mode, c.type, d.selected_difficulty, c.prompt, c.answer_data, c.time_limit_seconds,
             c.max_attempts, c.scoring_policy,
-            count(s.id)::int as started_count,
-            count(s.submitted_at)::int as finished_count
+            (select count(*)::int from challenges x where x.daily_challenge_id = d.id) as assigned_count,
+            (select count(*)::int from submissions s
+              join challenges x on x.id = s.challenge_id
+              where x.daily_challenge_id = d.id) as started_count,
+            (select count(s.submitted_at)::int from submissions s
+              join challenges x on x.id = s.challenge_id
+              where x.daily_challenge_id = d.id) as finished_count
      from daily_challenges d
      left join challenges c on c.daily_challenge_id = d.id and c.mode = 'shared'
-     left join submissions s on s.challenge_id = c.id
      where $1::uuid is null or d.id = $1
-     group by d.id, c.id
      order by d.active_date desc`,
     [scheduleId],
   );
   return rows.map((row) => ({
     id: row.id,
     activeDate: row.active_date,
+    mode: row.mode,
+    assignedCount: row.assigned_count,
     timing: row.timing,
     type: row.type,
     difficulty: row.selected_difficulty,
@@ -427,6 +629,8 @@ export async function getScheduleDetail(
 
     const { rows } = await client.query(
       `select p.id as user_id, p.display_name,
+              c.id as challenge_id, c.type, c.difficulty, c.prompt, c.answer_data,
+              c.max_attempts, c.time_limit_seconds,
               s.id as submission_id, s.started_at, s.submitted_at, s.correct,
               s.attempts, s.guess_history, s.time_taken_ms, s.scoring_breakdown,
               s.submitted_at is null
@@ -434,20 +638,30 @@ export async function getScheduleDetail(
               (select sum(pt.amount)::int from point_transactions pt
                 where pt.submission_id = s.id and pt.kind = 'challenge_result') as points
        from profiles p
-       left join challenges c on c.daily_challenge_id = $1 and c.mode = 'shared'
+       left join challenges c on c.daily_challenge_id = $1 and (c.mode = 'shared' or c.assigned_to = p.id)
        left join submissions s on s.challenge_id = c.id and s.user_id = p.id
        where p.role = 'player'
-       order by (s.id is null), s.started_at, lower(p.display_name), p.id`,
+       order by (s.id is null), (c.id is null), s.started_at, lower(p.display_name), p.id`,
       [id],
     );
     const players = rows.map((row): ScheduledRiddlePlayer => ({
       userId: row.user_id,
       displayName: row.display_name,
-      status: !row.submission_id ? "not_started"
+      status: !row.submission_id ? (!row.challenge_id && schedule.mode === "personal" ? "not_assigned" : "not_started")
         : row.submitted_at ? "completed"
         : row.overdue ? "expired" : "in_progress",
       correct: row.correct,
       attempts: row.attempts ?? 0,
+      puzzle: schedule.mode === "personal" && row.challenge_id
+        ? {
+          type: row.type,
+          difficulty: row.difficulty,
+          prompt: row.prompt,
+          acceptedAnswers: adminAnswers(row.answer_data),
+          maxAttempts: row.max_attempts,
+          timeLimitSeconds: row.time_limit_seconds,
+        }
+        : null,
       guesses: toGuesses(row.guess_history),
       startedAt: row.started_at ? new Date(row.started_at).toISOString() : null,
       submittedAt: row.submitted_at ? new Date(row.submitted_at).toISOString() : null,
@@ -470,6 +684,90 @@ export async function deleteSchedule(id: string): Promise<{ id: string; removedR
       return { id, removedResults: rows[0].removed_results };
     } catch (error) {
       if ((error as { code?: unknown }).code === "P0002") throw new NotFoundError("Riddle not found");
+      throw error;
+    }
+  });
+}
+
+export interface DateAssignment {
+  playerId: string | null;
+  challengeId: string;
+  type: string;
+  difficulty: string;
+  prompt: string;
+  status: "not_started" | "in_progress" | "expired" | "completed";
+  correct: boolean | null;
+  points: number | null;
+}
+
+export interface DateRoster {
+  scheduleId: string | null;
+  mode: "shared" | "personal" | null;
+  assignments: DateAssignment[];
+}
+
+export async function getDateAssignments(activeDate: string): Promise<DateRoster> {
+  const date = z.iso.date().parse(activeDate);
+  return withTransaction(async (client) => {
+    await requireAdminRead(client);
+    const { rows } = await client.query(
+      `select d.id as schedule_id, d.mode, c.id as challenge_id, c.assigned_to, c.type,
+              c.difficulty, c.prompt, s.id as submission_id, s.submitted_at, s.correct,
+              s.submitted_at is null
+                and s.started_at + c.time_limit_seconds * interval '1 second' <= clock_timestamp() as overdue,
+              (select sum(pt.amount)::int from point_transactions pt
+                where pt.submission_id = s.id and pt.kind = 'challenge_result') as points
+       from daily_challenges d
+       left join challenges c on c.daily_challenge_id = d.id
+       left join submissions s on s.challenge_id = c.id
+       where d.active_date = $1::date
+       order by c.created_at, s.started_at`,
+      [date],
+    );
+    if (rows.length === 0) return { scheduleId: null, mode: null, assignments: [] };
+    const sharedSeen = new Set<string>();
+    const assignments = rows.flatMap((row): DateAssignment[] => {
+      if (row.challenge_id === null) return [];
+      if (row.mode === "shared") {
+        if (sharedSeen.has(row.challenge_id)) return [];
+        sharedSeen.add(row.challenge_id);
+      }
+      return [{
+        playerId: row.assigned_to,
+        challengeId: row.challenge_id,
+        type: row.type,
+        difficulty: row.difficulty,
+        prompt: row.prompt,
+        status: !row.submission_id || row.mode === "shared" ? "not_started"
+          : row.submitted_at ? "completed"
+          : row.overdue ? "expired" : "in_progress",
+        correct: row.mode === "shared" ? null : row.correct,
+        points: row.mode === "shared" ? null : row.points,
+      }];
+    });
+    return { scheduleId: rows[0].schedule_id, mode: rows[0].mode, assignments };
+  });
+}
+
+export async function removeAssignment(
+  challengeId: string,
+): Promise<{ challengeId: string; removedResults: number; scheduleRemoved: boolean }> {
+  return withTransaction(async (client) => {
+    const admin = await requireAdmin(client);
+    try {
+      const { rows } = await client.query(
+        "select riddle_private.delete_assignment($1, $2) as outcome",
+        [challengeId, admin.id],
+      );
+      return {
+        challengeId,
+        removedResults: rows[0].outcome.removed_results,
+        scheduleRemoved: rows[0].outcome.schedule_removed,
+      };
+    } catch (error) {
+      const code = (error as { code?: unknown }).code;
+      if (code === "P0002") throw new NotFoundError("Assignment not found");
+      if (code === "22023") throw new ConflictError("Only personal assignments can be removed");
       throw error;
     }
   });

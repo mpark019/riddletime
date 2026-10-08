@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import type { Role } from "@/server/identity/identity";
 import { sanitizeCharacterInput } from "@/server/challenges/character-puzzle";
 import { difficultyColor } from "@/lib/difficulty";
 import { CharacterBoard, CharacterKeyboard } from "./character-grid";
+import { compareByName } from "@/lib/account-order";
+import { FloatingQuestionMarks } from "./floating-question-marks";
 import { PrimaryButton } from "./primary-button";
 import {
   attemptsUrgency,
@@ -30,6 +32,8 @@ import {
   type PendingRiddleSubmission,
   type PlayerChallengeState,
   type ScoringPolicy,
+  type StaffPlayerStatus,
+  type StaffPlayerStatusKind,
   type StaffRiddlePreview,
   type TodayChallengeResponse,
 } from "@/lib/challenge-state";
@@ -404,6 +408,7 @@ export function RiddleGame({
   }
 
   if (role !== "player") {
+    if (loaded.data.playerStatuses) return <StaffPlayerRiddles players={loaded.data.playerStatuses} />;
     return loaded.data.preview
       ? <StaffRiddleView preview={loaded.data.preview} />
       : <RiddleFrame><p className="text-lg font-semibold">Today’s challenge is ready.</p><p className="mt-2 text-white/65">Only player accounts can start and submit scored riddles.</p></RiddleFrame>;
@@ -510,11 +515,13 @@ export function NotStartedRiddle({
   busy,
   error,
   onStart,
+  readOnly = false,
 }: {
   play: Extract<PlayerChallengeState, { status: "not_started" }>;
   busy: boolean;
   error: string | null;
   onStart: () => void;
+  readOnly?: boolean;
 }) {
   return <RiddleFrame>
     <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">Daily challenge</p>
@@ -522,13 +529,127 @@ export function NotStartedRiddle({
     <p className="mt-3 max-w-xl text-white/70">Your timer starts only after the game has begun. Refreshing will not reset it.</p>
     {play.scoringPolicy && <div className="mt-6"><RiddleStakes policy={play.scoringPolicy} /></div>}
     {error && <div className="mt-5"><ErrorMessage message={error} /></div>}
-    {play.available
+    {readOnly ? null : play.available
       ? <PrimaryButton type="button" disabled={busy} onClick={onStart} className="mt-7 px-6 py-3">{busy ? "Starting…" : "Start riddle"}</PrimaryButton>
       : <p className="mt-6 rounded-md border border-white/25 bg-black/[0.04] px-4 py-3 text-white/70">Today’s puzzle has not been published yet.</p>}
   </RiddleFrame>;
 }
 
+const staffStatusLabels: Record<StaffPlayerStatusKind, { label: string; tone: string }> = {
+  no_riddle: { label: "No riddle today", tone: "text-white/60" },
+  not_started: { label: "Not started", tone: "" },
+  in_progress: { label: "In progress", tone: "" },
+  expired: { label: "Time expired", tone: "text-[#f00000]" },
+  solved: { label: "Solved", tone: "text-[#00940a]" },
+  failed: { label: "Failed", tone: "text-[#f00000]" },
+};
+
+function staffPillStatusTone(status: StaffPlayerStatusKind, active: boolean): string {
+  if (status === "solved") return active ? "text-[#00940a]" : "text-[#4ade80]";
+  if (status === "failed" || status === "expired") return active ? "text-[#d40000]" : "text-[#ff6b6b]";
+  return active ? "text-black/75" : "text-white/85";
+}
+
+export function StaffPlayerRiddles({ players }: { players: StaffPlayerStatus[] }) {
+  const sorted = [...players].sort(compareByName);
+  const [chosen, setChosen] = useState<string | null>(null);
+  const selected = sorted.find((player) => player.userId === chosen)
+    ?? sorted.find((player) => player.puzzle)
+    ?? sorted[0];
+
+  return <RiddleFrame>
+    <div className="lg:grid lg:min-h-[28rem] lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-8">
+      <div className="lg:relative lg:order-2"><section aria-label="Players" className="app-header relative isolate flex flex-col overflow-hidden rounded-md p-3 max-lg:fixed max-lg:inset-x-4 max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.5rem)] max-lg:z-40 max-lg:shadow-[0_-0.5rem_1.5rem_rgb(0_2_46_/_25%)] lg:absolute lg:inset-0 lg:p-4">
+        <FloatingQuestionMarks contained compact />
+        <p className="mb-3 hidden text-sm font-semibold lg:block">Players <span className="font-normal text-white/65">({sorted.length})</span></p>
+        <div role="tablist" aria-label="Players" aria-orientation="vertical" className="flex gap-2 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:min-h-0 lg:flex-1 lg:flex-col lg:gap-1.5 lg:overflow-y-auto lg:overflow-x-hidden">
+          {sorted.map((player) => {
+            const active = player.userId === selected?.userId;
+            const { label } = staffStatusLabels[player.status];
+            return <button
+              key={player.userId}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setChosen(player.userId)}
+              className={`flex h-11 shrink-0 select-none items-center gap-2 rounded-md border px-4 text-left text-[15px] font-semibold transition focus-visible:outline-2 focus-visible:outline-white lg:w-full lg:justify-between ${active ? "border-white bg-white text-black" : "border-white/40 bg-white/10 text-white hover:bg-white/20"} ${player.puzzle ? "" : "opacity-70"}`}
+            >
+              <span className="min-w-0 truncate">{player.displayName}</span>
+              <span className={`shrink-0 text-sm font-semibold ${staffPillStatusTone(player.status, active)}`}>{label.toLowerCase()}</span>
+            </button>;
+          })}
+        </div>
+      </section></div>
+      <div className="mt-6 min-w-0 max-lg:pb-24 lg:mt-0">
+        {selected
+          ? selected.play
+            ? <NestedFrame.Provider value><StaffPlayView player={selected} play={selected.play} /></NestedFrame.Provider>
+            : <StaffPlayerStatusCard player={selected} />
+          : <p className="rounded-md border border-dashed border-white/25 px-4 py-6 text-center text-white/65">No players yet.</p>}
+      </div>
+    </div>
+  </RiddleFrame>;
+}
+
+function StaffPlayView({ player, play }: { player: StaffPlayerStatus; play: PlayerChallengeState }) {
+  const label = <p className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-white/55 sm:text-sm sm:tracking-[0.2em]">View only · what {player.displayName} sees</p>;
+  if (play.status === "completed") return <>{label}<CompletedRiddle play={play} /></>;
+  if (play.status === "not_started") return <>{label}<NotStartedRiddle play={play} busy={false} error={null} onStart={noop} readOnly /></>;
+  const remaining = Math.max(0, Math.round((Date.parse(play.deadline) - Date.parse(play.serverTime)) / 1000));
+  const characterConfig = play.type === "character_puzzle" ? play.config : undefined;
+  return <>
+    {label}
+    <PlayHeader
+      policy={play.scoringPolicy}
+      difficulty={play.difficulty}
+      time={formatCountdown(remaining)}
+      tries={`${play.attemptsRemaining}/${play.maxAttempts}`}
+    />
+    {characterConfig
+      ? <div className="mt-8 border-t border-white/25 pt-6">
+        <p className="mb-5 text-center text-sm font-semibold uppercase tracking-wide text-white/55">Letter game</p>
+        <CharacterBoard guesses={play.guessHistory} current="" length={characterConfig.target_length} rows={play.maxAttempts} />
+      </div>
+      : <p className="mt-8 border-y border-white/25 py-8 text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{play.prompt}</p>}
+    {!characterConfig && play.guessHistory.length > 0 && <div className="mt-6">
+      <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Previous guesses</h4>
+      <ul className="mt-2 divide-y divide-white/20 border-y border-white/25">
+        {play.guessHistory.map((guess, index) => <li key={`${guess.response}-${index}`} className="flex items-center justify-between gap-4 py-3"><span>{guess.response}</span><span className={`text-sm font-semibold ${guess.correct ? "text-emerald-700" : "text-red-700"}`}>{guess.correct ? "Correct" : "Incorrect"}</span></li>)}
+      </ul>
+    </div>}
+    {remaining === 0 && <p role="status" className="mt-7 text-lg font-semibold">Time’s up. Result not recorded yet.</p>}
+  </>;
+}
+
+function StaffPlayerStatusCard({ player }: { player: StaffPlayerStatus }) {
+  const { label, tone } = staffStatusLabels[player.status];
+  const { puzzle } = player;
+  const finished = player.status === "solved" || player.status === "failed" || player.status === "expired";
+  const started = player.status !== "no_riddle" && player.status !== "not_started";
+  return <div className="mt-4 rounded-md border border-white/25 bg-black/[0.04] p-5 sm:p-6">
+    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/55 sm:text-sm">{player.displayName}{player.name && ` · ${player.name}`}</p>
+    <p className={`mt-2 text-3xl font-bold sm:text-4xl ${tone}`} aria-live="polite">{label}</p>
+    {puzzle && <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-4">
+      <StaffFact label="Puzzle" value={`${puzzle.type === "character_puzzle" ? "Letter game" : "Riddle"} · ${puzzle.difficulty}`} />
+      <StaffFact label="Tries" value={started ? `${player.attempts}/${puzzle.maxAttempts}` : `${puzzle.maxAttempts} allowed`} />
+      <StaffFact label="Time" value={player.timeTakenMs !== null ? formatCountdown(Math.round(player.timeTakenMs / 1000)) : `${formatCountdown(puzzle.timeLimitSeconds)} limit`} />
+      {finished && <StaffFact label="Points" value={player.points === null ? "-" : `${player.points > 0 ? "+" : ""}${player.points}`} />}
+    </div>}
+  </div>;
+}
+
+function StaffFact({ label, value }: { label: string; value: string }) {
+  return <div>
+    <p className="text-xs font-semibold uppercase tracking-wide text-white/55">{label}</p>
+    <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
+  </div>;
+}
+
 export function StaffRiddleView({ preview }: { preview: StaffRiddlePreview }) {
+  return <RiddleFrame><StaffRiddleBody preview={preview} /></RiddleFrame>;
+}
+
+function StaffRiddleBody({ preview }: { preview: StaffRiddlePreview }) {
   const { config } = preview;
   const speedTiers = speedTierStatuses(
     preview.speedBonuses,
@@ -537,7 +658,7 @@ export function StaffRiddleView({ preview }: { preview: StaffRiddlePreview }) {
     0,
     0,
   );
-  return <RiddleFrame>
+  return <>
     <p className="mb-6 text-xs font-semibold uppercase tracking-[0.14em] text-white/55 sm:text-sm sm:tracking-[0.2em]">View only · players see this when they start</p>
     <PlayHeader
       policy={preview.scoringPolicy}
@@ -572,7 +693,7 @@ export function StaffRiddleView({ preview }: { preview: StaffRiddlePreview }) {
           </div>
         </div>
       </>}
-  </RiddleFrame>;
+  </>;
 }
 
 function noop() {}
@@ -636,7 +757,10 @@ export function CompletedRiddle({ play }: { play: Extract<PlayerChallengeState, 
   </RiddleFrame>;
 }
 
+const NestedFrame = createContext(false);
+
 function RiddleFrame({ children }: { children: ReactNode }) {
+  if (useContext(NestedFrame)) return <>{children}</>;
   return <section className="mx-auto w-[calc(100%-2rem)] max-w-[1280px] overflow-x-clip py-6 lg:py-10"><h2 className="text-[26px] font-semibold tracking-tight lg:text-[34px]">Riddle</h2><div className="mt-6">{children}</div></section>;
 }
 

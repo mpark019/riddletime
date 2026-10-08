@@ -5,7 +5,7 @@ import { z } from "zod";
 import { withTransaction } from "@/lib/db";
 import { requireProfileRead, requirePlayer } from "@/server/identity/identity";
 import { BadRequestError, ForbiddenError, NotFoundError } from "@/server/http/errors";
-import { isRepeatGuess } from "@/lib/challenge-state";
+import { isRepeatGuess, type StaffPlayerStatusKind } from "@/lib/challenge-state";
 import {
   characterConfigSchema,
   gradeCharacterGuess,
@@ -16,8 +16,6 @@ import {
 } from "./character-puzzle";
 import { gradeRiddle } from "./grading";
 import { computeResult, type SpeedBonus } from "./scoring";
-
-// Shared-mode puzzles only; no personal mode yet.
 
 const riddleAnswerDataSchema = z.object({
   accepted: z.array(z.string().min(1)).min(1),
@@ -121,14 +119,7 @@ function toPublicScoringPolicy(policy: ScoringPolicy) {
   };
 }
 
-async function getStaffPreview(client: PoolClient, dailyChallengeId: string) {
-  const { rows } = await client.query(
-    `select type, difficulty, prompt, time_limit_seconds, max_attempts, scoring_policy, config
-     from challenges
-     where daily_challenge_id = $1 and mode = 'shared'`,
-    [dailyChallengeId],
-  );
-  const row = rows[0];
+function toStaffPreview(row: Record<string, unknown> | undefined) {
   const policy = scoringPolicySchema.safeParse(row?.scoring_policy);
   if (!row || !policy.success) return null;
   const config = row.type === "character_puzzle" ? characterConfigSchema.safeParse(row.config) : null;
@@ -143,6 +134,60 @@ async function getStaffPreview(client: PoolClient, dailyChallengeId: string) {
     ...(policy.data.speed_bonuses ? { speedBonuses: policy.data.speed_bonuses } : {}),
     ...(config?.success ? { config: config.data } : {}),
   };
+}
+
+async function getStaffPreview(client: PoolClient, dailyChallengeId: string) {
+  const { rows } = await client.query(
+    `select type, difficulty, prompt, time_limit_seconds, max_attempts, scoring_policy, config
+     from challenges
+     where daily_challenge_id = $1 and mode = 'shared'`,
+    [dailyChallengeId],
+  );
+  return toStaffPreview(rows[0]);
+}
+
+export async function getStaffPlayerStatuses(client: PoolClient, dailyChallengeId: string, includePlay = false) {
+  const { rows } = await client.query(
+    `select p.id as user_id, p.display_name, p.name,
+            c.id as challenge_id, c.type, c.difficulty, c.max_attempts, c.time_limit_seconds,
+            s.id as submission_id, s.submitted_at, s.correct, s.attempts, s.time_taken_ms,
+            s.submitted_at is null
+              and s.started_at + c.time_limit_seconds * interval '1 second' <= clock_timestamp() as overdue,
+            (select sum(pt.amount)::int from point_transactions pt
+              where pt.submission_id = s.id and pt.kind = 'challenge_result') as points
+     from profiles p
+     left join challenges c on c.daily_challenge_id = $1 and c.assigned_to = p.id
+     left join submissions s on s.challenge_id = c.id and s.user_id = p.id
+     where p.role = 'player'`,
+    [dailyChallengeId],
+  );
+  const plays = new Map<string, Awaited<ReturnType<typeof getSharedPlayState>>>();
+  if (includePlay) {
+    for (const row of rows) {
+      if (row.challenge_id) plays.set(row.user_id, await getSharedPlayState(client, dailyChallengeId, row.user_id));
+    }
+  }
+  return rows.map((row) => ({
+    userId: row.user_id as string,
+    displayName: row.display_name as string,
+    name: (row.name as string | null) ?? null,
+    play: plays.get(row.user_id) ?? null,
+    puzzle: row.challenge_id
+      ? {
+        type: row.type as "riddle" | "character_puzzle",
+        difficulty: row.difficulty as string,
+        maxAttempts: row.max_attempts as number,
+        timeLimitSeconds: row.time_limit_seconds as number,
+      }
+      : null,
+    status: (!row.challenge_id ? "no_riddle"
+      : !row.submission_id ? "not_started"
+      : row.submitted_at ? (row.correct ? "solved" : "failed")
+      : row.overdue ? "expired" : "in_progress") as StaffPlayerStatusKind,
+    attempts: (row.attempts as number | null) ?? 0,
+    timeTakenMs: row.time_taken_ms === null || row.time_taken_ms === undefined ? null : Number(row.time_taken_ms),
+    points: (row.points as number | null) ?? null,
+  }));
 }
 
 function parseStoredCharacterConfig(config: unknown): CharacterConfig {
@@ -169,7 +214,7 @@ async function getSharedPlayState(
      from challenges c
      left join submissions s
        on s.challenge_id = c.id and s.user_id = $2
-     where c.daily_challenge_id = $1 and c.mode = 'shared'`,
+     where c.daily_challenge_id = $1 and (c.mode = 'shared' or c.assigned_to = $2)`,
     [dailyChallengeId, playerId],
   );
   const row = rows[0];
@@ -267,7 +312,7 @@ async function findUnresolvedSharedGame(client: PoolClient, playerId: string) {
      from submissions s
      join challenges c on c.id = s.challenge_id
      join daily_challenges d on d.id = c.daily_challenge_id
-     where s.user_id = $1 and s.submitted_at is null and c.mode = 'shared'
+     where s.user_id = $1 and s.submitted_at is null
      order by s.started_at desc
      limit 1`,
     [playerId],
@@ -303,13 +348,16 @@ async function loadTodayChallengeIn(client: PoolClient) {
   const { rows } = await client.query(
     `select id, mode, allowed_types
      from daily_challenges
-     where active_date = current_date and mode = 'shared'`,
+     where active_date = current_date`,
   );
   const daily = rows[0];
   if (!daily) return { finalized, result: { schedule: null } };
   const schedule = toSchedule(daily);
 
   if (profile.role !== "player") {
+    if (daily.mode === "personal") {
+      return { finalized, result: { schedule, playerStatuses: await getStaffPlayerStatuses(client, daily.id, profile.role === "admin") } };
+    }
     const preview = await getStaffPreview(client, daily.id);
     return { finalized, result: preview ? { schedule, preview } : { schedule } };
   }
@@ -344,11 +392,11 @@ export async function getChallengeSession(dailyChallengeId: string) {
     const { rows } = await client.query(
       `select id, mode, allowed_types
        from daily_challenges
-       where id = $1 and mode = 'shared'`,
+       where id = $1`,
       [dailyChallengeId],
     );
     const daily = rows[0];
-    if (!daily) throw new NotFoundError("Shared challenge not found");
+    if (!daily) throw new NotFoundError("Challenge not found");
 
     return {
       schedule: toSchedule(daily),
@@ -363,29 +411,30 @@ export async function startChallenge(dailyChallengeId: string) {
 
     const { rows: dailyRows } = await client.query(
       `select id from daily_challenges
-       where id = $1 and mode = 'shared' and active_date = current_date
+       where id = $1 and active_date = current_date
        for update`,
       [dailyChallengeId],
     );
     if (!dailyRows[0]) {
-      throw new NotFoundError("No active shared challenge for that id today");
+      throw new NotFoundError("No active challenge for that id today");
     }
 
     const { rows: challengeRows } = await client.query(
-      `select id
-       from challenges where daily_challenge_id = $1 and mode = 'shared'`,
-      [dailyChallengeId],
+      `select id, mode, assigned_to
+       from challenges
+       where daily_challenge_id = $1 and (mode = 'shared' or assigned_to = $2)`,
+      [dailyChallengeId, player.id],
     );
     const challenge = challengeRows[0];
     if (!challenge) {
-      throw new NotFoundError("Shared puzzle not yet published for today");
+      throw new NotFoundError("No puzzle for you is published for today");
     }
 
     await client.query(
-      `insert into submissions (challenge_id, challenge_mode, user_id)
-       values ($1, 'shared', $2)
+      `insert into submissions (challenge_id, challenge_mode, assigned_to, user_id)
+       values ($1, $2, $3, $4)
        on conflict (challenge_id, user_id) do nothing`,
-      [challenge.id, player.id],
+      [challenge.id, challenge.mode, challenge.assigned_to, player.id],
     );
 
     return requireSavedSharedPlayState(client, dailyChallengeId, player.id);
@@ -405,11 +454,11 @@ export async function submitChallenge(
               c.max_attempts, c.time_limit_seconds
        from challenges c
        join daily_challenges d on d.id = c.daily_challenge_id
-       where d.id = $1 and c.mode = 'shared'`,
-      [dailyChallengeId],
+       where d.id = $1 and (c.mode = 'shared' or c.assigned_to = $2)`,
+      [dailyChallengeId, player.id],
     );
     const challenge = challengeRows[0];
-    if (!challenge) throw new NotFoundError("Shared puzzle not found for today");
+    if (!challenge) throw new NotFoundError("Puzzle not found for today");
 
     const { rows: submissionRows } = await client.query(
       `select id, started_at, submitted_at, correct, scoring_breakdown, attempts, guess_history

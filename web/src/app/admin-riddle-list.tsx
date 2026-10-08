@@ -5,7 +5,7 @@ import type { ScheduledRiddle } from "@/server/schedules/schedules";
 import { AdminRiddleDetail } from "./admin-riddle-detail";
 
 const timingStyles: Record<ScheduledRiddle["timing"], string> = {
-  today: "border-emerald-300/70 text-emerald-200",
+  today: "border-blue-900 text-blue-900",
   upcoming: "border-sky-300/70 text-sky-200",
   past: "border-white/30 text-white/60",
 };
@@ -77,7 +77,9 @@ export function AdminRiddleList({ refreshVersion, appTimezone }: { refreshVersio
   </section>;
 }
 
-function riddleTypeLabel(type: string | null): string {
+function riddleTypeLabel(riddle: ScheduledRiddle): string {
+  if (riddle.mode === "personal") return `${riddle.assignedCount} assigned`;
+  const type = riddle.type;
   if (type === "riddle") return "Riddle";
   if (type === "character_puzzle") return "Letter game";
   return "No puzzle";
@@ -89,7 +91,7 @@ function RiddleRow({ riddle, onOpen }: { riddle: ScheduledRiddle; onOpen: () => 
       <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-semibold tabular-nums">{riddle.activeDate}</span>
         <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${timingStyles[riddle.timing]}`}>{riddle.timing}</span>
-        <span className="text-sm text-white/65">{riddleTypeLabel(riddle.type)}</span>
+        <span className="text-sm text-white/65">{riddleTypeLabel(riddle)}</span>
       </span>
       <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4 shrink-0 text-white/55"><path d="m9 18 6-6-6-6" /></svg>
     </button>

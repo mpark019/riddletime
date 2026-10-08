@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatCountdown } from "@/lib/challenge-state";
 import { difficultyColor } from "@/lib/difficulty";
+import { groupPlayersByPuzzle } from "@/lib/admin-riddle-groups";
 import { summarizePlayers } from "@/lib/admin-riddle-stats";
 import type { ScheduledRiddle, ScheduledRiddlePlayer } from "@/server/schedules/schedules";
 
@@ -85,34 +86,60 @@ export function RiddleDashboard({
   onDelete: (riddle: ScheduledRiddle) => void;
 }) {
   const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", timeZone: appTimezone });
-  const played = detail.players.filter((player) => player.status !== "not_started");
-  const notPlayed = detail.players.filter((player) => player.status === "not_started");
+  const personal = detail.schedule.mode === "personal";
+  const groups = personal ? groupPlayersByPuzzle(detail.players) : [];
+  const [chosenKey, setChosenKey] = useState<string | null>(null);
+  const activeGroup = groups.find((group) => group.key === chosenKey);
+  const shown = activeGroup ? activeGroup.players : detail.players;
+  const played = shown.filter((player) => player.status !== "not_started" && player.status !== "not_assigned");
+  const notPlayed = shown.filter((player) => player.status === "not_started");
+  const notAssigned = detail.players.filter((player) => player.status === "not_assigned");
   return <>
     <RiddleHeader riddle={detail.schedule} deleting={deleting} onDelete={() => onDelete(detail.schedule)} />
     <SummaryTiles players={detail.players} />
-    <RulesBlock riddle={detail.schedule} />
-    <h3 className="mt-8 text-xl font-semibold">Played <span className="text-white/55">({played.length})</span></h3>
+    {!personal && <RulesBlock riddle={detail.schedule} />}
+    {groups.length > 0 && <PuzzleGroupBar groups={groups} total={groups.reduce((sum, group) => sum + group.players.length, 0)} activeKey={activeGroup?.key ?? null} onSelect={setChosenKey} />}
+    <h3 className={`${groups.length > 0 ? "mt-4" : "mt-8"} text-xl font-semibold`}>Played <span className="text-white/55">({played.length})</span></h3>
     {played.length === 0
       ? <p className="mt-3 rounded-md border border-dashed border-white/25 px-4 py-5 text-center text-sm text-white/55">Nobody has played this riddle yet.</p>
       : <PlayersTable players={played} maxAttempts={detail.schedule.maxAttempts} timeFormat={timeFormat} />}
     <h3 className="mt-8 text-xl font-semibold">Did not play <span className="text-white/55">({notPlayed.length})</span></h3>
     {notPlayed.length === 0
       ? <p className="mt-3 text-sm text-white/55">Every player has played.</p>
-      : <ul className="mt-3 flex flex-wrap gap-2">{notPlayed.map((player) => <li key={player.userId} className="rounded-full border border-white/25 px-3 py-1 text-sm">{player.displayName}</li>)}</ul>}
+      : <ul className="mt-3 flex flex-wrap gap-2">{notPlayed.map((player) => <li key={player.userId} className="rounded-full border border-white/25 px-3 py-1 text-sm">{player.displayName}{player.puzzle && <span className="text-white/55"> · {typeLabels[player.puzzle.type] ?? "Puzzle"}</span>}</li>)}</ul>}
+    {personal && !activeGroup && <>
+      <h3 className="mt-8 text-xl font-semibold">No puzzle assigned <span className="text-white/55">({notAssigned.length})</span></h3>
+      {notAssigned.length === 0
+        ? <p className="mt-3 text-sm text-white/55">Every player has a puzzle.</p>
+        : <ul className="mt-3 flex flex-wrap gap-2">{notAssigned.map((player) => <li key={player.userId} className="rounded-full border border-white/25 px-3 py-1 text-sm">{player.displayName}</li>)}</ul>}
+    </>}
   </>;
+}
+
+function PuzzleGroupBar({ groups, total, activeKey, onSelect }: { groups: ReturnType<typeof groupPlayersByPuzzle>; total: number; activeKey: string | null; onSelect: (key: string | null) => void }) {
+  const pill = (active: boolean) => `flex shrink-0 select-none items-center gap-2 rounded-xl border px-4 py-2 text-[15px] font-semibold transition focus-visible:outline-2 focus-visible:outline-white ${active ? "navy-surface relative isolate overflow-hidden border-transparent" : "border-white/25 bg-black/[0.04] hover:bg-white/10"}`;
+  return <div role="tablist" aria-label="Puzzles" className="-mx-1 mt-8 flex gap-2 overflow-x-auto px-1 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <button type="button" role="tab" aria-selected={activeKey === null} onClick={() => onSelect(null)} className={pill(activeKey === null)}>All <span className="text-xs font-normal">{total} {total === 1 ? "player" : "players"}</span></button>
+    {groups.map((group) => <button key={group.key} type="button" role="tab" aria-selected={group.key === activeKey} onClick={() => onSelect(group.key)} className={pill(group.key === activeKey)}>
+      {typeLabels[group.type] ?? "Puzzle"} · {group.answers.join(", ")}
+      <span className="text-xs font-normal">{group.players.length} {group.players.length === 1 ? "player" : "players"}</span>
+    </button>)}
+  </div>;
 }
 
 function RiddleHeader({ riddle, deleting, onDelete }: { riddle: ScheduledRiddle; deleting: boolean; onDelete: () => void }) {
   return <div className="mt-4 rounded-md border border-white/25 bg-black/[0.04] p-4 sm:p-5">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2">
+        {riddle.mode !== "personal" && <>
         <span className="rounded-full border border-white/40 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide">{typeLabels[riddle.type ?? ""] ?? "Puzzle"}</span>
         <span style={difficultyColor(riddle.difficulty) ? { borderColor: difficultyColor(riddle.difficulty), color: difficultyColor(riddle.difficulty) } : undefined} className="rounded-full border border-white/25 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-white/70">{riddle.difficulty ?? "?"}</span>
+        </>}
         <p className="ml-1 font-semibold tabular-nums">{riddle.activeDate} <span className="ml-1 text-sm font-normal uppercase tracking-wide text-white/55">{riddle.timing}</span></p>
       </div>
       <button type="button" disabled={deleting} onClick={onDelete} className="rounded-md border border-[#f00000] px-3 py-1.5 text-xs font-semibold text-[#f00000] transition hover:bg-[#f00000] hover:text-white disabled:opacity-50">Delete</button>
     </div>
-    <p className="mt-3 whitespace-pre-wrap break-words text-lg">{riddle.prompt ?? "No puzzle saved for this date."}</p>
+    <p className="mt-3 whitespace-pre-wrap break-words text-lg">{riddle.mode === "personal" ? `${riddle.assignedCount} ${riddle.assignedCount === 1 ? "player has" : "players have"} an assigned puzzle.` : riddle.prompt ?? "No puzzle saved for this date."}</p>
     {riddle.acceptedAnswers.length > 0 && <p className="mt-2 break-words text-sm text-white/70"><span className="font-semibold text-white/85">Answers:</span> {riddle.acceptedAnswers.join(", ")}</p>}
   </div>;
 }
@@ -163,6 +190,7 @@ const outcomeLabels: Record<ScheduledRiddlePlayer["status"], string> = {
   in_progress: "In progress",
   expired: "Expired",
   not_started: "",
+  not_assigned: "",
 };
 
 function outcomeOf(player: ScheduledRiddlePlayer) {
@@ -200,7 +228,7 @@ function PlayerRow({ player, maxAttempts, cell, optional, timeFormat }: { player
     <tr className="border-t border-white/25">
       <td className={`${cell} font-semibold`}>{player.displayName}</td>
       <td className={`${cell} font-semibold ${toneClasses[outcome.tone]}`}>{outcome.label}</td>
-      <td className={cell}>{player.attempts}/{maxAttempts ?? "?"}</td>
+      <td className={cell}>{player.attempts}/{player.puzzle?.maxAttempts ?? maxAttempts ?? "?"}</td>
       <td className={cell}>{player.timeTakenMs === null ? "-" : formatCountdown(Math.round(player.timeTakenMs / 1000))}</td>
       <td className={`${cell} ${optional}`}>{breakdown ? breakdown.basePoints : "-"}</td>
       <td className={`${cell} ${optional}`}>{breakdown ? formatPoints(breakdown.speedBonusPoints) : "-"}</td>
@@ -209,6 +237,10 @@ function PlayerRow({ player, maxAttempts, cell, optional, timeFormat }: { player
     </tr>
     <tr>
       <td colSpan={8} className="px-3 pb-3 pt-0 text-xs text-white/55">
+        {player.puzzle && <span className="mb-1 block break-words text-white/75">
+          <span className="font-semibold">{typeLabels[player.puzzle.type] ?? "Puzzle"} · {player.puzzle.difficulty}:</span> {player.puzzle.prompt}
+          {player.puzzle.acceptedAnswers.length > 0 && <> (answers: {player.puzzle.acceptedAnswers.join(", ")})</>}
+        </span>}
         {player.startedAt && `Started ${timeFormat.format(new Date(player.startedAt))}`}
         {player.submittedAt && ` · Finished ${timeFormat.format(new Date(player.submittedAt))}`}
         {player.guesses.length === 0

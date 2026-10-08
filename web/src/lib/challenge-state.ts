@@ -72,9 +72,33 @@ export interface StaffRiddlePreview {
   config?: CharacterConfig;
 }
 
+export type StaffPlayerStatusKind = "no_riddle" | "not_started" | "in_progress" | "expired" | "solved" | "failed";
+
+export interface StaffPlayerStatus {
+  userId: string;
+  displayName: string;
+  name: string | null;
+  puzzle: {
+    type: "riddle" | "character_puzzle";
+    difficulty: string;
+    maxAttempts: number;
+    timeLimitSeconds: number;
+  } | null;
+  status: StaffPlayerStatusKind;
+  attempts: number;
+  timeTakenMs: number | null;
+  points: number | null;
+  play?: PlayerChallengeState | null;
+}
+
 export type TodayChallengeResponse =
   | { schedule: null }
-  | { schedule: ChallengeSchedule; play?: PlayerChallengeState; preview?: StaffRiddlePreview };
+  | {
+    schedule: ChallengeSchedule;
+    play?: PlayerChallengeState;
+    preview?: StaffRiddlePreview;
+    playerStatuses?: StaffPlayerStatus[];
+  };
 
 export interface ChallengeMutationResponse {
   finalized: boolean;
