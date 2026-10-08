@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { LeaderboardEntry } from "@/server/points/points";
 import { pruneSelection } from "@/lib/point-selection";
 import { FloatingQuestionMarks } from "./floating-question-marks";
@@ -105,6 +105,7 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
   const [playerQuery, setPlayerQuery] = useState("");
   const [selection, setSelectedUserIds] = useState<string[]>([]);
   const selectedUserIds = pruneSelection(selection, players);
+  const selectedIdSet = new Set(selectedUserIds);
   const [amount, setAmount] = useState(5);
   const [customAmount, setCustomAmount] = useState("");
   const [reason, setReason] = useState("");
@@ -124,9 +125,10 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
     callback();
   }
 
-  function togglePlayer(userId: string) {
-    changeField(() => setSelectedUserIds((selected) => selected.includes(userId) ? selected.filter((id) => id !== userId) : [...selected, userId]));
-  }
+  const togglePlayer = useCallback((userId: string) => {
+    operationKey.current = null;
+    setSelectedUserIds((selected) => selected.includes(userId) ? selected.filter((id) => id !== userId) : [...selected, userId]);
+  }, []);
 
   function toggleAllPlayers() {
     changeField(() => setSelectedUserIds((current) => {
@@ -249,7 +251,7 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
           </div>
         </div>
         <p className="truncate py-2 text-sm text-white lg:hidden" aria-live="polite">{mobileSelectionSummary || "\u00a0"}</p>
-        <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-2 overflow-y-auto overscroll-contain pb-4 lg:flex-none lg:gap-4 lg:overflow-visible lg:pb-0 xl:grid-cols-4">{matchingPlayers.map((player, index) => { const selected = selectedUserIds.includes(player.userId); return <button key={player.userId} type="button" aria-pressed={selected} onClick={() => togglePlayer(player.userId)} className={`flex h-[72px] items-center gap-2.5 rounded-md border px-3 text-left transition focus-visible:outline-2 focus-visible:outline-white lg:h-[72px] lg:gap-3 lg:px-4 ${selected ? "navy-surface relative isolate overflow-hidden border-transparent" : "border-white/25 text-white hover:bg-white/10"}`}>{selected && <FloatingQuestionMarks contained compact start={index * 3} />}<span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-bold lg:h-[22px] lg:w-[22px] ${selected ? "border-white bg-white text-black" : "border-white/25"}`} aria-hidden="true">{selected ? "✓" : ""}</span><span className="min-w-0 flex-1"><span className="block truncate text-base font-semibold lg:text-[17px]">{player.displayName}</span>{player.name && <span className="block truncate text-[13px] lg:text-sm">{player.name}</span>}</span><span className="shrink-0 text-sm font-semibold tabular-nums">{number.format(player.totalPoints)}</span></button>; })}</div>
+        <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-2 overflow-y-auto overscroll-contain pb-4 lg:flex-none lg:gap-4 lg:overflow-visible lg:pb-0 xl:grid-cols-4">{matchingPlayers.map((player, index) => <PlayerButton key={player.userId} player={player} index={index} selected={selectedIdSet.has(player.userId)} onToggle={togglePlayer} />)}</div>
         {matchingPlayers.length === 0 && <p className="pb-4 text-[15px] text-white">No players match “{playerQuery}”.</p>}
       </section>
       <section className="app-header relative isolate flex min-h-0 shrink-0 flex-col gap-2 rounded-md border-t px-5 py-3 lg:gap-[22px] lg:self-start lg:px-6 lg:py-6"><FloatingQuestionMarks contained />
@@ -265,6 +267,10 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
     </>
   );
 }
+
+const PlayerButton = memo(function PlayerButton({ player, index, selected, onToggle }: { player: LeaderboardEntry; index: number; selected: boolean; onToggle: (userId: string) => void }) {
+  return <button type="button" aria-pressed={selected} onClick={() => onToggle(player.userId)} className={`flex h-[72px] items-center gap-2.5 rounded-md border px-3 text-left transition focus-visible:outline-2 focus-visible:outline-white lg:h-[72px] lg:gap-3 lg:px-4 ${selected ? "navy-surface relative isolate overflow-hidden border-transparent" : "border-white/25 text-white hover:bg-white/10"}`}>{selected && <FloatingQuestionMarks contained compact start={index * 3} />}<span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-bold lg:h-[22px] lg:w-[22px] ${selected ? "border-white bg-white text-black" : "border-white/25"}`} aria-hidden="true">{selected ? "✓" : ""}</span><span className="min-w-0 flex-1"><span className="block truncate text-base font-semibold lg:text-[17px]">{player.displayName}</span>{player.name && <span className="block truncate text-[13px] lg:text-sm">{player.name}</span>}</span><span className="shrink-0 text-sm font-semibold tabular-nums">{number.format(player.totalPoints)}</span></button>;
+});
 
 const AUDIT_PAGE_SIZE = 10;
 const auditDateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
