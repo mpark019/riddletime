@@ -44,7 +44,7 @@ export function HomeWorkspace({
   }, [router]);
 
   return (
-    <div className="light-surface flex min-h-screen flex-col">
+    <div className={`light-surface flex min-h-screen flex-col ${view === "points" ? "max-sm:h-dvh max-sm:min-h-0" : ""}`}>
       <LeaderboardRealtime onChanged={refreshRealtimeData} />
       <header className="app-header relative z-40 mx-4 mt-4 flex flex-col items-center gap-4 rounded-md px-4 py-4 shadow-[0_0.5rem_1.5rem_rgb(0_2_46_/_25%)] sm:sticky sm:top-4 sm:mx-auto sm:grid sm:w-[calc(100%-2rem)] sm:max-w-[1280px] sm:grid-cols-[1fr_auto_auto] sm:gap-x-3 sm:px-8 sm:py-[15.5px]">
         <FloatingQuestionMarks contained />
@@ -60,7 +60,7 @@ export function HomeWorkspace({
         </nav>
       </header>
 
-      <main className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-0">
+      <main className={`flex-1 sm:pb-0 ${view === "points" ? "pb-[calc(3.5rem+env(safe-area-inset-bottom))] max-sm:flex max-sm:min-h-0 max-sm:flex-col max-sm:overflow-y-auto" : "pb-[calc(5rem+env(safe-area-inset-bottom))]"}`}>
         {view === "home" && <Scoreboard initialEntries={leaderboard} />}
         {view === "riddle" && <RiddleGame playerId={profile.id} role={profile.role} onCompleted={refreshRealtimeData} />}
         {view === "schedule" && profile.role === "admin" && <AdminRiddleScheduler appTimezone={appDateContext.timezone} today={appDateContext.today} />}
