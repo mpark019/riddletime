@@ -48,7 +48,7 @@ export interface ActiveRiddle {
 }
 
 export type PlayerChallengeState =
-  | { status: "not_started"; available: boolean; difficulty: string | null; scoringPolicy?: Pick<ScoringPolicy, "base_points" | "failure_penalty_points"> }
+  | { status: "not_started"; available: boolean; difficulty: string | null; scoringPolicy?: PublicScoringPolicy }
   | ({ status: "in_progress" } & ActiveRiddle)
   | ({
       status: "completed";
@@ -59,9 +59,20 @@ export type PlayerChallengeState =
       };
     } & ActiveRiddle);
 
+export type PublicScoringPolicy = Pick<ScoringPolicy, "base_points" | "failure_penalty_points">;
+
+export interface StaffRiddlePreview {
+  type: "riddle" | "character_puzzle";
+  difficulty: string;
+  prompt: string;
+  timeLimitSeconds: number;
+  maxAttempts: number;
+  scoringPolicy: PublicScoringPolicy;
+}
+
 export type TodayChallengeResponse =
   | { schedule: null }
-  | { schedule: ChallengeSchedule; play?: PlayerChallengeState };
+  | { schedule: ChallengeSchedule; play?: PlayerChallengeState; preview?: StaffRiddlePreview };
 
 export interface ChallengeMutationResponse {
   finalized: boolean;

@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { PlayerChallengeState } from "@/lib/challenge-state";
-import { CompletedRiddle, NotStartedRiddle, RiddleStakes } from "./riddle-game";
+import { CompletedRiddle, NotStartedRiddle, RiddleStakes, StaffRiddleView } from "./riddle-game";
 
 type Completed = Extract<PlayerChallengeState, { status: "completed" }>;
 
@@ -250,5 +250,32 @@ describe("NotStartedRiddle", () => {
 
     expect(html).toContain("Ready when you are?");
     expect(html).toContain("has not been published yet");
+  });
+});
+
+describe("StaffRiddleView", () => {
+  const html = renderToStaticMarkup(createElement(StaffRiddleView, {
+    preview: {
+      type: "riddle",
+      difficulty: "hard",
+      prompt: "What has keys but no locks?",
+      timeLimitSeconds: 120,
+      maxAttempts: 3,
+      scoringPolicy: { base_points: 100, failure_penalty_points: 20 },
+    },
+  }));
+
+  it("shows the prompt, limits, and stakes (AC-1, AC-2)", () => {
+    expect(html).toContain("What has keys but no locks?");
+    expect(html).toContain("2:00");
+    expect(html).toContain("3 tries");
+    expect(html).toContain("+100");
+    expect(html).toContain("-20");
+  });
+
+  it("offers no way to start or answer (AC-6)", () => {
+    expect(html).not.toContain("<button");
+    expect(html).not.toContain("<input");
+    expect(html).not.toContain("<form");
   });
 });

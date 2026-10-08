@@ -112,6 +112,35 @@ function toSchedule(daily: { id: string; mode: string; allowed_types: string[] }
   };
 }
 
+function toPublicScoringPolicy(policy: ScoringPolicy) {
+  return {
+    base_points: policy.base_points,
+    ...(policy.failure_penalty_points === undefined
+      ? {}
+      : { failure_penalty_points: policy.failure_penalty_points }),
+  };
+}
+
+async function getStaffPreview(client: PoolClient, dailyChallengeId: string) {
+  const { rows } = await client.query(
+    `select type, difficulty, prompt, time_limit_seconds, max_attempts, scoring_policy
+     from challenges
+     where daily_challenge_id = $1 and mode = 'shared'`,
+    [dailyChallengeId],
+  );
+  const row = rows[0];
+  const policy = scoringPolicySchema.safeParse(row?.scoring_policy);
+  if (!row || !policy.success) return null;
+  return {
+    type: row.type as "riddle" | "character_puzzle",
+    difficulty: row.difficulty as string,
+    prompt: row.prompt as string,
+    timeLimitSeconds: row.time_limit_seconds as number,
+    maxAttempts: row.max_attempts as number,
+    scoringPolicy: toPublicScoringPolicy(policy.data),
+  };
+}
+
 function parseStoredCharacterConfig(config: unknown): CharacterConfig {
   try {
     return characterConfigSchema.parse(config);
@@ -146,16 +175,7 @@ async function getSharedPlayState(
       status: "not_started" as const,
       available: Boolean(row?.challenge_id),
       difficulty: (row?.difficulty as string | undefined) ?? null,
-      ...(policy.success
-        ? {
-            scoringPolicy: {
-              base_points: policy.data.base_points,
-              ...(policy.data.failure_penalty_points === undefined
-                ? {}
-                : { failure_penalty_points: policy.data.failure_penalty_points }),
-            },
-          }
-        : {}),
+      ...(policy.success ? { scoringPolicy: toPublicScoringPolicy(policy.data) } : {}),
     };
   }
 
@@ -269,7 +289,10 @@ export async function getTodayChallenge() {
     if (!daily) return { schedule: null };
     const schedule = toSchedule(daily);
 
-    if (profile.role !== "player") return { schedule };
+    if (profile.role !== "player") {
+      const preview = await getStaffPreview(client, daily.id);
+      return preview ? { schedule, preview } : { schedule };
+    }
     return { schedule, play: await getSharedPlayState(client, daily.id, profile.id) };
   });
 }

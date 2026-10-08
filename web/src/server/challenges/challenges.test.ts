@@ -569,34 +569,54 @@ describe("start -> submit -> stored score", () => {
 });
 
 describe("getTodayChallenge access", () => {
-  it("returns the minimal schedule shape for an admin (AC-1)", async () => {
-    const { dailyId } = await ensureTodaysSharedRiddle();
-    const adminId = await createAuthUser();
+  async function createStaff(role: "admin" | "spectator") {
+    const id = await createAuthUser();
     await pool.query(
-      "insert into profiles (id, display_name, role) values ($1, concat('Admin Viewer ', ($1::uuid)::text), 'admin')",
-      [adminId],
+      "insert into profiles (id, display_name, role) values ($1, concat($2::text, ' Viewer ', ($1::uuid)::text), $2)",
+      [id, role],
     );
-    getVerifiedUser.mockResolvedValue({ id: adminId });
+    return id;
+  }
+
+  it.each(["admin", "spectator"] as const)("returns a read-only preview for a %s (AC-1, AC-2)", async (role) => {
+    const { dailyId, prompt } = await ensureTodaysSharedRiddle();
+    getVerifiedUser.mockResolvedValue({ id: await createStaff(role) });
 
     const result = await getTodayChallenge();
+
     expect(result).toEqual({
       schedule: { id: dailyId, mode: "shared", allowedTypes: ["riddle"] },
+      preview: {
+        type: "riddle",
+        difficulty: "standard",
+        prompt,
+        timeLimitSeconds: 120,
+        maxAttempts: 1,
+        scoringPolicy: { base_points: 100 },
+      },
     });
   });
 
-  it("returns the minimal schedule shape for a spectator (AC-2)", async () => {
-    const { dailyId } = await ensureTodaysSharedRiddle();
-    const spectatorId = await createAuthUser();
-    await pool.query(
-      "insert into profiles (id, display_name, role) values ($1, concat('Spectator Viewer ', ($1::uuid)::text), 'spectator')",
-      [spectatorId],
-    );
-    getVerifiedUser.mockResolvedValue({ id: spectatorId });
+  it.each(["admin", "spectator"] as const)("never exposes answers or creates a submission for a %s (AC-3)", async (role) => {
+    const { challengeId } = await ensureTodaysSharedRiddle();
+    const staffId = await createStaff(role);
+    getVerifiedUser.mockResolvedValue({ id: staffId });
 
     const result = await getTodayChallenge();
-    expect(result).toEqual({
-      schedule: { id: dailyId, mode: "shared", allowedTypes: ["riddle"] },
-    });
+
+    expect(JSON.stringify(result)).not.toContain("piano");
+    expect(JSON.stringify(result)).not.toContain("accepted");
+    const { rows } = await pool.query("select 1 from submissions where user_id = $1 and challenge_id = $2", [staffId, challengeId]);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("does not add a preview to a player's response (AC-4)", async () => {
+    await ensureTodaysSharedRiddle();
+    getVerifiedUser.mockResolvedValue({ id: await createPlayer() });
+
+    const result = await getTodayChallenge();
+
+    expect(result).not.toHaveProperty("preview");
   });
 
   it("still rejects an unauthenticated caller (AC-3)", async () => {

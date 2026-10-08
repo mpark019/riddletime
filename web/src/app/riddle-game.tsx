@@ -29,6 +29,7 @@ import {
   type PendingRiddleSubmission,
   type PlayerChallengeState,
   type ScoringPolicy,
+  type StaffRiddlePreview,
   type TodayChallengeResponse,
 } from "@/lib/challenge-state";
 
@@ -402,7 +403,9 @@ export function RiddleGame({
   }
 
   if (role !== "player") {
-    return <RiddleFrame><p className="text-lg font-semibold">Today’s challenge is ready.</p><p className="mt-2 text-white/65">Only player accounts can start and submit scored riddles.</p></RiddleFrame>;
+    return loaded.data.preview
+      ? <StaffRiddleView preview={loaded.data.preview} />
+      : <RiddleFrame><p className="text-lg font-semibold">Today’s challenge is ready.</p><p className="mt-2 text-white/65">Only player accounts can start and submit scored riddles.</p></RiddleFrame>;
   }
 
   if (!play) {
@@ -522,6 +525,16 @@ export function NotStartedRiddle({
     {play.available
       ? <PrimaryButton type="button" disabled={busy} onClick={onStart} className="mt-7 px-6 py-3">{busy ? "Starting…" : "Start riddle"}</PrimaryButton>
       : <p className="mt-6 rounded-md border border-white/25 bg-black/[0.04] px-4 py-3 text-white/70">Today’s puzzle has not been published yet.</p>}
+  </RiddleFrame>;
+}
+
+export function StaffRiddleView({ preview }: { preview: StaffRiddlePreview }) {
+  return <RiddleFrame>
+    <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">Today’s challenge · view only</p>
+    <h3 className="mt-3 text-2xl font-semibold capitalize">{preview.difficulty}</h3>
+    <p className="mt-4 max-w-2xl whitespace-pre-wrap text-lg">{preview.prompt}</p>
+    <p className="mt-4 text-sm text-white/65">{formatCountdown(preview.timeLimitSeconds)} to answer · {preview.maxAttempts} {preview.maxAttempts === 1 ? "try" : "tries"}</p>
+    <div className="mt-6"><RiddleStakes policy={preview.scoringPolicy} /></div>
   </RiddleFrame>;
 }
 
