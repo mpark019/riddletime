@@ -5,8 +5,8 @@ import { dancingLetterSrc } from "@/lib/dancing-letters";
 
 // Fixed hex colors on purpose: the page theme remaps text-white, which would turn tile letters black.
 const TILE_CLASSES: Record<CharacterFeedback | "filled" | "empty", string> = {
-  correct: "border-[#538d4e] text-[#538d4e]",
-  present: "border-[#b59f3b] text-[#b59f3b]",
+  correct: "border-[#4cb546] text-[#4cb546]",
+  present: "border-[#e0c22e] text-[#e0c22e]",
   absent: "border-[#787c7e] text-[#787c7e]",
   filled: "border-[#878a8c] text-[#1a1a1b]",
   empty: "border-[#d3d6da] text-[#1a1a1b]",
@@ -14,8 +14,8 @@ const TILE_CLASSES: Record<CharacterFeedback | "filled" | "empty", string> = {
 
 // The images are red, so the result is shown by shifting the letter's own hue.
 const LETTER_FILTERS: Record<CharacterFeedback, string> = {
-  correct: "hue-rotate(120deg) saturate(1.2) brightness(1.5)",
-  present: "hue-rotate(67deg) saturate(2.2) brightness(3)",
+  correct: "hue-rotate(120deg) saturate(1.2) brightness(1.9)",
+  present: "hue-rotate(67deg) saturate(2.2) brightness(3.2)",
   absent: "grayscale(1) brightness(2.6)",
 };
 

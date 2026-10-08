@@ -40,8 +40,8 @@ describe("CharacterBoard", () => {
       rows: 3,
     }));
 
-    expect(html).toContain("border-[#538d4e]");
-    expect(html).toContain("border-[#b59f3b]");
+    expect(html).toContain("border-[#4cb546]");
+    expect(html).toContain("border-[#e0c22e]");
     expect(html).toContain("border-[#787c7e]");
     expect(html).toContain("border-[#878a8c]");
     expect(html).toContain("border-[#d3d6da]");
