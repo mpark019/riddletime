@@ -6,14 +6,24 @@ import { withTransaction } from "@/lib/db";
 import { requireProfileRead, requirePlayer } from "@/server/identity/identity";
 import { BadRequestError, ForbiddenError, NotFoundError } from "@/server/http/errors";
 import { isRepeatGuess } from "@/lib/challenge-state";
+import {
+  characterConfigSchema,
+  gradeCharacterGuess,
+  normalizeCharacterGuess,
+  validateCharacterGuess,
+  type CharacterConfig,
+  type CharacterFeedback,
+} from "./character-puzzle";
 import { gradeRiddle } from "./grading";
 import { computeResult, type SpeedBonus } from "./scoring";
 
-// Shared-mode riddles only; no personal mode or character puzzles yet.
+// Shared-mode puzzles only; no personal mode yet.
 
-const answerDataSchema = z.object({
+const riddleAnswerDataSchema = z.object({
   accepted: z.array(z.string().min(1)).min(1),
 });
+
+const characterAnswerDataSchema = z.object({ target: z.string().min(1) });
 
 const scoringPolicySchema = z.object({
   base_points: z.number().int().nonnegative(),
@@ -50,12 +60,31 @@ function parseGuessHistory(guessHistory: unknown) {
   }
 }
 
+type PuzzleData =
+  | { type: "riddle"; accepted: string[]; scoringPolicy: ScoringPolicy }
+  | { type: "character_puzzle"; target: string; config: CharacterConfig; scoringPolicy: ScoringPolicy };
+
 // CHECK constraints only verify coarse JSON shape, not element types; fail with a logged error, not Zod's raw issues, since this is a stored-data problem.
-function parseChallengeData(challenge: { answer_data: unknown; scoring_policy: unknown }) {
+function parseChallengeData(challenge: {
+  type: string;
+  answer_data: unknown;
+  config: unknown;
+  scoring_policy: unknown;
+}): PuzzleData {
   try {
+    const scoringPolicy = scoringPolicySchema.parse(challenge.scoring_policy);
+    if (challenge.type === "character_puzzle") {
+      return {
+        type: "character_puzzle",
+        target: characterAnswerDataSchema.parse(challenge.answer_data).target,
+        config: characterConfigSchema.parse(challenge.config),
+        scoringPolicy,
+      };
+    }
     return {
-      answerData: answerDataSchema.parse(challenge.answer_data),
-      scoringPolicy: scoringPolicySchema.parse(challenge.scoring_policy),
+      type: "riddle",
+      accepted: riddleAnswerDataSchema.parse(challenge.answer_data).accepted,
+      scoringPolicy,
     };
   } catch (err) {
     console.error("Malformed stored puzzle data:", err);
@@ -83,6 +112,15 @@ function toSchedule(daily: { id: string; mode: string; allowed_types: string[] }
   };
 }
 
+function parseStoredCharacterConfig(config: unknown): CharacterConfig {
+  try {
+    return characterConfigSchema.parse(config);
+  } catch (err) {
+    console.error("Malformed stored session data:", err);
+    throw new Error("Stored session data is malformed");
+  }
+}
+
 async function getSharedPlayState(
   client: PoolClient,
   dailyChallengeId: string,
@@ -90,7 +128,7 @@ async function getSharedPlayState(
 ) {
   const { rows } = await client.query(
     `select c.id as challenge_id, c.type, c.difficulty, c.prompt,
-            c.scoring_policy, c.time_limit_seconds, c.max_attempts,
+            c.scoring_policy, c.config, c.time_limit_seconds, c.max_attempts,
             s.id as submission_id, s.started_at, s.submitted_at, s.correct,
             s.feedback, s.guess_history, s.attempts, s.time_taken_ms,
             s.scoring_breakdown, clock_timestamp() as server_time,
@@ -139,6 +177,7 @@ async function getSharedPlayState(
     guessHistory,
     feedback: row.feedback,
     scoringPolicy,
+    ...(row.type === "character_puzzle" ? { config: parseStoredCharacterConfig(row.config) } : {}),
   };
 
   if (!row.submitted_at) {
@@ -166,6 +205,24 @@ async function requireSavedSharedPlayState(
     throw new NotFoundError("No saved session for that challenge");
   }
   return play;
+}
+
+function resultReason(type: PuzzleData["type"], correct: boolean): string {
+  const label = type === "character_puzzle" ? "character puzzle" : "riddle";
+  return `${correct ? "Correct" : "Incorrect"} ${label} answer`;
+}
+
+// Character guesses are validated here so a malformed one is rejected before it can consume a try.
+function gradeGuess(
+  puzzle: PuzzleData,
+  guess: string,
+): { correct: boolean; feedback: CharacterFeedback[] | null } {
+  if (puzzle.type === "riddle") {
+    return { correct: gradeRiddle(guess, puzzle.accepted), feedback: null };
+  }
+  const invalid = validateCharacterGuess(guess, puzzle.config);
+  if (invalid) throw new BadRequestError(invalid);
+  return gradeCharacterGuess(puzzle.target, guess);
 }
 
 export async function getTodayChallenge() {
@@ -283,8 +340,8 @@ export async function submitChallenge(
     const player = await requirePlayer(client);
 
     const { rows: challengeRows } = await client.query(
-      `select c.id as challenge_id, c.answer_data, c.scoring_policy, c.max_attempts,
-              c.time_limit_seconds
+      `select c.id as challenge_id, c.type, c.answer_data, c.config, c.scoring_policy,
+              c.max_attempts, c.time_limit_seconds
        from challenges c
        join daily_challenges d on d.id = c.daily_challenge_id
        where d.id = $1 and c.mode = 'shared'`,
@@ -314,12 +371,17 @@ export async function submitChallenge(
       };
     }
 
-    if (response !== null) {
+    // Character guesses are stored trimmed and uppercased, so retries compare on that form.
+    const storedResponse = response !== null && challenge.type === "character_puzzle"
+      ? normalizeCharacterGuess(response)
+      : response;
+
+    if (storedResponse !== null) {
       const previousGuess = parseGuessHistory(submission.guess_history).find(
         (guess) => guess.operationKey === operationKey,
       );
       if (previousGuess) {
-        if (previousGuess.response !== response) {
+        if (previousGuess.response !== storedResponse) {
           throw new BadRequestError("Operation key was already used for a different answer");
         }
         return {
@@ -354,7 +416,7 @@ export async function submitChallenge(
         deadlineMs,
         failurePenaltyFromStoredPolicy(challenge.scoring_policy),
       );
-      if (response === null) {
+      if (storedResponse === null) {
         await client.query(
           `update submissions s
            set submitted_at = s.started_at + ($2 * interval '1 millisecond'),
@@ -381,7 +443,7 @@ export async function submitChallenge(
                ),
                scoring_breakdown = $4::jsonb
            where s.id = $1`,
-          [submission.id, deadlineMs, response, JSON.stringify(breakdown), operationKey],
+          [submission.id, deadlineMs, storedResponse, JSON.stringify(breakdown), operationKey],
         );
       }
       await client.query(
@@ -400,17 +462,19 @@ export async function submitChallenge(
       };
     }
 
-    if (response === null) {
+    if (storedResponse === null) {
       throw new BadRequestError("The challenge has not expired");
     }
 
-    if (isRepeatGuess(parseGuessHistory(submission.guess_history), response)) {
+    // Parse only now: an already-finalized or expired session shouldn't fail just because stored data is malformed.
+    const puzzle = parseChallengeData(challenge);
+    const graded = gradeGuess(puzzle, storedResponse);
+    const { correct, feedback } = graded;
+    const scoringPolicy = puzzle.scoringPolicy;
+
+    if (isRepeatGuess(parseGuessHistory(submission.guess_history), storedResponse)) {
       throw new BadRequestError("You already tried that answer");
     }
-
-    // Parse only now: an already-finalized or expired session shouldn't fail just because stored data is malformed.
-    const { answerData, scoringPolicy } = parseChallengeData(challenge);
-    const correct = gradeRiddle(response, answerData.accepted);
     const isFinal = correct || submission.attempts + 1 >= challenge.max_attempts;
 
     if (!isFinal) {
@@ -418,16 +482,18 @@ export async function submitChallenge(
         `update submissions s
          set attempts = s.attempts + 1,
              response = $2,
+             feedback = $5::jsonb,
              guess_history = s.guess_history || jsonb_build_array(
-               jsonb_build_object(
+               jsonb_strip_nulls(jsonb_build_object(
                  'response', $2::text,
                  'correct', $3::boolean,
-                 'operationKey', $4::text
-               )
+                 'operationKey', $4::text,
+                 'feedback', $5::jsonb
+               ))
              )
          where s.id = $1
          returning attempts`,
-        [submission.id, response, correct, operationKey],
+        [submission.id, storedResponse, correct, operationKey, feedback ? JSON.stringify(feedback) : null],
       );
       return {
         submissionId: submission.id,
@@ -453,17 +519,27 @@ export async function submitChallenge(
            time_taken_ms = floor(extract(epoch from ($2::timestamptz - s.started_at)) * 1000),
            response = $3,
            correct = $4,
+           feedback = $7::jsonb,
            attempts = s.attempts + 1,
            guess_history = s.guess_history || jsonb_build_array(
-             jsonb_build_object(
+             jsonb_strip_nulls(jsonb_build_object(
                'response', $3::text,
                'correct', $4::boolean,
-               'operationKey', $6::text
-             )
+               'operationKey', $6::text,
+               'feedback', $7::jsonb
+             ))
            ),
            scoring_breakdown = $5::jsonb
        where s.id = $1`,
-      [submission.id, now, response, correct, JSON.stringify(breakdown), operationKey],
+      [
+        submission.id,
+        now,
+        storedResponse,
+        correct,
+        JSON.stringify(breakdown),
+        operationKey,
+        feedback ? JSON.stringify(feedback) : null,
+      ],
     );
 
     await client.query(
@@ -472,7 +548,7 @@ export async function submitChallenge(
       [
         player.id,
         breakdown.total_points,
-        correct ? "Correct riddle answer" : "Incorrect riddle answer",
+        resultReason(puzzle.type, correct),
         submission.id,
         `result:${submission.id}`,
       ],

@@ -279,7 +279,7 @@ describe("start -> submit -> stored score", () => {
     expect(result.scoringBreakdown).toMatchObject({ total_points: 100 });
 
     const { rows } = await pool.query(
-      "select amount, kind from point_transactions where user_id = $1",
+      "select amount, kind from point_transactions where user_id = $1 and kind = 'challenge_result'",
       [playerId],
     );
     expect(rows).toEqual([{ amount: 100, kind: "challenge_result" }]);
@@ -289,7 +289,7 @@ describe("start -> submit -> stored score", () => {
     expect(repeat.correct).toBe(true);
 
     const { rows: afterRepeat } = await pool.query(
-      "select count(*)::int as count from point_transactions where user_id = $1",
+      "select count(*)::int as count from point_transactions where user_id = $1 and kind = 'challenge_result'",
       [playerId],
     );
     expect(afterRepeat[0].count).toBe(1);

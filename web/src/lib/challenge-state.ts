@@ -1,3 +1,4 @@
+import type { CharacterConfig, CharacterFeedback } from "@/server/challenges/character-puzzle";
 import { normalizeAnswer } from "@/server/challenges/grading";
 
 export interface ChallengeSchedule {
@@ -10,6 +11,7 @@ export interface GuessHistoryEntry {
   response: string;
   correct: boolean;
   operationKey?: string;
+  feedback?: CharacterFeedback[];
 }
 
 export interface ScoringPolicy {
@@ -29,7 +31,8 @@ export interface ScoringBreakdown {
 export interface ActiveRiddle {
   submissionId: string;
   challengeId: string;
-  type: "riddle";
+  type: "riddle" | "character_puzzle";
+  config?: CharacterConfig;
   difficulty: string;
   prompt: string;
   startedAt: string;
@@ -40,7 +43,7 @@ export interface ActiveRiddle {
   attempts: number;
   attemptsRemaining: number;
   guessHistory: GuessHistoryEntry[];
-  feedback: unknown[] | null;
+  feedback: CharacterFeedback[] | null;
   scoringPolicy: ScoringPolicy;
 }
 
