@@ -5,6 +5,7 @@
   --foreground: #ffffff;
   --on-fill: #000000;
   --surface-solid: #00022e;
+  --flat-fill: #0d1859;
 }
 
 @theme inline {
@@ -61,7 +62,7 @@ body {
 
 @media (max-width: 1023.98px) {
   .navy-surface.flat-on-mobile {
-    background-color: var(--surface-solid);
+    background-color: var(--flat-fill);
     background-image: none;
   }
 
