@@ -212,6 +212,27 @@ describe("manual point adjustments", () => {
     expect(rows.some((row) => row.user_id === untouchedPlayer)).toBe(false);
   });
 
+  it("rejects a partly applied bulk key without adding rows", async () => {
+    const admin = await createProfile("admin", "Partial admin");
+    const firstPlayer = await createProfile("player", "Partial first");
+    const secondPlayer = await createProfile("player", "Partial second");
+    getVerifiedUser.mockResolvedValue({ id: admin });
+    const input = { userIds: [firstPlayer, secondPlayer], amount: 7, reason: "Partial retry", operationKey: `partial:${randomUUID()}` };
+    await pool.query(
+      `insert into point_transactions (user_id, amount, kind, reason, created_by, operation_key)
+       values ($1, 7, 'manual_adjustment', 'Partial retry', $2, $3)`,
+      [firstPlayer, admin, `manual:many:${input.operationKey}:${firstPlayer}`],
+    );
+
+    await expect(createManualAdjustmentForPlayers(input)).rejects.toBeInstanceOf(ConflictError);
+
+    const { rows } = await pool.query(
+      "select user_id from point_transactions where operation_key like $1",
+      [`manual:many:${input.operationKey}:%`],
+    );
+    expect(rows).toHaveLength(1);
+  });
+
   it("reuses a matching operation key but safely rejects a different payload", async () => {
     const admin = await createProfile("admin", "Retry admin");
     const player = await createProfile("player", "Retry player");

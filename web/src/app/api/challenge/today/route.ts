@@ -1,11 +1,11 @@
-import { finalizeOverdueSessions, getTodayChallenge } from "@/server/challenges/challenges";
+import { loadTodayChallenge } from "@/server/challenges/challenges";
 import { announceLeaderboardChanged } from "@/server/realtime/leaderboard";
 import { ok, apiError } from "@/server/http/api-response";
 
 export async function GET() {
   try {
-    if (await finalizeOverdueSessions() > 0) await announceLeaderboardChanged();
-    const result = await getTodayChallenge();
+    const { result, finalized } = await loadTodayChallenge();
+    if (finalized > 0) await announceLeaderboardChanged();
     return ok(result, { headers: { "Cache-Control": "private, no-store" } });
   } catch (err) {
     return apiError(err);

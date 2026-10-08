@@ -260,45 +260,68 @@ function gradeGuess(
   return gradeCharacterGuess(puzzle.target, guess);
 }
 
-export async function getTodayChallenge() {
-  return withTransaction(async (client) => {
-    const profile = await requireProfileRead(client);
+async function findUnresolvedSharedGame(client: PoolClient, playerId: string) {
+  const { rows } = await client.query(
+    `select d.id, d.mode, d.allowed_types,
+            s.started_at + (c.time_limit_seconds * interval '1 second') <= clock_timestamp() as overdue
+     from submissions s
+     join challenges c on c.id = s.challenge_id
+     join daily_challenges d on d.id = c.daily_challenge_id
+     where s.user_id = $1 and s.submitted_at is null and c.mode = 'shared'
+     order by s.started_at desc
+     limit 1`,
+    [playerId],
+  );
+  return rows[0];
+}
 
-    if (profile.role === "player") {
-      const { rows: unresolvedRows } = await client.query(
-        `select d.id, d.mode, d.allowed_types
-         from submissions s
-         join challenges c on c.id = s.challenge_id
-         join daily_challenges d on d.id = c.daily_challenge_id
-         where s.user_id = $1 and s.submitted_at is null and c.mode = 'shared'
-         order by s.started_at desc
-         limit 1`,
+async function loadTodayChallengeIn(client: PoolClient) {
+  const profile = await requireProfileRead(client);
+  let finalized = 0;
+
+  if (profile.role === "player") {
+    let unresolved = await findUnresolvedSharedGame(client, profile.id);
+    if (unresolved?.overdue) {
+      const { rows } = await client.query(
+        "select riddle_private.finalize_expired_sessions($1) as finalized",
         [profile.id],
       );
-      const unresolved = unresolvedRows[0];
-      if (unresolved) {
-        return {
+      finalized = rows[0].finalized;
+      unresolved = await findUnresolvedSharedGame(client, profile.id);
+    }
+    if (unresolved) {
+      return {
+        finalized,
+        result: {
           schedule: toSchedule(unresolved),
           play: await requireSavedSharedPlayState(client, unresolved.id, profile.id),
-        };
-      }
+        },
+      };
     }
+  }
 
-    const { rows } = await client.query(
-      `select id, mode, allowed_types
-       from daily_challenges
-       where active_date = current_date and mode = 'shared'`,
-    );
-    const daily = rows[0];
-    if (!daily) return { schedule: null };
-    const schedule = toSchedule(daily);
+  const { rows } = await client.query(
+    `select id, mode, allowed_types
+     from daily_challenges
+     where active_date = current_date and mode = 'shared'`,
+  );
+  const daily = rows[0];
+  if (!daily) return { finalized, result: { schedule: null } };
+  const schedule = toSchedule(daily);
 
-    if (profile.role !== "player") {
-      const preview = await getStaffPreview(client, daily.id);
-      return preview ? { schedule, preview } : { schedule };
-    }
-    return { schedule, play: await getSharedPlayState(client, daily.id, profile.id) };
-  });
+  if (profile.role !== "player") {
+    const preview = await getStaffPreview(client, daily.id);
+    return { finalized, result: preview ? { schedule, preview } : { schedule } };
+  }
+  return { finalized, result: { schedule, play: await getSharedPlayState(client, daily.id, profile.id) } };
+}
+
+export async function loadTodayChallenge() {
+  return withTransaction(loadTodayChallengeIn);
+}
+
+export async function getTodayChallenge() {
+  return (await loadTodayChallenge()).result;
 }
 
 export async function finalizeOverdueSessions(): Promise<number> {

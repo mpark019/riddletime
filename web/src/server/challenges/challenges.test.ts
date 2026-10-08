@@ -14,7 +14,7 @@ const { getVerifiedUser } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/supabase/server", () => ({ getVerifiedUser }));
 
-const { finalizeOverdueSessions, getChallengeSession, getTodayChallenge, startChallenge, submitChallenge } = await import(
+const { finalizeOverdueSessions, getChallengeSession, getTodayChallenge, loadTodayChallenge, startChallenge, submitChallenge } = await import(
   "./challenges"
 );
 const { BadRequestError, ForbiddenError, NotFoundError } = await import("@/server/http/errors");
@@ -1086,5 +1086,72 @@ describe("finalizeOverdueSessions on riddle load", () => {
     getVerifiedUser.mockResolvedValue({ id: adminId });
 
     expect(await finalizeOverdueSessions()).toBe(0);
+  });
+});
+
+describe("loadTodayChallenge", () => {
+  it("finalizes the player's overdue game in the same load and reports it (AC-1, AC-3, AC-5)", async () => {
+    const { playerId, submissionId } = await createStartedPastRiddle(1, 25);
+    await backdateSubmissionStart(submissionId, 125);
+    await ensureTodaysSharedRiddle();
+    getVerifiedUser.mockClear();
+    getVerifiedUser.mockResolvedValue({ id: playerId });
+
+    const { result, finalized } = await loadTodayChallenge();
+
+    expect(finalized).toBe(1);
+    expect(result.play?.status).toBe("not_started");
+    expect(getVerifiedUser).toHaveBeenCalledTimes(1);
+    const { rows } = await pool.query("select amount from point_transactions where submission_id = $1", [submissionId]);
+    expect(rows).toEqual([{ amount: -25 }]);
+  });
+
+  it("runs no sweep when the player has no overdue game (AC-2)", async () => {
+    await ensureTodaysSharedRiddle();
+    getVerifiedUser.mockResolvedValue({ id: await createPlayer() });
+
+    const { result, finalized } = await loadTodayChallenge();
+
+    expect(finalized).toBe(0);
+    expect(result.play?.status).toBe("not_started");
+  });
+
+  it("leaves an overdue game alone while an in-flight submit holds its row (AC-4)", async () => {
+    const { playerId, submissionId } = await createStartedPastRiddle(1, 25);
+    await backdateSubmissionStart(submissionId, 125);
+    getVerifiedUser.mockResolvedValue({ id: playerId });
+    const holder = await pool.connect();
+    try {
+      await holder.query("begin");
+      await holder.query("select id from submissions where id = $1 for update", [submissionId]);
+
+      const { result, finalized } = await loadTodayChallenge();
+
+      expect(finalized).toBe(0);
+      expect(result.play?.status).toBe("in_progress");
+    } finally {
+      await holder.query("rollback");
+      holder.release();
+    }
+  });
+
+  it("does not sweep for a non-player account (AC-6)", async () => {
+    await ensureTodaysSharedRiddle();
+    const adminId = await createAuthUser();
+    await pool.query(
+      "insert into profiles (id, display_name, role) values ($1, concat('Admin ', ($1::uuid)::text), 'admin')",
+      [adminId],
+    );
+    getVerifiedUser.mockResolvedValue({ id: adminId });
+
+    const { result, finalized } = await loadTodayChallenge();
+
+    expect(finalized).toBe(0);
+    expect(result).toHaveProperty("preview");
+  });
+
+  it("rejects an unauthenticated caller (AC-6)", async () => {
+    getVerifiedUser.mockResolvedValue(null);
+    await expect(loadTodayChallenge()).rejects.toBeTruthy();
   });
 });

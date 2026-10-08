@@ -1,4 +1,5 @@
 import "server-only";
+import type { PoolClient } from "pg";
 import { z } from "zod";
 import { withTransaction } from "@/lib/db";
 import { requireAdminRead, requirePointsManager, requireProfileRead, requireUser } from "@/server/identity/identity";
@@ -198,6 +199,28 @@ export async function createManualAdjustment(input: ManualAdjustmentInput) {
   });
 }
 
+// Skips rows whose operation key already exists, so a retry inserts only what is missing.
+async function insertAdjustments(
+  client: PoolClient,
+  userIds: string[],
+  amount: number,
+  reason: string,
+  actorId: string,
+  operationPrefix: string,
+): Promise<PointTransaction[]> {
+  const { rows } = await client.query(
+    `insert into point_transactions
+       (user_id, amount, kind, reason, created_by, operation_key)
+     select u, $2, 'manual_adjustment', $3, $4, $5::text || u::text
+     from unnest($1::uuid[]) as u
+     on conflict (operation_key) do nothing
+     returning id, user_id, null::text as display_name, amount, kind, reason,
+               submission_id, created_by, operation_key, created_at`,
+    [userIds, amount, reason, actorId, operationPrefix],
+  );
+  return rows.map(mapTransaction).sort((a, b) => (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
+}
+
 export async function createManualAdjustmentForAllPlayers(input: AllPlayersManualAdjustmentInput) {
   const parsed = allPlayersManualAdjustmentInput.parse(input);
   const actor = await requireUser();
@@ -235,19 +258,14 @@ export async function createManualAdjustmentForAllPlayers(input: AllPlayersManua
     );
     if (playerRows.length === 0) throw new ConflictError("Point adjustments require at least one current player");
 
-    const entries: PointTransaction[] = [];
-    for (const player of playerRows) {
-      const { rows } = await client.query(
-        `insert into point_transactions
-           (user_id, amount, kind, reason, created_by, operation_key)
-         values ($1, $2, 'manual_adjustment', $3, $4, $5)
-         on conflict (operation_key) do nothing
-         returning id, user_id, null::text as display_name, amount, kind, reason,
-                   submission_id, created_by, operation_key, created_at`,
-        [player.id, parsed.amount, parsed.reason, actor.id, `${operationPrefix}${player.id}`],
-      );
-      if (rows[0]) entries.push(mapTransaction(rows[0]));
-    }
+    const entries = await insertAdjustments(
+      client,
+      playerRows.map((player) => player.id as string),
+      parsed.amount,
+      parsed.reason,
+      actor.id,
+      operationPrefix,
+    );
     if (entries.length === playerRows.length) return { entries, created: true };
 
     const retriedEntries = (await findExisting()).rows.map(mapTransaction);
@@ -286,17 +304,14 @@ export async function createManualAdjustmentForPlayers(input: PlayersManualAdjus
 
     const { rows: recipients } = await client.query("select id, role from profiles where id = any($1::uuid[]) order by id for update", [userIds]);
     if (recipients.length !== userIds.length || recipients.some((recipient) => recipient.role !== "player")) throw new ConflictError("Point adjustments require current players");
-    const entries: PointTransaction[] = [];
-    for (const recipient of recipients) {
-      const { rows } = await client.query(
-        `insert into point_transactions (user_id, amount, kind, reason, created_by, operation_key)
-         values ($1, $2, 'manual_adjustment', $3, $4, $5)
-         on conflict (operation_key) do nothing
-         returning id, user_id, null::text as display_name, amount, kind, reason, submission_id, created_by, operation_key, created_at`,
-        [recipient.id, parsed.amount, parsed.reason, actor.id, `${operationPrefix}${recipient.id}`],
-      );
-      if (rows[0]) entries.push(mapTransaction(rows[0]));
-    }
+    const entries = await insertAdjustments(
+      client,
+      recipients.map((recipient) => recipient.id as string),
+      parsed.amount,
+      parsed.reason,
+      actor.id,
+      operationPrefix,
+    );
     if (entries.length === recipients.length) return { entries, created: true };
     const retried = (await findExisting()).rows.map(mapTransaction);
     if (retried.length !== userIds.length || retried.some((entry, index) => entry.userId !== userIds[index] || entry.amount !== parsed.amount || entry.reason !== parsed.reason || entry.createdBy !== actor.id || entry.kind !== "manual_adjustment")) throw new ConflictError("Operation key was already used for a different adjustment");

@@ -20,6 +20,11 @@ const dancingLetters = [
 ];
 
 export default async function Home() {
+  // Started before the profile lookup so its connection setup overlaps the auth call.
+  const leaderboardPromise = getLeaderboard();
+  leaderboardPromise.catch(() => undefined);
+  const dateContextPromise = getAppDateContext();
+  dateContextPromise.catch(() => undefined);
   const profile = await getCurrentProfile();
 
   if (!profile) {
@@ -35,8 +40,8 @@ export default async function Home() {
   }
 
   const [leaderboard, appDateContext] = await Promise.all([
-    getLeaderboard(),
-    getAppDateContext(),
+    leaderboardPromise,
+    dateContextPromise,
   ]);
 
   return <HomeWorkspace profile={profile} leaderboard={leaderboard} appDateContext={appDateContext}><RiddleTimeWordmark /></HomeWorkspace>;

@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { announceLeaderboardChanged, deleteSchedule, createManualAdjustment, createManualAdjustmentForAllPlayers, createManualAdjustmentForPlayers, deletePointTransaction, finalizeOverdueSessions, getChallengeSession, getTodayChallenge, submitChallenge } = vi.hoisted(() => ({
+const { announceLeaderboardChanged, deleteSchedule, createManualAdjustment, createManualAdjustmentForAllPlayers, createManualAdjustmentForPlayers, deletePointTransaction, finalizeOverdueSessions, getChallengeSession, loadTodayChallenge, submitChallenge } = vi.hoisted(() => ({
   announceLeaderboardChanged: vi.fn(),
   deleteSchedule: vi.fn(),
   finalizeOverdueSessions: vi.fn(),
   getChallengeSession: vi.fn(),
-  getTodayChallenge: vi.fn(),
+  loadTodayChallenge: vi.fn(),
   createManualAdjustment: vi.fn(),
   createManualAdjustmentForAllPlayers: vi.fn(),
   createManualAdjustmentForPlayers: vi.fn(),
@@ -32,7 +32,7 @@ vi.mock("@/server/schedules/schedules", () => ({ deleteSchedule, getScheduleDeta
 vi.mock("@/server/challenges/challenges", () => ({
   finalizeOverdueSessions,
   getChallengeSession,
-  getTodayChallenge,
+  loadTodayChallenge,
   submitChallenge,
 }));
 
@@ -54,7 +54,7 @@ beforeEach(() => {
   submitChallenge.mockReset();
   finalizeOverdueSessions.mockReset();
   deleteSchedule.mockReset();
-  getTodayChallenge.mockReset();
+  loadTodayChallenge.mockReset();
   getChallengeSession.mockReset();
 });
 
@@ -122,9 +122,9 @@ describe("realtime notifications after durable point changes", () => {
     expect(submitChallenge).toHaveBeenCalledWith(id, null);
   });
 
-  it("finalizes overdue games before loading riddle state and notifies when any were finalized", async () => {
-    finalizeOverdueSessions.mockResolvedValueOnce(1).mockResolvedValueOnce(2);
-    getTodayChallenge.mockResolvedValue({ schedule: null });
+  it("notifies when loading today's riddle or a session finalized overdue games", async () => {
+    loadTodayChallenge.mockResolvedValue({ result: { schedule: null }, finalized: 1 });
+    finalizeOverdueSessions.mockResolvedValueOnce(2);
     getChallengeSession.mockResolvedValue({ schedule: null });
 
     await loadToday();
@@ -133,17 +133,19 @@ describe("realtime notifications after durable point changes", () => {
     });
 
     expect(announceLeaderboardChanged).toHaveBeenCalledTimes(2);
+    expect(finalizeOverdueSessions).toHaveBeenCalledTimes(1);
     expect(finalizeOverdueSessions.mock.invocationCallOrder[0])
-      .toBeLessThan(getTodayChallenge.mock.invocationCallOrder[0]);
+      .toBeLessThan(getChallengeSession.mock.invocationCallOrder[0]);
   });
 
-  it("does not notify on load when no overdue game was finalized", async () => {
-    finalizeOverdueSessions.mockResolvedValue(0);
-    getTodayChallenge.mockResolvedValue({ schedule: null });
+  it("does not notify on load when no overdue game was finalized (AC-3)", async () => {
+    loadTodayChallenge.mockResolvedValue({ result: { schedule: null }, finalized: 0 });
 
     const response = await loadToday();
 
     expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ schedule: null });
+    expect(finalizeOverdueSessions).not.toHaveBeenCalled();
     expect(announceLeaderboardChanged).not.toHaveBeenCalled();
   });
 

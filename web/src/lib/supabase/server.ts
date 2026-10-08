@@ -1,5 +1,6 @@
 import "server-only";
 import { createServerClient } from "@supabase/ssr";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { env } from "@/lib/env";
 
@@ -29,10 +30,11 @@ export async function createSupabaseServerClient() {
 }
 
 // Never substitute `supabase.auth.getSession()` here — it trusts a locally cached session instead of verifying.
-export async function getVerifiedUser() {
+// cache() verifies once per server render; route handlers still verify on every call.
+export const getVerifiedUser = cache(async () => {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   return user;
-}
+});
