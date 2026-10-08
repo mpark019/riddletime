@@ -2,6 +2,7 @@ import { isDifficulty } from "./difficulty";
 
 interface ScheduleRulesForm {
   activeDate: string;
+  playerIds?: string[];
   difficulty: string;
   timeLimitSeconds: string;
   maxAttempts: string;
@@ -75,6 +76,16 @@ function buildRules(form: ScheduleRulesForm, maxAttemptsLimit = MAX_DATABASE_INT
   };
 }
 
+function requirePlayers(playerIds: string[] | undefined) {
+  if (playerIds !== undefined && playerIds.length === 0) throw new Error("Select at least one player.");
+}
+
+function targeting(playerIds: string[] | undefined) {
+  return playerIds === undefined
+    ? { mode: "shared" as const }
+    : { mode: "personal" as const, player_ids: playerIds };
+}
+
 export function buildManualRiddleScheduleRequest(form: ManualRiddleScheduleForm) {
   const prompt = form.prompt.trim();
   const acceptedAnswers = form.acceptedAnswers
@@ -84,10 +95,11 @@ export function buildManualRiddleScheduleRequest(form: ManualRiddleScheduleForm)
   if (!prompt) throw new Error("Enter the riddle prompt.");
   if (acceptedAnswers.length === 0) throw new Error("Enter at least one accepted answer.");
   const rules = buildRules(form);
+  requirePlayers(form.playerIds);
 
   return {
     active_date: rules.activeDate,
-    mode: "shared" as const,
+    ...targeting(form.playerIds),
     allowed_types: ["riddle"] as ["riddle"],
     difficulty_selection: "fixed" as const,
     difficulty_presets: {
@@ -122,10 +134,11 @@ export function buildCharacterScheduleRequest(form: CharacterScheduleForm) {
     throw new Error(`The answer must be at most ${MAX_TARGET_LENGTH} characters.`);
   }
   const rules = buildRules(form, MAX_CHARACTER_ATTEMPTS);
+  requirePlayers(form.playerIds);
 
   return {
     active_date: rules.activeDate,
-    mode: "shared" as const,
+    ...targeting(form.playerIds),
     allowed_types: ["character_puzzle"] as ["character_puzzle"],
     difficulty_selection: "fixed" as const,
     difficulty_presets: {

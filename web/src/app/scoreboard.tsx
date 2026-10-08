@@ -270,7 +270,7 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
   );
 }
 
-const PlayerButton = memo(function PlayerButton({ player, index, selected, onToggle }: { player: LeaderboardEntry; index: number; selected: boolean; onToggle: (userId: string) => void }) {
+export const PlayerButton = memo(function PlayerButton({ player, index, selected, onToggle }: { player: LeaderboardEntry; index: number; selected: boolean; onToggle: (userId: string) => void }) {
   return <button type="button" aria-pressed={selected} onClick={() => onToggle(player.userId)} className={`flex h-[72px] items-center gap-2.5 rounded-md border px-3 text-left transition focus-visible:outline-2 focus-visible:outline-white lg:h-[72px] lg:gap-3 lg:px-4 ${selected ? "navy-surface flat-on-mobile relative isolate overflow-hidden border-transparent" : "border-white/25 text-white hover:bg-white/10"}`}>{selected && <FloatingQuestionMarks contained compact start={index * 3} />}<span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs font-bold lg:h-[22px] lg:w-[22px] ${selected ? "border-white bg-white text-black" : "border-white/25"}`} aria-hidden="true">{selected ? "✓" : ""}</span><span className="min-w-0 flex-1"><span className="block truncate text-base font-semibold lg:text-[17px]">{player.displayName}</span>{player.name && <span className="block truncate text-[13px] lg:text-sm">{player.name}</span>}</span><span className="shrink-0 text-sm font-semibold tabular-nums">{number.format(player.totalPoints)}</span></button>;
 });
 

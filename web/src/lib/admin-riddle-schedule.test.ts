@@ -144,3 +144,30 @@ describe("buildCharacterScheduleRequest", () => {
     expect(() => buildCharacterScheduleRequest({ ...form, targetWord: "A1".repeat(25) })).not.toThrow();
   });
 });
+
+describe("player targeting", () => {
+  const form = {
+    activeDate: "2030-05-06",
+    difficulty: "easy",
+    timeLimitSeconds: "60",
+    maxAttempts: "1",
+    basePoints: "10",
+    failurePenaltyPoints: "0",
+    speedBonuses: [],
+  };
+
+  it("builds a personal request carrying the selected player ids", () => {
+    const riddle = buildManualRiddleScheduleRequest({ ...form, prompt: "Q", acceptedAnswers: "a", playerIds: ["p1", "p2"] });
+    const letters = buildCharacterScheduleRequest({ ...form, targetWord: "crane", playerIds: ["p1"] });
+
+    expect(riddle).toMatchObject({ mode: "personal", player_ids: ["p1", "p2"] });
+    expect(letters).toMatchObject({ mode: "personal", player_ids: ["p1"] });
+  });
+
+  it("requires at least one selected player when targeting", () => {
+    expect(() => buildManualRiddleScheduleRequest({ ...form, prompt: "Q", acceptedAnswers: "a", playerIds: [] }))
+      .toThrow("Select at least one player.");
+    expect(() => buildCharacterScheduleRequest({ ...form, targetWord: "crane", playerIds: [] }))
+      .toThrow("Select at least one player.");
+  });
+});

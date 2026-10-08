@@ -358,6 +358,8 @@ describe("admin riddle list and delete", () => {
     expect(schedules.find((schedule) => schedule.id === scheduleId)).toEqual({
       id: scheduleId,
       activeDate: input.active_date,
+      mode: "shared",
+      assignedCount: 1,
       timing: "upcoming",
       type: "riddle",
       difficulty: "standard",

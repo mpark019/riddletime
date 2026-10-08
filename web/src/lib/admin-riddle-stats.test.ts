@@ -7,6 +7,7 @@ function player(overrides: Partial<ScheduledRiddlePlayer>): ScheduledRiddlePlaye
     userId: "u",
     displayName: "P",
     status: "not_started",
+    puzzle: null,
     correct: null,
     attempts: 0,
     guesses: [],
@@ -47,5 +48,17 @@ describe("summarizePlayers", () => {
 
     expect(stats.averageTimeMs).toBe(20_000);
     expect(stats.pointsGiven).toBe(100);
+  });
+});
+
+describe("summarizePlayers with unassigned players", () => {
+  it("leaves players without a puzzle out of the totals", () => {
+    const stats = summarizePlayers([
+      player({ status: "not_assigned" }),
+      player({ status: "not_started" }),
+      player({ status: "completed", correct: true, timeTakenMs: 1000 }),
+    ]);
+
+    expect(stats).toMatchObject({ total: 2, played: 1, solved: 1 });
   });
 });

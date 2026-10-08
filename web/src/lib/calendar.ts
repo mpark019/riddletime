@@ -44,3 +44,8 @@ export function parseUsDate(text: string): string | null {
   if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
   return toIso(date);
 }
+
+export function shiftDay(iso: string, delta: number): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + delta)).toISOString().slice(0, 10);
+}

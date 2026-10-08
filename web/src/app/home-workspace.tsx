@@ -68,7 +68,7 @@ export function HomeWorkspace({
       <main className={`flex-1 sm:pb-0 ${view === "points" ? "pb-[calc(3.5rem+env(safe-area-inset-bottom))] max-sm:flex max-sm:min-h-0 max-sm:flex-col max-sm:overflow-y-auto" : "pb-[calc(5rem+env(safe-area-inset-bottom))]"}`}>
         {view === "home" && <Scoreboard initialEntries={leaderboard} />}
         {view === "riddle" && <RiddleGame playerId={profile.id} role={profile.role} onCompleted={refreshRealtimeData} />}
-        {view === "schedule" && profile.role === "admin" && <AdminRiddleScheduler appTimezone={appDateContext.timezone} today={appDateContext.today} />}
+        {view === "schedule" && profile.role === "admin" && <AdminRiddleScheduler appTimezone={appDateContext.timezone} today={appDateContext.today} players={leaderboard} onChanged={refreshRealtimeData} />}
         {view === "points" && canManagePoints && <PointsDesk players={leaderboard} canViewAudit={profile.role === "admin"} onChanged={async () => refreshRealtimeData()} refreshVersion={realtimeRefreshVersion} />}
         {view === "settings" && <SettingsPage profile={profile} isAdmin={profile.role === "admin"} tab={settingsTab} onTabChange={setSettingsTab} />}
       </main>

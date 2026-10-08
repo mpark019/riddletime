@@ -52,3 +52,13 @@ describe("US date text", () => {
     expect(parseUsDate("")).toBeNull();
   });
 });
+
+describe("shiftDay", () => {
+  it("moves across month and year boundaries", async () => {
+    const { shiftDay } = await import("./calendar");
+
+    expect(shiftDay("2026-10-31", 1)).toBe("2026-11-01");
+    expect(shiftDay("2026-01-01", -1)).toBe("2025-12-31");
+    expect(shiftDay("2028-02-28", 1)).toBe("2028-02-29");
+  });
+});

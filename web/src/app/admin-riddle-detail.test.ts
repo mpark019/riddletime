@@ -7,6 +7,8 @@ import { RiddleDashboard } from "./admin-riddle-detail";
 const schedule: ScheduledRiddle = {
   id: "s1",
   activeDate: "2026-10-08",
+  mode: "shared",
+  assignedCount: 1,
   timing: "today",
   type: "riddle",
   difficulty: "standard",
@@ -24,6 +26,7 @@ function player(overrides: Partial<ScheduledRiddlePlayer>): ScheduledRiddlePlaye
     userId: "u",
     displayName: "Pat",
     status: "not_started",
+    puzzle: null,
     correct: null,
     attempts: 0,
     guesses: [],
@@ -123,5 +126,57 @@ describe("RiddleDashboard", () => {
 
   it("shows an empty state when nobody has played", () => {
     expect(render({}, [idle])).toContain("Nobody has played this riddle yet.");
+  });
+});
+
+describe("RiddleDashboard on a personal day", () => {
+  it("shows each player's own maximum tries instead of a question mark", () => {
+    const personal: ScheduledRiddle = { ...schedule, mode: "personal", type: null, difficulty: null, prompt: null, acceptedAnswers: [], timeLimitSeconds: null, maxAttempts: null };
+    const html = renderToStaticMarkup(createElement(RiddleDashboard, {
+      detail: {
+        schedule: personal,
+        players: [player({
+          userId: "p", displayName: "Pat", status: "completed", correct: true, attempts: 2, timeTakenMs: 38_000,
+          puzzle: { type: "riddle", difficulty: "easy", prompt: "test", acceptedAnswers: ["test"], maxAttempts: 3, timeLimitSeconds: 120 },
+        })],
+      },
+      appTimezone: "UTC",
+      deleting: false,
+      onDelete: () => undefined,
+    }));
+
+    expect(html).toContain("2/3");
+    expect(html).not.toContain("/?");
+  });
+});
+
+describe("RiddleDashboard puzzle groups", () => {
+  const personal: ScheduledRiddle = { ...schedule, mode: "personal", assignedCount: 3, type: null, difficulty: null, prompt: null, acceptedAnswers: [], timeLimitSeconds: null, maxAttempts: null };
+  const puzzle = (type: string, answers: string[]) => ({ type, difficulty: "easy", prompt: "p", acceptedAnswers: answers, maxAttempts: 3, timeLimitSeconds: 120 });
+  const html = renderToStaticMarkup(createElement(RiddleDashboard, {
+    detail: {
+      schedule: personal,
+      players: [
+        player({ userId: "1", displayName: "test1", status: "completed", correct: true, puzzle: puzzle("riddle", ["test"]) }),
+        player({ userId: "2", displayName: "test2", status: "completed", correct: false, puzzle: puzzle("riddle", ["Test"]) }),
+        player({ userId: "3", displayName: "test3", status: "completed", correct: true, puzzle: puzzle("character_puzzle", ["TESTTEST"]) }),
+      ],
+    },
+    appTimezone: "UTC",
+    deleting: false,
+    onDelete: () => undefined,
+  }));
+
+  it("shows a bar grouping the same riddle by game type and answer, above the Played table", () => {
+    expect(html).toContain("Riddle · test");
+    expect(html).toContain("Letter game · TESTTEST");
+    expect(html).toContain("2 players");
+    expect(html).toContain("3 players");
+    expect(html.indexOf('role="tablist"')).toBeLessThan(html.indexOf("Played <span"));
+  });
+
+  it("states how many players have a puzzle without calling it a personal day", () => {
+    expect(html).toContain("3 players have an assigned puzzle.");
+    expect(html).not.toContain("Personal day");
   });
 });
