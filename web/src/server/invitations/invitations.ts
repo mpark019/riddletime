@@ -4,7 +4,12 @@ import { Resend } from "resend";
 import { pool, withTransaction } from "@/lib/db";
 import { requireAdmin, requireUser } from "@/server/identity/identity";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
-import { ConflictError, ForbiddenError, NotFoundError } from "@/server/http/errors";
+import {
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  ServiceUnavailableError,
+} from "@/server/http/errors";
 import { env } from "@/lib/env";
 
 export const createInvitationInput = z
@@ -43,8 +48,12 @@ export interface InviteEmailSender {
 
 // generateLink + our own send, not Supabase's inviteUserByEmail: one link-generation path for both create and resend, and full control over the email itself.
 function defaultInviteSender(): InviteEmailSender {
+  const { RESEND_API_KEY: apiKey, RESEND_FROM_EMAIL: fromEmail } = env;
+  if (!apiKey || !fromEmail) {
+    throw new ServiceUnavailableError("Invitation email is not configured");
+  }
   const admin = createSupabaseAdminClient();
-  const resend = new Resend(env.RESEND_API_KEY);
+  const resend = new Resend(apiKey);
   return {
     async sendInvite(email, invitationId) {
       const { data, error } = await admin.auth.admin.generateLink({
@@ -59,7 +68,7 @@ function defaultInviteSender(): InviteEmailSender {
       }
 
       const { error: sendError } = await resend.emails.send({
-        from: env.RESEND_FROM_EMAIL,
+        from: fromEmail,
         to: email,
         subject: "You're invited to riddletime",
         html: `<p>You've been invited to riddletime.</p><p><a href="${data.properties.action_link}">Accept your invitation</a></p>`,
@@ -111,6 +120,7 @@ export async function createInvitation(
 ) {
   const parsed = createInvitationInput.parse(input);
   const email = parsed.email.trim().toLowerCase();
+  const sender = deps.inviteSender ?? defaultInviteSender();
 
   const invitationId = await withTransaction(async (client) => {
     const admin = await requireAdmin(client);
@@ -139,7 +149,6 @@ export async function createInvitation(
     }
   });
 
-  const sender = deps.inviteSender ?? defaultInviteSender();
   try {
     const { authUserId } = await sender.sendInvite(email, invitationId);
     await pool.query(
@@ -259,6 +268,8 @@ export async function resendInvitation(
   invitationId: string,
   deps: { inviteSender?: InviteEmailSender; authAdmin?: AuthUserAdmin } = {},
 ) {
+  // Resolve first: a resend deletes the old invitation, so a missing email setup must fail before that.
+  const inviteSender = deps.inviteSender ?? defaultInviteSender();
   const deleted = await withTransaction(async (client) => {
     await requireAdmin(client);
     const { rows } = await client.query(
@@ -301,7 +312,7 @@ export async function resendInvitation(
       ...(deleted.display_name === null ? {} : { displayName: deleted.display_name }),
       ...(deleted.role === "player" ? { initialScore: deleted.initial_score ?? 0 } : {}),
     },
-    { inviteSender: deps.inviteSender },
+    { inviteSender },
   );
 }
 

@@ -21,7 +21,10 @@ const {
   deleteInvitation,
   listPendingInvitations,
 } = await import("./invitations");
-const { ConflictError, ForbiddenError, NotFoundError } = await import("@/server/http/errors");
+const { ConflictError, ForbiddenError, NotFoundError, ServiceUnavailableError } = await import(
+  "@/server/http/errors"
+);
+const { env } = await import("@/lib/env");
 
 async function makeAdmin() {
   const id = await createAuthUser();
@@ -676,5 +679,61 @@ describe("listPendingInvitations", () => {
     getVerifiedUser.mockResolvedValue({ id: playerId });
 
     await expect(listPendingInvitations()).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe("without email configuration", () => {
+  let savedKey: string | undefined;
+  let savedFrom: string | undefined;
+
+  beforeEach(() => {
+    savedKey = env.RESEND_API_KEY;
+    savedFrom = env.RESEND_FROM_EMAIL;
+    env.RESEND_API_KEY = undefined;
+    env.RESEND_FROM_EMAIL = undefined;
+    return () => {
+      env.RESEND_API_KEY = savedKey;
+      env.RESEND_FROM_EMAIL = savedFrom;
+    };
+  });
+
+  it("rejects creating an invitation with a 503 and saves nothing", async () => {
+    const adminId = await makeAdmin();
+    getVerifiedUser.mockResolvedValue({ id: adminId });
+    const email = uniqueEmail("unconfigured");
+
+    const failure = await createInvitation({ email, role: "spectator" }).catch((err) => err);
+
+    expect(failure).toBeInstanceOf(ServiceUnavailableError);
+    expect(failure.status).toBe(503);
+    expect(failure.message).toMatch(/not configured/i);
+    const { rows } = await pool.query("select id from invitations where email = $1", [email]);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("rejects a resend before deleting the existing invitation", async () => {
+    const adminId = await makeAdmin();
+    getVerifiedUser.mockResolvedValue({ id: adminId });
+    const { id } = await createInvitation(
+      { email: uniqueEmail("keep-me"), role: "spectator" },
+      { inviteSender: inviteSender() },
+    );
+
+    await expect(resendInvitation(id)).rejects.toBeInstanceOf(ServiceUnavailableError);
+
+    const { rows } = await pool.query("select status from invitations where id = $1", [id]);
+    expect(rows).toEqual([{ status: "pending" }]);
+  });
+
+  it("still works when a sender is injected", async () => {
+    const adminId = await makeAdmin();
+    getVerifiedUser.mockResolvedValue({ id: adminId });
+
+    const { id } = await createInvitation(
+      { email: uniqueEmail("injected"), role: "spectator" },
+      { inviteSender: inviteSender() },
+    );
+
+    expect(id).toEqual(expect.any(String));
   });
 });
