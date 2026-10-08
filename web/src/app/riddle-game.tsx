@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import type { Role } from "@/server/identity/identity";
+import { sanitizeCharacterInput } from "@/server/challenges/character-puzzle";
+import { CharacterBoard, CharacterKeyboard } from "./character-grid";
 import { PrimaryButton } from "./primary-button";
 import {
   attemptsUrgency,
@@ -332,14 +334,51 @@ export function RiddleGame({
     return () => window.clearTimeout(timer);
   });
 
+  const activeCharacterConfig = play?.status === "in_progress" && play.type === "character_puzzle"
+    ? play.config
+    : undefined;
+  const typingLocked = busy || refreshRequired || pendingSubmission !== null || deadlinePassed
+    || (play?.status === "in_progress" && loaded !== null
+      && remainingSeconds(play.deadline, loaded.serverClockOffsetMs, clientNow) === 0);
+
+  useEffect(() => {
+    if (!activeCharacterConfig || typingLocked) return;
+    const config = activeCharacterConfig;
+    function handleKey(event: KeyboardEvent) {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (play?.status === "in_progress" && response.length === config.target_length && !isRepeatGuess(play.guessHistory, response)) {
+          void submitGuess(response);
+        }
+        return;
+      }
+      if (event.key === "Backspace") {
+        setResponse((current) => current.slice(0, -1));
+        return;
+      }
+      if (event.key.length !== 1) return;
+      const character = sanitizeCharacterInput(event.key, config);
+      if (character) setResponse((current) => sanitizeCharacterInput(current + character, config));
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  });
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!response.trim() || !loaded?.data.schedule || play?.status !== "in_progress") return;
-    if (isRepeatGuess(play.guessHistory, response)) return;
+    await submitGuess(response);
+  }
+
+  async function submitGuess(value: string) {
+    if (!value.trim() || !loaded?.data.schedule || play?.status !== "in_progress") return;
+    if (isRepeatGuess(play.guessHistory, value)) return;
     const pending = {
       dailyChallengeId: loaded.data.schedule.id,
       submissionId: play.submissionId,
-      response,
+      response: value,
       operationKey: crypto.randomUUID(),
     };
     try {
@@ -386,6 +425,7 @@ export function RiddleGame({
 
   const urgency = countdownUrgency(secondsRemaining, play.timeLimitSeconds);
   const repeatGuess = response.trim() !== "" && isRepeatGuess(play.guessHistory, response);
+  const characterConfig = play.type === "character_puzzle" ? play.config : undefined;
   const speedTiers = speedTierStatuses(
     play.scoringPolicy.speed_bonuses,
     play.timeLimitSeconds,
@@ -408,9 +448,26 @@ export function RiddleGame({
 
     {speedTiers.length > 0 && <SpeedTiers tiers={speedTiers} basePoints={play.scoringPolicy.base_points} />}
 
-    <p className="mt-8 border-y border-white/25 py-8 text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{play.prompt}</p>
+    {characterConfig
+      ? <div className="mt-8 border-t border-white/25 pt-6">
+        <p className="mb-5 text-center text-sm font-semibold uppercase tracking-wide text-white/55">Letter game</p>
+        <div>
+          <CharacterBoard guesses={play.guessHistory} current={response} length={characterConfig.target_length} rows={play.maxAttempts} />
+          {repeatGuess && <p role="status" className="mt-4 text-center text-sm font-semibold text-[#f00000]">You already tried that code.</p>}
+          {!refreshRequired && !needsPendingRetry(pendingSubmission, busy) && secondsRemaining > 0 && <CharacterKeyboard
+            characterSet={characterConfig.character_set}
+            guesses={play.guessHistory}
+            disabled={busy}
+            canSubmit={response.length === characterConfig.target_length && !repeatGuess}
+            onCharacter={(character) => setResponse((current) => sanitizeCharacterInput(current + character, characterConfig))}
+            onDelete={() => setResponse((current) => current.slice(0, -1))}
+            onEnter={() => void submitGuess(response)}
+          />}
+        </div>
+      </div>
+      : <p className="mt-8 border-y border-white/25 py-8 text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{play.prompt}</p>}
 
-    {play.guessHistory.length > 0 && <div className="mt-6">
+    {!characterConfig && play.guessHistory.length > 0 && <div className="mt-6">
       <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Previous guesses</h4>
       <ul className="mt-2 divide-y divide-white/20 border-y border-white/25">
         {play.guessHistory.map((guess, index) => <li key={`${guess.response}-${index}`} className="flex items-center justify-between gap-4 py-3"><span>{guess.response}</span><span className={`text-sm font-semibold ${guess.correct ? "text-emerald-700" : "text-red-700"}`}>{guess.correct ? "Correct" : "Incorrect"}</span></li>)}
@@ -432,6 +489,7 @@ export function RiddleGame({
             <PrimaryButton type="button" disabled={busy} onClick={() => void tryAgain(play.submissionId)} className="mt-4 px-5 py-2.5">{busy ? "Trying…" : "Try again"}</PrimaryButton>
           </div>
           : <p role="status" className="mt-7 text-lg font-semibold">Time’s up. Saving your result…</p>
+        : characterConfig ? null
         : <form onSubmit={submit} className="mt-7">
           <label htmlFor="riddle-response" className="text-sm font-semibold text-white/70">Your answer</label>
           <div className="mt-2 flex flex-col gap-3 sm:flex-row">
@@ -483,12 +541,14 @@ export function CompletedRiddle({ play }: { play: Extract<PlayerChallengeState, 
       <ResultStat label="Total points" value={breakdown.total_points} />
     </div>
     <div className="mt-7">
-      <p className="text-sm font-semibold uppercase tracking-wide text-white/55">Riddle</p>
-      <p className="mt-2 text-xl font-medium">{play.prompt}</p>
+      <p className="text-sm font-semibold uppercase tracking-wide text-white/55">{play.type === "character_puzzle" ? "Letter game" : "Riddle"}</p>
+      {play.type !== "character_puzzle" && <p className="mt-2 text-xl font-medium">{play.prompt}</p>}
     </div>
     {play.guessHistory.length > 0 && <div className="mt-6">
       <p className="text-sm font-semibold uppercase tracking-wide text-white/55">Your answers</p>
-      <ul className="mt-2 space-y-2">{play.guessHistory.map((guess, index) => <li key={`${guess.response}-${index}`} className="flex justify-between rounded-md border border-white/25 bg-black/[0.04] px-4 py-3"><span>{guess.response}</span><span className={guess.correct ? "text-emerald-700" : "text-red-700"}>{guess.correct ? "Correct" : "Incorrect"}</span></li>)}</ul>
+      {play.type === "character_puzzle"
+        ? <div className="mt-3"><CharacterBoard guesses={play.guessHistory} length={play.config?.target_length ?? play.guessHistory[0].response.length} /></div>
+        : <ul className="mt-2 space-y-2">{play.guessHistory.map((guess, index) => <li key={`${guess.response}-${index}`} className="flex justify-between rounded-md border border-white/25 bg-black/[0.04] px-4 py-3"><span>{guess.response}</span><span className={guess.correct ? "text-emerald-700" : "text-red-700"}>{guess.correct ? "Correct" : "Incorrect"}</span></li>)}</ul>}
     </div>}
   </RiddleFrame>;
 }

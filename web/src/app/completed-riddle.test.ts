@@ -52,6 +52,30 @@ function tone(html: string, label: string) {
   return new RegExp(`data-tone="(\\w+)"><p[^>]*>${label}</p>`).exec(html)?.[1];
 }
 
+describe("CompletedRiddle for a letter game", () => {
+  it("labels it Letter game and does not show the stored instruction sentence", () => {
+    const html = render({
+      ...completed(false, { penalty_points: 20, total_points: -20 }),
+      type: "character_puzzle",
+      prompt: "Guess the 8-character code using letters A-Z and digits 0-9.",
+      config: { target_length: 3, character_set: "ABC" },
+      guessHistory: [{ response: "ABC", correct: false, feedback: ["absent", "absent", "absent"] }],
+    });
+
+    expect(html).toContain("Letter game");
+    expect(html).not.toContain("Guess the");
+    expect(html).not.toContain(">Code<");
+  });
+
+  it("keeps the Riddle label and prompt for riddles", () => {
+    const html = render(completed(true, { base_points: 100, total_points: 100 }));
+
+    expect(html).toContain(">Riddle<");
+    expect(html).toContain("2 + 2 ?");
+    expect(html).not.toContain("Letter game");
+  });
+});
+
 describe("CompletedRiddle", () => {
   it("shows a SUCCESS stamp and green positive numbers for a solved riddle", () => {
     const html = render(completed(true, { base_points: 100, speed_bonus_points: 50, total_points: 150 }));
