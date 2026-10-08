@@ -12,7 +12,7 @@ export type ManagedAccountRole = z.infer<typeof managedAccountRole>;
 
 export const createPlayerAccountInput = z.object({
   name: z.string().trim().min(1).max(100).optional(),
-  displayName: z.string().trim().min(1),
+  displayName: z.string().trim().min(1).max(100),
   password: z.string().min(1, "Password is required."),
   role: z.enum(["player", "spectator"]).default("player"),
   initialScore: z.number().int().nonnegative().optional(),
@@ -41,7 +41,7 @@ export interface ManagedAccount {
 
 export const updatePlayerAccountInput = z.object({
   name: z.string().trim().max(100).transform((value) => value || null).optional(),
-  displayName: z.string().trim().min(1).optional(),
+  displayName: z.string().trim().min(1).max(100).optional(),
   password: z.string().min(1, "Password is required.").optional(),
 }).strict().refine((input) => input.name !== undefined || input.displayName !== undefined || input.password !== undefined, {
   message: "Provide a name, display name or password.",

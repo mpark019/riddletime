@@ -14,8 +14,8 @@ const manualAdjustmentFields = {
     .min(-2_147_483_648)
     .max(2_147_483_647)
     .refine((amount) => amount !== 0, "amount must not be zero"),
-  reason: z.string().trim().optional().transform((reason) => reason || "Manual adjustment"),
-  operationKey: z.string().trim().min(1),
+  reason: z.string().trim().max(500).optional().transform((reason) => reason || "Manual adjustment"),
+  operationKey: z.string().trim().min(1).max(200),
 };
 
 export const manualAdjustmentInput = z.object({
@@ -322,11 +322,13 @@ export async function createManualAdjustmentForPlayers(input: PlayersManualAdjus
 export async function deletePointTransaction(transactionId: string) {
   UUID.parse(transactionId);
   return withTransaction(async (client) => {
-    await requirePointsManager(client);
-    const { rows } = await client.query(
-      "delete from point_transactions where id = $1 returning id",
-      [transactionId],
-    );
+    const actor = await requirePointsManager(client);
+    const { rows } = actor.role === "admin"
+      ? await client.query("delete from point_transactions where id = $1 returning id", [transactionId])
+      : await client.query(
+        "delete from point_transactions where id = $1 and kind = 'manual_adjustment' and created_by = $2 returning id",
+        [transactionId, actor.id],
+      );
     if (!rows[0]) throw new NotFoundError("Point transaction not found");
     return { id: rows[0].id as string };
   });

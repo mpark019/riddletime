@@ -15,7 +15,7 @@ import { env } from "@/lib/env";
 export const createInvitationInput = z
   .object({
     email: z.email(),
-    displayName: z.string().trim().min(1).optional(),
+    displayName: z.string().trim().min(1).max(100).optional(),
     role: z.enum(["spectator", "player", "admin"]),
     initialScore: z.number().int().nonnegative().optional(),
   })
@@ -34,7 +34,7 @@ export const createInvitationInput = z
 export type CreateInvitationInput = z.infer<typeof createInvitationInput>;
 
 export const acceptInvitationInput = z.object({
-  name: z.string().trim().min(1).optional(),
+  name: z.string().trim().min(1).max(100).optional(),
 });
 export type AcceptInvitationInput = z.infer<typeof acceptInvitationInput>;
 

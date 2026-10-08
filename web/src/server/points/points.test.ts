@@ -313,9 +313,15 @@ describe("manual point adjustments", () => {
         operationKey: `adjust:${randomUUID()}`,
       }),
     ).resolves.toMatchObject({ entry: { createdBy: spectator, amount: 1 } });
-    await expect(deletePointTransaction(transactionId)).resolves.toEqual({ id: transactionId });
+    await expect(deletePointTransaction(transactionId)).rejects.toBeInstanceOf(NotFoundError);
+    const { rows: ownRows } = await pool.query(
+      "select id from point_transactions where created_by = $1",
+      [spectator],
+    );
+    await expect(deletePointTransaction(ownRows[0].id)).resolves.toEqual({ id: ownRows[0].id });
 
     getVerifiedUser.mockResolvedValue({ id: admin });
+    await expect(deletePointTransaction(transactionId)).resolves.toEqual({ id: transactionId });
     const adminTransactionId = await addPoints(player, 10, "admin-delete");
     await expect(deletePointTransaction(adminTransactionId)).resolves.toEqual({ id: adminTransactionId });
     const { rows } = await pool.query("select id from point_transactions where id = $1", [adminTransactionId]);

@@ -5,7 +5,7 @@ import { ok, apiError } from "@/server/http/api-response";
 
 const paramsSchema = z.object({ id: z.uuid() });
 const bodySchema = z.union([
-  z.object({ response: z.string().trim().min(1), operationKey: z.uuid() }).strict(),
+  z.object({ response: z.string().trim().min(1).max(500), operationKey: z.uuid() }).strict(),
   z.object({ finalizeExpired: z.literal(true) }).strict(),
 ]);
 

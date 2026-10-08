@@ -8,7 +8,7 @@ const MAX_MULTIPART_BYTES = MAX_AVATAR_BYTES + 1024 * 1024;
 export async function POST(request: Request) {
   try {
     const contentLength = Number(request.headers.get("content-length"));
-    if (Number.isFinite(contentLength) && contentLength > MAX_MULTIPART_BYTES) {
+    if (!Number.isFinite(contentLength) || contentLength > MAX_MULTIPART_BYTES) {
       throw new BadRequestError("Profile picture must be 5 MiB or smaller");
     }
 
