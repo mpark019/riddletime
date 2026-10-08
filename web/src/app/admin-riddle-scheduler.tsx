@@ -202,7 +202,7 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
       <section className={`${card} relative lg:col-span-2 lg:p-0`} aria-labelledby="schedule-progress-title">
         <div className="flex flex-col lg:absolute lg:inset-0 lg:p-4">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-            <h3 id="schedule-progress-title" className={cardTitle}>{formatUsDate(activeDate)}{activeDate === today && <span className="ml-2 text-xs font-semibold uppercase text-emerald-200">today</span>}</h3>
+            <h3 id="schedule-progress-title" className={cardTitle}>{formatUsDate(activeDate)}{activeDate === today && <span className="ml-2 text-xs font-bold uppercase text-blue-900">today</span>}</h3>
             <p className="text-xs text-white/55">{appTimezone}{isPastDate && " · past day, no new assignments"}{activeDate !== today && <> · <button type="button" onClick={() => setActiveDate(today)} className="font-semibold text-white underline">Back to today</button></>}</p>
           </div>
           <DayStats players={players} roster={roster} />

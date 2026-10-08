@@ -5,7 +5,7 @@ import type { ScheduledRiddle } from "@/server/schedules/schedules";
 import { AdminRiddleDetail } from "./admin-riddle-detail";
 
 const timingStyles: Record<ScheduledRiddle["timing"], string> = {
-  today: "border-emerald-300/70 text-emerald-200",
+  today: "border-blue-900 text-blue-900",
   upcoming: "border-sky-300/70 text-sky-200",
   past: "border-white/30 text-white/60",
 };
@@ -78,7 +78,7 @@ export function AdminRiddleList({ refreshVersion, appTimezone }: { refreshVersio
 }
 
 function riddleTypeLabel(riddle: ScheduledRiddle): string {
-  if (riddle.mode === "personal") return `Personal · ${riddle.assignedCount} assigned`;
+  if (riddle.mode === "personal") return `${riddle.assignedCount} assigned`;
   const type = riddle.type;
   if (type === "riddle") return "Riddle";
   if (type === "character_puzzle") return "Letter game";
