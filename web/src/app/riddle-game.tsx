@@ -440,9 +440,9 @@ export function RiddleGame({
   return <RiddleFrame>
     <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
       <RiddleStakes policy={play.scoringPolicy} pressure={stakesPressure(secondsRemaining, play.timeLimitSeconds, play.attemptsRemaining, play.maxAttempts)} />
-      <div className="ml-auto">
-        <p className="mb-2 text-right text-sm font-semibold uppercase tracking-[0.2em] text-white/55">{play.difficulty}</p>
-        <div className="flex gap-3 text-right">
+      <div className="w-full sm:ml-auto sm:w-auto">
+        <p className="mb-2 text-sm font-semibold uppercase tracking-[0.2em] text-white/55 sm:text-right">{play.difficulty}</p>
+        <div className="grid grid-cols-2 gap-3 sm:flex sm:text-right">
           <Stat label="Time" value={formatCountdown(secondsRemaining)} live urgency={urgency} />
           <Stat label="Tries left" value={`${play.attemptsRemaining}/${play.maxAttempts}`} urgency={attemptsUrgency(play.attemptsRemaining, play.maxAttempts)} pulse={false} />
         </div>
@@ -631,14 +631,14 @@ export function RiddleStakes({ policy, pressure = 0 }: { policy: ScoringPolicy; 
   const shake = shakeLevel(pressure);
   const penalty = policy.failure_penalty_points ?? 0;
   const cells = [
-    { label: "Correct answer", value: `+${policy.base_points}`, note: "Points for solving it", tone: "positive" as const, style: stakeStyle(scales.reward, 0), className: "origin-bottom-left" },
-    ...(penalty > 0 ? [{ label: "If you fail", value: `-${penalty}`, note: "Out of tries or time", tone: "negative" as const, style: stakeStyle(scales.penalty, shake), className: `relative z-10 origin-top-left ${shake > 0 ? "stake-shake" : ""}` }] : []),
+    { label: "Correct answer", value: `+${policy.base_points}`, note: "Points for solving it", tone: "positive" as const, style: stakeStyle(scales.reward, 0), scale: 1, className: "origin-bottom-left" },
+    ...(penalty > 0 ? [{ label: "If you fail", value: `-${penalty}`, note: "Out of tries or time", tone: "negative" as const, style: stakeStyle(scales.penalty, shake), scale: scales.penalty, className: `relative z-10 origin-top-left ${shake > 0 ? "stake-shake" : ""}` }] : []),
   ];
-  return <div className="flex flex-wrap items-end gap-x-14 gap-y-4">
+  return <div className="grid grid-cols-2 items-end gap-x-4 gap-y-4 sm:flex sm:flex-wrap sm:gap-x-14">
     {cells.map((cell) => <div key={cell.label} data-tone={cell.tone}>
       <p className="text-xs font-semibold uppercase tracking-wide text-white/55">{cell.label}</p>
       <p style={cell.style} className={`stake-number pointer-events-none mt-1 select-none text-3xl font-bold tabular-nums ${cell.className} ${toneClasses[cell.tone]}`}>{cell.value}</p>
-      <p className="mt-1 text-xs text-white/55">{cell.note}</p>
+      <p style={{ opacity: Math.max(0, 1 - (cell.scale - 1) / 1.5) }} className="mt-1 text-xs text-white/55">{cell.note}</p>
     </div>)}
   </div>;
 }
