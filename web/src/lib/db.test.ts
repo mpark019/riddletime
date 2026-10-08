@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { pool, withTransaction } from "@/lib/db";
+import { getAppDateContext, pool, withTransaction } from "@/lib/db";
 import { env } from "@/lib/env";
 
 describe("withTransaction", () => {
@@ -74,6 +74,12 @@ describe("withTransaction", () => {
     // leaked setting would show env.APP_TIMEZONE here instead of reverting.
     const { rows: after } = await pool.query("select current_setting('timezone') as tz");
     expect(after[0].tz).toBe(defaultTimezone);
+  });
+
+  it("returns the form date and timezone from the configured database clock", async () => {
+    const context = await getAppDateContext();
+    expect(context.timezone).toBe(env.APP_TIMEZONE);
+    expect(context.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it("propagates the original error and releases the connection as broken if rollback itself fails (AC-1, AC-2, AC-4)", async () => {

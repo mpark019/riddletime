@@ -6,6 +6,7 @@ export interface SpeedBonus {
 export interface ScoringBreakdown {
   base_points: number;
   speed_bonus_points: number | null;
+  penalty_points: number;
   total_points: number;
   bonus_under_ms: number | null;
 }
@@ -16,12 +17,14 @@ export function computeResult(
   basePoints: number,
   speedBonuses: readonly SpeedBonus[],
   elapsedMs: number,
+  failurePenaltyPoints = 0,
 ): ScoringBreakdown {
   if (!correct) {
     return {
       base_points: 0,
       speed_bonus_points: null,
-      total_points: 0,
+      penalty_points: failurePenaltyPoints,
+      total_points: failurePenaltyPoints === 0 ? 0 : -failurePenaltyPoints,
       bonus_under_ms: null,
     };
   }
@@ -35,6 +38,7 @@ export function computeResult(
   return {
     base_points: basePoints,
     speed_bonus_points: best ? best.points : null,
+    penalty_points: 0,
     total_points: basePoints + (best ? best.points : 0),
     bonus_under_ms: best ? best.underMs : null,
   };

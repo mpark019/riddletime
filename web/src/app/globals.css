@@ -149,7 +149,54 @@ body {
   }
 }
 
+@keyframes stamp-in {
+  0% { opacity: 0; transform: rotate(-8deg) scale(2.4); }
+  60% { opacity: 0.95; transform: rotate(-8deg) scale(0.94); }
+  100% { opacity: 0.92; transform: rotate(-8deg) scale(1); }
+}
+
+.result-stamp {
+  animation: stamp-in 0.5s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+.stake-number {
+  transform: scale(var(--stake-scale, 1));
+  will-change: transform;
+}
+
+.stake-shake {
+  animation: stake-shake var(--shake-duration, 0.4s) linear infinite;
+}
+
+@keyframes stake-shake {
+  0%, 100% {
+    transform: translate(0, 0) rotate(0deg) scale(var(--stake-scale, 1));
+  }
+  15% {
+    transform: translate(calc(var(--shake) * -1), calc(var(--shake) * 0.6)) rotate(calc(var(--shake-level) * -2deg)) scale(var(--stake-scale, 1));
+  }
+  35% {
+    transform: translate(var(--shake), calc(var(--shake) * -0.8)) rotate(calc(var(--shake-level) * 2.5deg)) scale(var(--stake-scale, 1));
+  }
+  55% {
+    transform: translate(calc(var(--shake) * -0.7), calc(var(--shake) * -0.4)) rotate(calc(var(--shake-level) * 1.5deg)) scale(var(--stake-scale, 1));
+  }
+  75% {
+    transform: translate(calc(var(--shake) * 0.9), calc(var(--shake) * 0.7)) rotate(calc(var(--shake-level) * -2.5deg)) scale(var(--stake-scale, 1));
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .stake-shake {
+    animation: none;
+  }
+
+  .result-stamp {
+    animation: none;
+    opacity: 0.92;
+    transform: rotate(-8deg);
+  }
+
   .dancing-letter {
     animation: none;
   }

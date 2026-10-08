@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { announceLeaderboardChanged, createManualAdjustment, createManualAdjustmentForAllPlayers, createManualAdjustmentForPlayers, deletePointTransaction, submitChallenge } = vi.hoisted(() => ({
+const { announceLeaderboardChanged, deleteSchedule, createManualAdjustment, createManualAdjustmentForAllPlayers, createManualAdjustmentForPlayers, deletePointTransaction, finalizeOverdueSessions, getChallengeSession, getTodayChallenge, submitChallenge } = vi.hoisted(() => ({
   announceLeaderboardChanged: vi.fn(),
+  deleteSchedule: vi.fn(),
+  finalizeOverdueSessions: vi.fn(),
+  getChallengeSession: vi.fn(),
+  getTodayChallenge: vi.fn(),
   createManualAdjustment: vi.fn(),
   createManualAdjustmentForAllPlayers: vi.fn(),
   createManualAdjustmentForPlayers: vi.fn(),
@@ -17,11 +21,20 @@ vi.mock("@/server/points/points", () => ({
   deletePointTransaction,
   manualAdjustmentInput: { parse: vi.fn((input) => input) },
 }));
-vi.mock("@/server/challenges/challenges", () => ({ submitChallenge }));
+vi.mock("@/server/schedules/schedules", () => ({ deleteSchedule, getScheduleDetail: vi.fn() }));
+vi.mock("@/server/challenges/challenges", () => ({
+  finalizeOverdueSessions,
+  getChallengeSession,
+  getTodayChallenge,
+  submitChallenge,
+}));
 
 const { POST: createAdjustment } = await import("./admin/point-transactions/route");
 const { DELETE: deleteAdjustment } = await import("./admin/point-transactions/[id]/route");
 const { POST: submit } = await import("./challenge/[id]/submit/route");
+const { GET: loadToday } = await import("./challenge/today/route");
+const { DELETE: deleteRiddle } = await import("./admin/challenges/[id]/route");
+const { GET: loadSession } = await import("./challenge/[id]/route");
 
 const id = "9ebc4332-4cbe-4c1f-b11e-d1b2e4e2e8f0";
 
@@ -32,6 +45,10 @@ beforeEach(() => {
   createManualAdjustmentForPlayers.mockReset();
   deletePointTransaction.mockReset();
   submitChallenge.mockReset();
+  finalizeOverdueSessions.mockReset();
+  deleteSchedule.mockReset();
+  getTodayChallenge.mockReset();
+  getChallengeSession.mockReset();
 });
 
 describe("realtime notifications after durable point changes", () => {
@@ -64,11 +81,12 @@ describe("realtime notifications after durable point changes", () => {
   });
 
   it("notifies for a newly finalized riddle, but not an idempotent retry", async () => {
+    const operationKey = "88fd76a3-a596-4b3c-9a42-bfcf0eb194c3";
     submitChallenge.mockResolvedValueOnce({ finalized: true, alreadyFinalized: false })
       .mockResolvedValueOnce({ finalized: true, alreadyFinalized: true });
     const request = () => new Request(`https://riddletime.test/api/challenge/${id}/submit`, {
       method: "POST",
-      body: JSON.stringify({ response: "piano" }),
+      body: JSON.stringify({ response: "piano", operationKey }),
       headers: { "Content-Type": "application/json" },
     });
     const context = { params: Promise.resolve({ id }) };
@@ -76,6 +94,60 @@ describe("realtime notifications after durable point changes", () => {
     await submit(request(), context);
     await submit(request(), context);
 
+    expect(announceLeaderboardChanged).toHaveBeenCalledTimes(1);
+    expect(submitChallenge).toHaveBeenCalledWith(id, "piano", operationKey);
+  });
+
+  it("accepts an answerless expiry-finalization request", async () => {
+    submitChallenge.mockResolvedValue({ finalized: true, alreadyFinalized: false });
+    const request = new Request(`https://riddletime.test/api/challenge/${id}/submit`, {
+      method: "POST",
+      body: JSON.stringify({ finalizeExpired: true }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const response = await submit(request, { params: Promise.resolve({ id }) });
+
+    expect(response.status).toBe(200);
+    expect(submitChallenge).toHaveBeenCalledWith(id, null);
+  });
+
+  it("finalizes overdue games before loading riddle state and notifies when any were finalized", async () => {
+    finalizeOverdueSessions.mockResolvedValueOnce(1).mockResolvedValueOnce(2);
+    getTodayChallenge.mockResolvedValue({ schedule: null });
+    getChallengeSession.mockResolvedValue({ schedule: null });
+
+    await loadToday();
+    await loadSession(new Request(`https://riddletime.test/api/challenge/${id}`), {
+      params: Promise.resolve({ id }),
+    });
+
+    expect(announceLeaderboardChanged).toHaveBeenCalledTimes(2);
+    expect(finalizeOverdueSessions.mock.invocationCallOrder[0])
+      .toBeLessThan(getTodayChallenge.mock.invocationCallOrder[0]);
+  });
+
+  it("does not notify on load when no overdue game was finalized", async () => {
+    finalizeOverdueSessions.mockResolvedValue(0);
+    getTodayChallenge.mockResolvedValue({ schedule: null });
+
+    const response = await loadToday();
+
+    expect(response.status).toBe(200);
+    expect(announceLeaderboardChanged).not.toHaveBeenCalled();
+  });
+
+  it("notifies after deleting a riddle that had results, but not an unplayed one", async () => {
+    deleteSchedule.mockResolvedValueOnce({ id, removedResults: 3 })
+      .mockResolvedValueOnce({ id, removedResults: 0 });
+    const request = () => new Request(`https://riddletime.test/api/admin/challenges/${id}`, { method: "DELETE" });
+    const context = { params: Promise.resolve({ id }) };
+
+    const first = await deleteRiddle(request(), context);
+    await deleteRiddle(request(), context);
+
+    expect(first.status).toBe(200);
+    expect(deleteSchedule).toHaveBeenCalledWith(id);
     expect(announceLeaderboardChanged).toHaveBeenCalledTimes(1);
   });
 });

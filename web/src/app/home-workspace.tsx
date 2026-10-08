@@ -10,18 +10,22 @@ import { PrimaryButton } from "./primary-button";
 import { InvitePanel, SignOutButton, UserAccountsPanel } from "./home-actions";
 import { LeaderboardRealtime } from "./leaderboard-realtime";
 import { PointsDesk, Scoreboard } from "./scoreboard";
+import { RiddleGame } from "./riddle-game";
+import { AdminRiddleScheduler } from "./admin-riddle-scheduler";
 
-type WorkspaceView = "home" | "riddle" | "points" | "settings";
+type WorkspaceView = "home" | "riddle" | "schedule" | "points" | "settings";
 type SettingsTab = "general" | "invitations" | "users";
 
 export function HomeWorkspace({
   children,
   profile,
   leaderboard,
+  appDateContext,
 }: {
   children: ReactNode;
   profile: Profile;
   leaderboard: LeaderboardEntry[];
+  appDateContext: { today: string; timezone: string };
 }) {
   const [view, setView] = useState<WorkspaceView>("home");
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
@@ -49,6 +53,7 @@ export function HomeWorkspace({
           <div className="contents sm:relative sm:z-10 sm:flex">
           <PillButton active={view === "home"} onClick={() => selectView("home")}>Home</PillButton>
           <PillButton active={view === "riddle"} onClick={() => selectView("riddle")}>Riddle</PillButton>
+          {profile.role === "admin" && <PillButton active={view === "schedule"} onClick={() => selectView("schedule")}>Schedule</PillButton>}
           {canManagePoints && <PillButton active={view === "points"} onClick={() => selectView("points")}>Points</PillButton>}
           </div>
           <AccountMenu active={view === "settings"} profile={profile} onOpenSettings={() => selectView("settings")} />
@@ -57,7 +62,8 @@ export function HomeWorkspace({
 
       <main className="flex-1 pb-[calc(5rem+env(safe-area-inset-bottom))] sm:pb-0">
         {view === "home" && <Scoreboard initialEntries={leaderboard} />}
-        {view === "riddle" && <RiddlePlaceholder />}
+        {view === "riddle" && <RiddleGame playerId={profile.id} role={profile.role} onCompleted={refreshRealtimeData} />}
+        {view === "schedule" && profile.role === "admin" && <AdminRiddleScheduler appTimezone={appDateContext.timezone} today={appDateContext.today} />}
         {view === "points" && canManagePoints && <PointsDesk players={leaderboard} canViewAudit={profile.role === "admin"} onChanged={async () => router.refresh()} refreshVersion={realtimeRefreshVersion} />}
         {view === "settings" && <SettingsPage profile={profile} isAdmin={profile.role === "admin"} tab={settingsTab} onTabChange={setSettingsTab} />}
       </main>
@@ -115,15 +121,6 @@ function InlineProfileField({ id, label, value, placeholder, autoComplete, onCha
       <input id={id} type="text" autoComplete={autoComplete} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="w-full bg-black/[0.06] px-3 py-2 text-lg font-medium text-white transition placeholder:text-white hover:bg-black/25 focus:bg-black/25 focus:outline-2 focus:outline-white/80" />
     </div>
   </div>;
-}
-
-function RiddlePlaceholder() {
-  return <section className="mx-auto flex w-full max-w-4xl flex-col gap-3 px-4 py-8 sm:px-8 sm:py-12">
-    <h2 className="text-3xl font-semibold tracking-tight">Riddle</h2>
-    <div className="rounded-md border border-white/80 bg-black/[0.04] px-6 py-14 text-center">
-      <p className="font-semibold">Today’s riddle is coming soon.</p>
-    </div>
-  </section>;
 }
 
 function SettingsPage({ profile, isAdmin, tab, onTabChange }: { profile: Profile; isAdmin: boolean; tab: SettingsTab; onTabChange: (tab: SettingsTab) => void }) {
