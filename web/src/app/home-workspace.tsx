@@ -1,10 +1,11 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Profile } from "@/server/identity/identity";
 import type { LeaderboardEntry } from "@/server/points/points";
+import { createTrailingCoalescer } from "@/lib/coalesce";
 import { FloatingQuestionMarks } from "./floating-question-marks";
 import { PrimaryButton } from "./primary-button";
 import { InvitePanel, SignOutButton, UserAccountsPanel } from "./home-actions";
@@ -15,6 +16,8 @@ import { AdminRiddleScheduler } from "./admin-riddle-scheduler";
 
 type WorkspaceView = "home" | "riddle" | "schedule" | "points" | "settings";
 type SettingsTab = "general" | "invitations" | "users";
+
+const REFRESH_COALESCE_MS = 250;
 
 export function HomeWorkspace({
   children,
@@ -38,10 +41,12 @@ export function HomeWorkspace({
     if (nextView === "settings") setSettingsTab("general");
   }
 
-  const refreshRealtimeData = useCallback(() => {
+  const refreshCoalescer = useMemo(() => createTrailingCoalescer(() => {
     setRealtimeRefreshVersion((version) => version + 1);
     router.refresh();
-  }, [router]);
+  }, REFRESH_COALESCE_MS), [router]);
+  useEffect(() => refreshCoalescer.cancel, [refreshCoalescer]);
+  const refreshRealtimeData = refreshCoalescer.call;
 
   return (
     <div className={`light-surface flex min-h-screen flex-col ${view === "points" ? "max-sm:h-dvh max-sm:min-h-0" : ""}`}>
@@ -64,7 +69,7 @@ export function HomeWorkspace({
         {view === "home" && <Scoreboard initialEntries={leaderboard} />}
         {view === "riddle" && <RiddleGame playerId={profile.id} role={profile.role} onCompleted={refreshRealtimeData} />}
         {view === "schedule" && profile.role === "admin" && <AdminRiddleScheduler appTimezone={appDateContext.timezone} today={appDateContext.today} />}
-        {view === "points" && canManagePoints && <PointsDesk players={leaderboard} canViewAudit={profile.role === "admin"} onChanged={async () => router.refresh()} refreshVersion={realtimeRefreshVersion} />}
+        {view === "points" && canManagePoints && <PointsDesk players={leaderboard} canViewAudit={profile.role === "admin"} onChanged={async () => refreshRealtimeData()} refreshVersion={realtimeRefreshVersion} />}
         {view === "settings" && <SettingsPage profile={profile} isAdmin={profile.role === "admin"} tab={settingsTab} onTabChange={setSettingsTab} />}
       </main>
     </div>

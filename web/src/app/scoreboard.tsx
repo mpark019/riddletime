@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { LeaderboardEntry } from "@/server/points/points";
+import { pruneSelection } from "@/lib/point-selection";
 import { FloatingQuestionMarks } from "./floating-question-marks";
 
 type PointTransaction = {
@@ -66,12 +67,6 @@ function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
 
 export function PointsDesk({ players, canViewAudit, onChanged, refreshVersion = 0 }: { players: LeaderboardEntry[]; canViewAudit: boolean; onChanged: () => Promise<void>; refreshVersion?: number }) {
   const [tab, setTab] = useState<PointsDeskTab>("adjustment");
-  const [auditRefreshVersion, setAuditRefreshVersion] = useState(0);
-
-  async function handlePointsChanged() {
-    setAuditRefreshVersion((version) => version + 1);
-    await onChanged();
-  }
 
   return (
     <section className="mx-auto w-[calc(100%-2rem)] max-w-[1280px] py-6 max-sm:pb-2 max-sm:flex max-sm:min-h-0 max-sm:flex-1 max-sm:flex-col lg:py-10" aria-labelledby="points-desk-title">
@@ -84,8 +79,8 @@ export function PointsDesk({ players, canViewAudit, onChanged, refreshVersion = 
           </div>}
         </header>
         <div className="flex min-h-0 flex-1">
-          <div className="flex min-h-0 w-full flex-1" hidden={tab !== "adjustment"}><AdjustmentForm players={players} onChanged={handlePointsChanged} /></div>
-          {canViewAudit && <div className="w-full py-5" hidden={tab !== "audit"}><AuditTrail onChanged={handlePointsChanged} refreshVersion={auditRefreshVersion + refreshVersion} /></div>}
+          <div className="flex min-h-0 w-full flex-1" hidden={tab !== "adjustment"}><AdjustmentForm players={players} onChanged={onChanged} /></div>
+          {canViewAudit && tab === "audit" && <div className="w-full py-5"><AuditTrail onChanged={onChanged} refreshVersion={refreshVersion} /></div>}
         </div>
       </div>
     </section>
@@ -108,7 +103,8 @@ type RecentAdjustment = {
 
 function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; onChanged: () => Promise<void> }) {
   const [playerQuery, setPlayerQuery] = useState("");
-  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [selection, setSelectedUserIds] = useState<string[]>([]);
+  const selectedUserIds = pruneSelection(selection, players);
   const [amount, setAmount] = useState(5);
   const [customAmount, setCustomAmount] = useState("");
   const [reason, setReason] = useState("");
@@ -133,7 +129,8 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
   }
 
   function toggleAllPlayers() {
-    changeField(() => setSelectedUserIds((selected) => {
+    changeField(() => setSelectedUserIds((current) => {
+      const selected = pruneSelection(current, players);
       if (selected.length === players.length) return [];
       return Array.from(new Set([...selected, ...matchingPlayers.map((player) => player.userId)]));
     }));

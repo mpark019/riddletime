@@ -13,6 +13,13 @@ const { announceLeaderboardChanged, deleteSchedule, createManualAdjustment, crea
   submitChallenge: vi.fn(),
 }));
 
+const afterCallbacks: Array<() => unknown> = vi.hoisted(() => []);
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (callback: () => unknown) => { afterCallbacks.push(callback); },
+}));
+const runAfterCallbacks = async () => { for (const callback of afterCallbacks.splice(0)) await callback(); };
+
 vi.mock("@/server/realtime/leaderboard", () => ({ announceLeaderboardChanged }));
 vi.mock("@/server/points/points", () => ({
   createManualAdjustment,
@@ -65,6 +72,8 @@ describe("realtime notifications after durable point changes", () => {
       params: Promise.resolve({ id }),
     });
 
+    expect(announceLeaderboardChanged).not.toHaveBeenCalled();
+    await runAfterCallbacks();
     expect(announceLeaderboardChanged).toHaveBeenCalledTimes(2);
   });
 
@@ -76,6 +85,7 @@ describe("realtime notifications after durable point changes", () => {
       body: JSON.stringify({ user_id: id, amount: 5, operation_key: "test-key" }),
       headers: { "Content-Type": "application/json" },
     }));
+    await runAfterCallbacks();
 
     expect(announceLeaderboardChanged).not.toHaveBeenCalled();
   });

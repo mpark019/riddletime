@@ -7,6 +7,10 @@ const { getVerifiedUser } = vi.hoisted(() => ({
   getVerifiedUser: vi.fn(),
 }));
 vi.mock("@/lib/supabase/server", () => ({ getVerifiedUser }));
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: vi.fn(),
+}));
 
 const {
   createManualAdjustment,

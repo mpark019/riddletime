@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { apiError, ok } from "@/server/http/api-response";
 import {
   createManualAdjustment,
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
         operationKey: body.operation_key,
       });
       const result = await createManualAdjustmentForAllPlayers(input);
-      if (result.created) await announceLeaderboardChanged();
+      if (result.created) after(announceLeaderboardChanged);
       return ok(
         { entries: result.entries.map(transactionResponse), created: result.created },
         { status: 201 },
@@ -82,7 +83,7 @@ export async function POST(request: Request) {
     if ("user_ids" in body) {
       const input = playersManualAdjustmentInput.parse({ userIds: body.user_ids, amount: body.amount, reason: body.reason, operationKey: body.operation_key });
       const result = await createManualAdjustmentForPlayers(input);
-      if (result.created) await announceLeaderboardChanged();
+      if (result.created) after(announceLeaderboardChanged);
       return ok({ entries: result.entries.map(transactionResponse), created: result.created }, { status: 201 });
     }
     const input = manualAdjustmentInput.parse({
@@ -92,7 +93,7 @@ export async function POST(request: Request) {
       operationKey: body.operation_key,
     });
     const result = await createManualAdjustment(input);
-    if (result.created) await announceLeaderboardChanged();
+    if (result.created) after(announceLeaderboardChanged);
     return ok(
       { entry: transactionResponse(result.entry), total_points: result.totalPoints },
       { status: 201 },

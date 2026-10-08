@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { apiError, ok } from "@/server/http/api-response";
 import { deletePointTransaction } from "@/server/points/points";
 import { announceLeaderboardChanged } from "@/server/realtime/leaderboard";
@@ -9,7 +10,7 @@ export async function DELETE(
   try {
     const { id } = await params;
     const result = await deletePointTransaction(id);
-    await announceLeaderboardChanged();
+    after(announceLeaderboardChanged);
     return ok(result);
   } catch (err) {
     return apiError(err);
