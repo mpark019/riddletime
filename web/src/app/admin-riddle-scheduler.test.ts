@@ -28,7 +28,7 @@ describe("AdminRiddleScheduler", () => {
     }));
 
     expect(html).toContain('aria-label="Puzzle type"');
-    expect(html).toContain("Character puzzle");
+    expect(html).toContain("Letter game");
     expect(html).not.toContain("Allowed characters");
   });
 });

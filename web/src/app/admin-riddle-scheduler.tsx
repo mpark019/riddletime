@@ -102,7 +102,7 @@ export function AdminRiddleScheduler({ appTimezone, today }: { appTimezone: stri
     }
   }
 
-  const puzzleLabel = puzzleKind === "character_puzzle" ? "character puzzle" : "riddle";
+  const puzzleLabel = puzzleKind === "character_puzzle" ? "letter game" : "riddle";
 
   function openScheduled() {
     setTab("scheduled");
@@ -139,7 +139,7 @@ export function AdminRiddleScheduler({ appTimezone, today }: { appTimezone: stri
             <span className="rounded-full border border-white/30 px-3 py-1 text-sm font-semibold">Shared</span>
             <div className="inline-flex overflow-hidden rounded-full border border-white/30" role="radiogroup" aria-label="Puzzle type">
               <PuzzleKindButton active={puzzleKind === "riddle"} onClick={() => selectPuzzleKind("riddle")}>Riddle</PuzzleKindButton>
-              <PuzzleKindButton active={puzzleKind === "character_puzzle"} onClick={() => selectPuzzleKind("character_puzzle")}>Character puzzle</PuzzleKindButton>
+              <PuzzleKindButton active={puzzleKind === "character_puzzle"} onClick={() => selectPuzzleKind("character_puzzle")}>Letter game</PuzzleKindButton>
             </div>
             <span className="rounded-full border border-white/30 px-3 py-1 text-sm font-semibold">Fixed difficulty</span>
           </div>

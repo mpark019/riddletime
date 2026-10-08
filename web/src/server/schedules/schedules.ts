@@ -348,6 +348,7 @@ export interface ScheduledRiddlePlayer {
   submittedAt: string | null;
   timeTakenMs: number | null;
   points: number | null;
+  breakdown: { basePoints: number; speedBonusPoints: number; penaltyPoints: number } | null;
 }
 
 function adminAnswers(answerData: { accepted?: unknown; target?: unknown } | null): string[] {
@@ -405,6 +406,17 @@ function toGuesses(history: unknown): ScheduledRiddlePlayer["guesses"] {
   );
 }
 
+function toBreakdown(value: unknown): ScheduledRiddlePlayer["breakdown"] {
+  if (typeof value !== "object" || value === null) return null;
+  const { base_points, speed_bonus_points, penalty_points } = value as Record<string, unknown>;
+  if (typeof base_points !== "number") return null;
+  return {
+    basePoints: base_points,
+    speedBonusPoints: typeof speed_bonus_points === "number" ? speed_bonus_points : 0,
+    penaltyPoints: typeof penalty_points === "number" ? penalty_points : 0,
+  };
+}
+
 export async function getScheduleDetail(
   id: string,
 ): Promise<{ schedule: ScheduledRiddle; players: ScheduledRiddlePlayer[] }> {
@@ -416,7 +428,7 @@ export async function getScheduleDetail(
     const { rows } = await client.query(
       `select p.id as user_id, p.display_name,
               s.id as submission_id, s.started_at, s.submitted_at, s.correct,
-              s.attempts, s.guess_history, s.time_taken_ms,
+              s.attempts, s.guess_history, s.time_taken_ms, s.scoring_breakdown,
               s.submitted_at is null
                 and s.started_at + c.time_limit_seconds * interval '1 second' <= clock_timestamp() as overdue,
               (select sum(pt.amount)::int from point_transactions pt
@@ -441,6 +453,7 @@ export async function getScheduleDetail(
       submittedAt: row.submitted_at ? new Date(row.submitted_at).toISOString() : null,
       timeTakenMs: row.time_taken_ms === null || row.time_taken_ms === undefined ? null : Number(row.time_taken_ms),
       points: row.points ?? null,
+      breakdown: toBreakdown(row.scoring_breakdown),
     }));
     return { schedule, players };
   });

@@ -521,6 +521,14 @@ describe("admin riddle list and delete", () => {
         guesses: [{ response: "piano", correct: true }],
       });
       expect(byId.get(solver)?.points).toBeGreaterThanOrEqual(100);
+      expect(byId.get(solver)?.breakdown).toEqual({
+        basePoints: expect.any(Number),
+        speedBonusPoints: expect.any(Number),
+        penaltyPoints: 0,
+      });
+      expect(byId.get(failer)?.breakdown).toEqual({ basePoints: 0, speedBonusPoints: 0, penaltyPoints: 25 });
+      expect(byId.get(walker)?.breakdown).toBeNull();
+      expect(byId.get(idle)?.breakdown).toBeNull();
       expect(byId.get(solver)?.submittedAt).toEqual(expect.any(String));
       expect(byId.get(solver)?.timeTakenMs).toEqual(expect.any(Number));
       expect(byId.get(failer)).toMatchObject({

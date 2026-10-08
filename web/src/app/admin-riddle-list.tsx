@@ -79,7 +79,7 @@ export function AdminRiddleList({ refreshVersion, appTimezone }: { refreshVersio
 
 function riddleTypeLabel(type: string | null): string {
   if (type === "riddle") return "Riddle";
-  if (type === "character_puzzle") return "Character puzzle";
+  if (type === "character_puzzle") return "Letter game";
   return "No puzzle";
 }
 
