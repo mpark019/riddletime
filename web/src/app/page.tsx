@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { getAppDateContext } from "@/lib/db";
 import { getCurrentProfile } from "@/server/identity/identity";
 import { getLeaderboard } from "@/server/points/points";
 import { HomeWorkspace } from "./home-workspace";
@@ -33,9 +34,12 @@ export default async function Home() {
     );
   }
 
-  const leaderboard = await getLeaderboard();
+  const [leaderboard, appDateContext] = await Promise.all([
+    getLeaderboard(),
+    getAppDateContext(),
+  ]);
 
-  return <HomeWorkspace profile={profile} leaderboard={leaderboard}><RiddleTimeWordmark /></HomeWorkspace>;
+  return <HomeWorkspace profile={profile} leaderboard={leaderboard} appDateContext={appDateContext}><RiddleTimeWordmark /></HomeWorkspace>;
 }
 
 function RiddleTimeWordmark() {

@@ -43,3 +43,12 @@ export async function withTransaction<T>(
     }
   }
 }
+
+export async function getAppDateContext(): Promise<{ today: string; timezone: string }> {
+  return withTransaction(async (client) => {
+    const { rows } = await client.query(
+      "select current_date::text as today, current_setting('TimeZone') as timezone",
+    );
+    return rows[0];
+  });
+}

@@ -360,8 +360,9 @@ describe("audit trail pagination", () => {
     for (const label of ["page-a", "page-b", "page-c"]) await addPoints(player, 1, label);
     getVerifiedUser.mockResolvedValue({ id: admin });
 
-    const all = await listPointTransactions();
-    const page = await listPointTransactions({ limit: 2, offset: 1 });
+    // Filter to this player so entries written by tests in parallel files cannot shift the window.
+    const all = await listPointTransactions({ query: "Pager player" });
+    const page = await listPointTransactions({ query: "Pager player", limit: 2, offset: 1 });
 
     expect(page.map((entry) => entry.id)).toEqual(all.slice(1, 3).map((entry) => entry.id));
   });
