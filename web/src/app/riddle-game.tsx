@@ -7,6 +7,7 @@ import { sanitizeCharacterInput } from "@/server/challenges/character-puzzle";
 import { difficultyColor } from "@/lib/difficulty";
 import { CharacterBoard, CharacterKeyboard } from "./character-grid";
 import { compareByName } from "@/lib/account-order";
+import { FloatingQuestionMarks } from "./floating-question-marks";
 import { PrimaryButton } from "./primary-button";
 import {
   attemptsUrgency,
@@ -543,6 +544,12 @@ const staffStatusLabels: Record<StaffPlayerStatusKind, { label: string; tone: st
   failed: { label: "Failed", tone: "text-[#f00000]" },
 };
 
+function staffPillStatusTone(status: StaffPlayerStatusKind, active: boolean): string {
+  if (status === "solved") return active ? "text-[#00940a]" : "text-[#4ade80]";
+  if (status === "failed" || status === "expired") return active ? "text-[#d40000]" : "text-[#ff6b6b]";
+  return active ? "text-black/75" : "text-white/85";
+}
+
 export function StaffPlayerRiddles({ players }: { players: StaffPlayerStatus[] }) {
   const sorted = [...players].sort(compareByName);
   const [chosen, setChosen] = useState<string | null>(null);
@@ -551,28 +558,36 @@ export function StaffPlayerRiddles({ players }: { players: StaffPlayerStatus[] }
     ?? sorted[0];
 
   return <RiddleFrame>
-    <div role="tablist" aria-label="Players" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-      {sorted.map((player) => {
-        const active = player.userId === selected?.userId;
-        const { label, tone } = staffStatusLabels[player.status];
-        return <button
-          key={player.userId}
-          type="button"
-          role="tab"
-          aria-selected={active}
-          onClick={() => setChosen(player.userId)}
-          className={`flex shrink-0 select-none items-center gap-2 rounded-xl border px-4 py-2 text-[15px] font-semibold transition focus-visible:outline-2 focus-visible:outline-white ${active ? "navy-surface relative isolate overflow-hidden border-transparent" : "border-white/25 bg-black/[0.04] hover:bg-white/10"} ${player.puzzle ? "" : "opacity-60"}`}
-        >
-          {player.displayName}
-          <span className={`text-xs font-normal ${active ? "" : tone}`}>{label.toLowerCase()}</span>
-        </button>;
-      })}
+    <div className="lg:grid lg:min-h-[28rem] lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-8">
+      <div className="lg:relative lg:order-2"><section aria-label="Players" className="app-header relative isolate flex flex-col overflow-hidden rounded-md p-3 max-lg:fixed max-lg:inset-x-4 max-lg:bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.5rem)] max-lg:z-40 max-lg:shadow-[0_-0.5rem_1.5rem_rgb(0_2_46_/_25%)] lg:absolute lg:inset-0 lg:p-4">
+        <FloatingQuestionMarks contained compact />
+        <p className="mb-3 hidden text-sm font-semibold lg:block">Players <span className="font-normal text-white/65">({sorted.length})</span></p>
+        <div role="tablist" aria-label="Players" aria-orientation="vertical" className="flex gap-2 overflow-x-auto py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:min-h-0 lg:flex-1 lg:flex-col lg:gap-1.5 lg:overflow-y-auto lg:overflow-x-hidden">
+          {sorted.map((player) => {
+            const active = player.userId === selected?.userId;
+            const { label } = staffStatusLabels[player.status];
+            return <button
+              key={player.userId}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => setChosen(player.userId)}
+              className={`flex h-11 shrink-0 select-none items-center gap-2 rounded-md border px-4 text-left text-[15px] font-semibold transition focus-visible:outline-2 focus-visible:outline-white lg:w-full lg:justify-between ${active ? "border-white bg-white text-black" : "border-white/40 bg-white/10 text-white hover:bg-white/20"} ${player.puzzle ? "" : "opacity-70"}`}
+            >
+              <span className="min-w-0 truncate">{player.displayName}</span>
+              <span className={`shrink-0 text-sm font-semibold ${staffPillStatusTone(player.status, active)}`}>{label.toLowerCase()}</span>
+            </button>;
+          })}
+        </div>
+      </section></div>
+      <div className="mt-6 min-w-0 max-lg:pb-24 lg:mt-0">
+        {selected
+          ? selected.play
+            ? <NestedFrame.Provider value><StaffPlayView player={selected} play={selected.play} /></NestedFrame.Provider>
+            : <StaffPlayerStatusCard player={selected} />
+          : <p className="rounded-md border border-dashed border-white/25 px-4 py-6 text-center text-white/65">No players yet.</p>}
+      </div>
     </div>
-    {selected
-      ? selected.play
-        ? <NestedFrame.Provider value><div className="mt-6"><StaffPlayView player={selected} play={selected.play} /></div></NestedFrame.Provider>
-        : <StaffPlayerStatusCard player={selected} />
-      : <p className="mt-6 rounded-md border border-dashed border-white/25 px-4 py-6 text-center text-white/65">No players yet.</p>}
   </RiddleFrame>;
 }
 
