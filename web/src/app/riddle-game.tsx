@@ -538,17 +538,26 @@ export function StaffRiddleView({ preview }: { preview: StaffRiddlePreview }) {
   </RiddleFrame>;
 }
 
+function resultSummary(play: Extract<PlayerChallengeState, { status: "completed" }>) {
+  const heading = play.result.correct ? "Solved" : play.attempts >= play.maxAttempts ? "Out of tries" : "Time ran out";
+  return {
+    heading,
+    detail: `${play.attempts} of ${play.maxAttempts} ${play.maxAttempts === 1 ? "try" : "tries"} used · ${formatCountdown(Math.round(play.result.timeTakenMs / 1000))}`,
+  };
+}
+
 export function CompletedRiddle({ play }: { play: Extract<PlayerChallengeState, { status: "completed" }> }) {
   const breakdown = play.result.scoringBreakdown;
   const penaltyPoints = breakdown.penalty_points ?? 0;
+  const summary = resultSummary(play);
   return <RiddleFrame>
     <div className="relative">
-      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">Results</p>
-      <h3 className="mt-3 text-3xl font-semibold">{play.result.correct ? "awesome sauce" : "epic fail"}</h3>
-      <p className="mt-3 text-white/70">{play.result.correct ? "nice job" : "you cant do nathan"}</p>
+      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">{`Results · ${play.difficulty} · ${formatCountdown(play.timeLimitSeconds)}`}</p>
+      <h3 className="mt-3 text-3xl font-semibold">{summary.heading}</h3>
+      <p className="mt-3 text-white/70">{summary.detail}</p>
       <ResultStamp success={play.result.correct} />
     </div>
-    <div className={`mt-8 grid gap-px overflow-hidden rounded-md border border-white/50 bg-white/30 ${penaltyPoints > 0 ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
+    <div className="mt-8 flex flex-wrap items-end gap-x-14 gap-y-4">
       <ResultStat label="Base points" value={breakdown.base_points} />
       <ResultStat label="Speed bonus" value={breakdown.speed_bonus_points ?? 0} />
       {penaltyPoints > 0 && <ResultStat label="Penalty" value={-penaltyPoints} />}
@@ -638,7 +647,7 @@ const toneClasses = { positive: "text-[#00940a]", negative: "text-[#f00000]", ze
 
 function ResultStat({ label, value }: { label: string; value: number }) {
   const tone = value > 0 ? "positive" : value < 0 ? "negative" : "zero";
-  return <div className="navy-surface px-5 py-5" data-tone={tone}><p className="text-xs font-semibold uppercase tracking-wide opacity-60">{label}</p><p className={`mt-1 text-3xl font-bold tabular-nums ${toneClasses[tone]}`}>{value}</p></div>;
+  return <div data-tone={tone}><p className="text-xs font-semibold uppercase tracking-wide text-white/55">{label}</p><p className={`mt-1 text-3xl font-bold tabular-nums ${toneClasses[tone]}`}>{value}</p></div>;
 }
 
 function ResultStamp({ success }: { success: boolean }) {

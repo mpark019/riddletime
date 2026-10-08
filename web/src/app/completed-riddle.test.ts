@@ -98,6 +98,46 @@ describe("CompletedRiddle", () => {
     expect(tone(html, "Total points")).toBe("negative");
   });
 
+  it("shows the points as bare numbers with no navy box or bordered grid", () => {
+    const html = render(completed(true, { base_points: 100, total_points: 100 }));
+
+    expect(html).not.toContain("navy-surface");
+    expect(html).not.toContain("gap-px");
+    expect(html).not.toContain("overflow-hidden");
+  });
+
+  it("reports a solve with the time taken and tries used", () => {
+    const html = render({ ...completed(true, { base_points: 100, total_points: 100 }), attempts: 2, maxAttempts: 3 });
+
+    expect(html).toContain("Results · standard · 2:00");
+    expect(html).toContain(">Solved</h3>");
+    expect(html).toContain("2 of 3 tries used · 0:05");
+    expect(html).not.toContain("nice job");
+  });
+
+  it("reports running out of tries", () => {
+    const html = render({ ...completed(false, { penalty_points: 20, total_points: -20 }), attempts: 2, maxAttempts: 2 });
+
+    expect(html).toContain("Results · standard · 2:00");
+    expect(html).toContain(">Out of tries</h3>");
+    expect(html).toContain("2 of 2 tries used · 0:05");
+    expect(html).not.toContain("you cant do nathan");
+  });
+
+  it("reports running out of time when tries remain", () => {
+    const html = render({ ...completed(false, { penalty_points: 20, total_points: -20 }), attempts: 1, maxAttempts: 3 });
+
+    expect(html).toContain("Results · standard · 2:00");
+    expect(html).toContain(">Time ran out</h3>");
+    expect(html).toContain("1 of 3 tries used · 0:05");
+  });
+
+  it("uses the singular for a single try", () => {
+    const html = render({ ...completed(true, { base_points: 100, total_points: 100 }), attempts: 1, maxAttempts: 1 });
+
+    expect(html).toContain("1 of 1 try used · 0:05");
+  });
+
   it("leaves zero values neutral", () => {
     const html = render(completed(false, { penalty_points: 20, total_points: -20 }));
 
