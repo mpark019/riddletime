@@ -171,3 +171,24 @@ describe("player targeting", () => {
       .toThrow("Select at least one player.");
   });
 });
+
+describe("no time limit", () => {
+  const form = {
+    activeDate: "2030-05-06",
+    difficulty: "medium",
+    prompt: "A riddle",
+    acceptedAnswers: "answer",
+    timeLimitSeconds: null,
+    maxAttempts: "1",
+    basePoints: "100",
+    failurePenaltyPoints: "20",
+    speedBonuses: [{ underSeconds: "600", points: "10" }],
+  };
+
+  it("sends a null time limit and keeps speed tiers of any length", () => {
+    const request = buildManualRiddleScheduleRequest(form);
+    const settings = request.difficulty_presets.medium.types.riddle;
+    expect(settings.time_limit_seconds).toBeNull();
+    expect(settings.scoring_policy.speed_bonuses).toEqual([{ under_ms: 600_000, points: 10 }]);
+  });
+});

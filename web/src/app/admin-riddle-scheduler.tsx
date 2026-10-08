@@ -34,6 +34,7 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
   const [prompt, setPrompt] = useState("");
   const [acceptedAnswers, setAcceptedAnswers] = useState("");
   const [timeLimitSeconds, setTimeLimitSeconds] = useState("120");
+  const [noTimeLimit, setNoTimeLimit] = useState(false);
   const [maxAttempts, setMaxAttempts] = useState("1");
   const [puzzleKind, setPuzzleKind] = useState<PuzzleKind>("riddle");
   const [selection, setSelection] = useState<string[]>([]);
@@ -132,7 +133,7 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
         activeDate,
         playerIds: selectedPlayerIds,
         difficulty,
-        timeLimitSeconds,
+        timeLimitSeconds: noTimeLimit ? null : timeLimitSeconds,
         maxAttempts,
         basePoints,
         failurePenaltyPoints,
@@ -277,11 +278,16 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
         <FloatingQuestionMarks contained compact start={12} />
         <h3 className={cardTitle}>Rules and scoring</h3>
         <div className="mt-5 grid grid-cols-2 gap-4">
-          <label className="text-sm font-semibold">Time limit
-            <span className="sr-only"> in seconds</span>
-            <input type="number" min="1" step="1" required value={timeLimitSeconds} onChange={(event) => setTimeLimitSeconds(event.target.value)} className={inputClass} />
-            <span className="mt-1 block text-xs font-normal text-white/55">seconds</span>
-          </label>
+          <div>
+            <label className="text-sm font-semibold">Time limit
+              <span className="sr-only"> in seconds</span>
+              <input type="number" min="1" step="1" required={!noTimeLimit} disabled={noTimeLimit} value={noTimeLimit ? "" : timeLimitSeconds} onChange={(event) => setTimeLimitSeconds(event.target.value)} className={`${inputClass} disabled:opacity-40`} />
+            </label>
+            <label className="mt-2 flex items-center gap-2 text-sm font-normal">
+              <input type="checkbox" checked={noTimeLimit} onChange={(event) => setNoTimeLimit(event.target.checked)} className="h-4 w-4" />
+              No time limit
+            </label>
+          </div>
           <label className="text-sm font-semibold">Maximum attempts
             <input type="number" min="1" step="1" required value={maxAttempts} onChange={(event) => setMaxAttempts(event.target.value)} className={inputClass} />
           </label>

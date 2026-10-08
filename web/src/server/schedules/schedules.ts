@@ -29,16 +29,16 @@ const scoringPolicySchema = z.object({
 }).strict();
 
 const baseSettingsShape = {
-  time_limit_seconds: z.number().int().positive().max(MAX_DATABASE_INTEGER),
+  time_limit_seconds: z.number().int().positive().max(MAX_DATABASE_INTEGER).nullable(),
   generation_settings: z.object({}).strict().default({}),
   scoring_policy: scoringPolicySchema,
 };
 
 function refineSettings(
-  settings: { time_limit_seconds: number; scoring_policy: z.infer<typeof scoringPolicySchema> },
+  settings: { time_limit_seconds: number | null; scoring_policy: z.infer<typeof scoringPolicySchema> },
   context: z.RefinementCtx,
 ) {
-  const durationMs = settings.time_limit_seconds * 1000;
+  const durationMs = settings.time_limit_seconds === null ? Infinity : settings.time_limit_seconds * 1000;
   const thresholds = new Set<number>();
   for (const [index, bonus] of settings.scoring_policy.speed_bonuses.entries()) {
     if (bonus.under_ms >= durationMs) {
@@ -218,7 +218,7 @@ interface SharedPuzzleRow {
   config: object;
   answerData: object;
   maxAttempts: number;
-  timeLimitSeconds: number;
+  timeLimitSeconds: number | null;
   scoringPolicy: object;
 }
 
@@ -530,7 +530,7 @@ export interface AssignedPuzzle {
   prompt: string;
   acceptedAnswers: string[];
   maxAttempts: number;
-  timeLimitSeconds: number;
+  timeLimitSeconds: number | null;
 }
 
 export interface ScheduledRiddlePlayer {

@@ -684,7 +684,7 @@ describe("getTodayChallenge access", () => {
     if (!result.play || result.play.status !== "in_progress") {
       throw new Error("Expected an in-progress restored session");
     }
-    expect(new Date(result.play.deadline).getTime()).toBe(
+    expect(new Date(result.play.deadline as string).getTime()).toBe(
       new Date(result.play.startedAt).getTime() + 120_000,
     );
     expect(JSON.stringify(result)).not.toContain("accepted");

@@ -36,9 +36,9 @@ export interface ActiveRiddle {
   difficulty: string;
   prompt: string;
   startedAt: string;
-  deadline: string;
+  deadline: string | null;
   serverTime: string;
-  timeLimitSeconds: number;
+  timeLimitSeconds: number | null;
   maxAttempts: number;
   attempts: number;
   attemptsRemaining: number;
@@ -65,7 +65,7 @@ export interface StaffRiddlePreview {
   type: "riddle" | "character_puzzle";
   difficulty: string;
   prompt: string;
-  timeLimitSeconds: number;
+  timeLimitSeconds: number | null;
   maxAttempts: number;
   scoringPolicy: PublicScoringPolicy;
   speedBonuses?: ScoringPolicy["speed_bonuses"];
@@ -82,7 +82,7 @@ export interface StaffPlayerStatus {
     type: "riddle" | "character_puzzle";
     difficulty: string;
     maxAttempts: number;
-    timeLimitSeconds: number;
+    timeLimitSeconds: number | null;
   } | null;
   status: StaffPlayerStatusKind;
   attempts: number;
@@ -232,10 +232,11 @@ export function estimateServerClockOffset(
 }
 
 export function remainingSeconds(
-  deadline: string,
+  deadline: string | null,
   serverClockOffsetMs: number,
   clientNow: number,
 ): number {
+  if (deadline === null) return Infinity;
   const milliseconds = Date.parse(deadline) - (clientNow + serverClockOffsetMs);
   return Math.max(0, Math.ceil(milliseconds / 1000));
 }
@@ -244,10 +245,11 @@ export function remainingSeconds(
 const DEADLINE_GRACE_MS = 1_000;
 
 export function isPastDeadline(
-  deadline: string,
+  deadline: string | null,
   serverClockOffsetMs: number,
   clientNow: number,
 ): boolean {
+  if (deadline === null) return false;
   return clientNow + serverClockOffsetMs >= Date.parse(deadline) + DEADLINE_GRACE_MS;
 }
 
@@ -267,6 +269,13 @@ export function speedTierStatuses(
   clientNow: number,
 ): SpeedTierStatus[] {
   const elapsedMs = timeLimitSeconds * 1000 - (Date.parse(deadline) - (clientNow + serverClockOffsetMs));
+  return speedTierStatusesAtElapsed(tiers, elapsedMs);
+}
+
+export function speedTierStatusesAtElapsed(
+  tiers: ScoringPolicy["speed_bonuses"],
+  elapsedMs: number,
+): SpeedTierStatus[] {
   const statuses = [...(tiers ?? [])]
     .sort((a, b) => a.under_ms - b.under_ms)
     .map((tier) => ({
@@ -301,7 +310,8 @@ const URGENT_SECONDS = 10;
 const MIN_WARNING_SECONDS = 15;
 
 // 0 = calm, 1 = fully urgent; ramps up over the last 30 percent of the limit and is full in the last 10 seconds.
-export function countdownUrgency(secondsRemaining: number, timeLimitSeconds: number): number {
+export function countdownUrgency(secondsRemaining: number, timeLimitSeconds: number | null): number {
+  if (timeLimitSeconds === null) return 0;
   const rampStart = Math.max(timeLimitSeconds * 0.3, MIN_WARNING_SECONDS);
   if (secondsRemaining <= URGENT_SECONDS) return 1;
   if (secondsRemaining >= rampStart) return 0;
@@ -318,11 +328,12 @@ export function attemptsUrgency(attemptsRemaining: number, maxAttempts: number):
 // 0 at the start, 1 once time is up or on the last try; whichever is further along drives it.
 export function stakesPressure(
   secondsRemaining: number,
-  timeLimitSeconds: number,
+  timeLimitSeconds: number | null,
   attemptsRemaining: number,
   maxAttempts: number,
 ): number {
-  const timeUsed = timeLimitSeconds <= 0
+  const timeUsed = timeLimitSeconds === null ? 0
+    : timeLimitSeconds <= 0
     ? 1
     : Math.min(1, Math.max(0, 1 - secondsRemaining / timeLimitSeconds));
   return Math.max(timeUsed, attemptsUrgency(attemptsRemaining, maxAttempts));
@@ -349,4 +360,10 @@ export function formatCountdown(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+export const NO_TIME_LIMIT_LABEL = "No limit";
+
+export function formatTimeLimit(seconds: number | null): string {
+  return seconds === null ? NO_TIME_LIMIT_LABEL : formatCountdown(seconds);
 }

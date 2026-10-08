@@ -456,3 +456,16 @@ describe("isRepeatGuess", () => {
     expect(isRepeatGuess([{ response: "a  piano" }], "A piano")).toBe(true);
   });
 });
+
+describe("games without a time limit", () => {
+  it("never run out of time", () => {
+    expect(remainingSeconds(null, 0, Date.now())).toBe(Infinity);
+    expect(isPastDeadline(null, 0, Date.now())).toBe(false);
+  });
+
+  it("add no time pressure", () => {
+    expect(countdownUrgency(Infinity, null)).toBe(0);
+    expect(stakesPressure(Infinity, null, 3, 3)).toBe(0);
+    expect(stakesPressure(Infinity, null, 1, 3)).toBe(1);
+  });
+});

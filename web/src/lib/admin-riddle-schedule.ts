@@ -4,7 +4,7 @@ interface ScheduleRulesForm {
   activeDate: string;
   playerIds?: string[];
   difficulty: string;
-  timeLimitSeconds: string;
+  timeLimitSeconds: string | null;
   maxAttempts: string;
   basePoints: string;
   failurePenaltyPoints: string;
@@ -39,7 +39,7 @@ function buildRules(form: ScheduleRulesForm, maxAttemptsLimit = MAX_DATABASE_INT
   if (!/^\d{4}-\d{2}-\d{2}$/.test(activeDate)) throw new Error("Choose a schedule date.");
   if (!isDifficulty(difficulty)) throw new Error("Choose a difficulty.");
 
-  const timeLimitSeconds = wholeNumber(form.timeLimitSeconds, "Time limit", 1);
+  const timeLimitSeconds = form.timeLimitSeconds === null ? null : wholeNumber(form.timeLimitSeconds, "Time limit", 1);
   const maxAttempts = wholeNumber(form.maxAttempts, "Maximum attempts", 1);
   if (maxAttempts > maxAttemptsLimit) {
     throw new Error(`Maximum attempts must be at most ${maxAttemptsLimit}.`);
@@ -51,7 +51,7 @@ function buildRules(form: ScheduleRulesForm, maxAttemptsLimit = MAX_DATABASE_INT
     const underSeconds = wholeNumber(bonus.underSeconds, `Speed tier ${index + 1} time`, 1);
     const underMs = underSeconds * 1000;
     const points = wholeNumber(bonus.points, `Speed tier ${index + 1} points`, 0);
-    if (!Number.isSafeInteger(underMs) || underSeconds >= timeLimitSeconds) {
+    if (!Number.isSafeInteger(underMs) || (timeLimitSeconds !== null && underSeconds >= timeLimitSeconds)) {
       throw new Error(`Speed tier ${index + 1} must be shorter than the time limit.`);
     }
     if (thresholds.has(underMs)) throw new Error("Speed bonus times must be distinct.");

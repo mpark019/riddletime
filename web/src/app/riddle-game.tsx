@@ -26,6 +26,8 @@ import {
   retryWithDelays,
   shakeLevel,
   speedTierStatuses,
+  speedTierStatusesAtElapsed,
+  formatTimeLimit,
   stakeScales,
   withAuthoritativePlay,
   type ChallengeMutationResponse,
@@ -435,20 +437,25 @@ export function RiddleGame({
   const urgency = countdownUrgency(secondsRemaining, play.timeLimitSeconds);
   const repeatGuess = response.trim() !== "" && isRepeatGuess(play.guessHistory, response);
   const characterConfig = play.type === "character_puzzle" ? play.config : undefined;
-  const speedTiers = speedTierStatuses(
-    play.scoringPolicy.speed_bonuses,
-    play.timeLimitSeconds,
-    play.deadline,
-    loaded.serverClockOffsetMs,
-    clientNow,
-  );
+  const speedTiers = play.timeLimitSeconds === null || play.deadline === null
+    ? speedTierStatusesAtElapsed(
+      play.scoringPolicy.speed_bonuses,
+      clientNow + loaded.serverClockOffsetMs - Date.parse(play.startedAt),
+    )
+    : speedTierStatuses(
+      play.scoringPolicy.speed_bonuses,
+      play.timeLimitSeconds,
+      play.deadline,
+      loaded.serverClockOffsetMs,
+      clientNow,
+    );
 
   return <RiddleFrame>
     <PlayHeader
       policy={play.scoringPolicy}
       pressure={stakesPressure(secondsRemaining, play.timeLimitSeconds, play.attemptsRemaining, play.maxAttempts)}
       difficulty={play.difficulty}
-      time={formatCountdown(secondsRemaining)}
+      time={play.timeLimitSeconds === null ? formatTimeLimit(null) : formatCountdown(secondsRemaining)}
       urgency={urgency}
       tries={`${play.attemptsRemaining}/${play.maxAttempts}`}
       triesUrgency={attemptsUrgency(play.attemptsRemaining, play.maxAttempts)}
@@ -595,14 +602,16 @@ function StaffPlayView({ player, play }: { player: StaffPlayerStatus; play: Play
   const label = <p className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-white/55 sm:text-sm sm:tracking-[0.2em]">View only · what {player.displayName} sees</p>;
   if (play.status === "completed") return <>{label}<CompletedRiddle play={play} /></>;
   if (play.status === "not_started") return <>{label}<NotStartedRiddle play={play} busy={false} error={null} onStart={noop} readOnly /></>;
-  const remaining = Math.max(0, Math.round((Date.parse(play.deadline) - Date.parse(play.serverTime)) / 1000));
+  const remaining = play.deadline === null
+    ? Infinity
+    : Math.max(0, Math.round((Date.parse(play.deadline) - Date.parse(play.serverTime)) / 1000));
   const characterConfig = play.type === "character_puzzle" ? play.config : undefined;
   return <>
     {label}
     <PlayHeader
       policy={play.scoringPolicy}
       difficulty={play.difficulty}
-      time={formatCountdown(remaining)}
+      time={Number.isFinite(remaining) ? formatCountdown(remaining) : formatTimeLimit(null)}
       tries={`${play.attemptsRemaining}/${play.maxAttempts}`}
     />
     {characterConfig
@@ -632,7 +641,7 @@ function StaffPlayerStatusCard({ player }: { player: StaffPlayerStatus }) {
     {puzzle && <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-4">
       <StaffFact label="Puzzle" value={`${puzzle.type === "character_puzzle" ? "Letter game" : "Riddle"} · ${puzzle.difficulty}`} />
       <StaffFact label="Tries" value={started ? `${player.attempts}/${puzzle.maxAttempts}` : `${puzzle.maxAttempts} allowed`} />
-      <StaffFact label="Time" value={player.timeTakenMs !== null ? formatCountdown(Math.round(player.timeTakenMs / 1000)) : `${formatCountdown(puzzle.timeLimitSeconds)} limit`} />
+      <StaffFact label="Time" value={player.timeTakenMs !== null ? formatCountdown(Math.round(player.timeTakenMs / 1000)) : puzzle.timeLimitSeconds === null ? formatTimeLimit(null) : `${formatCountdown(puzzle.timeLimitSeconds)} limit`} />
       {finished && <StaffFact label="Points" value={player.points === null ? "-" : `${player.points > 0 ? "+" : ""}${player.points}`} />}
     </div>}
   </div>;
@@ -651,19 +660,21 @@ export function StaffRiddleView({ preview }: { preview: StaffRiddlePreview }) {
 
 function StaffRiddleBody({ preview }: { preview: StaffRiddlePreview }) {
   const { config } = preview;
-  const speedTiers = speedTierStatuses(
-    preview.speedBonuses,
-    preview.timeLimitSeconds,
-    new Date(preview.timeLimitSeconds * 1000).toISOString(),
-    0,
-    0,
-  );
+  const speedTiers = preview.timeLimitSeconds === null
+    ? speedTierStatusesAtElapsed(preview.speedBonuses, 0)
+    : speedTierStatuses(
+      preview.speedBonuses,
+      preview.timeLimitSeconds,
+      new Date(preview.timeLimitSeconds * 1000).toISOString(),
+      0,
+      0,
+    );
   return <>
     <p className="mb-6 text-xs font-semibold uppercase tracking-[0.14em] text-white/55 sm:text-sm sm:tracking-[0.2em]">View only · players see this when they start</p>
     <PlayHeader
       policy={preview.scoringPolicy}
       difficulty={preview.difficulty}
-      time={formatCountdown(preview.timeLimitSeconds)}
+      time={formatTimeLimit(preview.timeLimitSeconds)}
       tries={`${preview.maxAttempts}/${preview.maxAttempts}`}
     />
 
@@ -733,7 +744,7 @@ export function CompletedRiddle({ play }: { play: Extract<PlayerChallengeState, 
   const summary = resultSummary(play);
   return <RiddleFrame>
     <div className="relative">
-      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">{`Results · ${play.difficulty} · ${formatCountdown(play.timeLimitSeconds)}`}</p>
+      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">{`Results · ${play.difficulty} · ${formatTimeLimit(play.timeLimitSeconds)}`}</p>
       <h3 className="mt-3 text-3xl font-semibold">{summary.heading}</h3>
       <p className="mt-3 text-white/70">{summary.detail}</p>
       <ResultStamp success={play.result.correct} />

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatCountdown } from "@/lib/challenge-state";
+import { formatCountdown, formatTimeLimit } from "@/lib/challenge-state";
 import { difficultyColor } from "@/lib/difficulty";
 import { groupPlayersByPuzzle } from "@/lib/admin-riddle-groups";
 import { summarizePlayers } from "@/lib/admin-riddle-stats";
@@ -171,7 +171,7 @@ function RulesBlock({ riddle }: { riddle: ScheduledRiddle }) {
   return <div className="mt-6 border-t border-white/25 pt-4">
     <p className="text-xs font-semibold uppercase tracking-wide text-white/55">Rules</p>
     <p className="mt-2 text-sm">
-      <span className="text-white/55">Time limit</span> {riddle.timeLimitSeconds === null ? "?" : formatCountdown(riddle.timeLimitSeconds)}
+      <span className="text-white/55">Time limit</span> {riddle.type === null ? "?" : formatTimeLimit(riddle.timeLimitSeconds)}
       <span className="mx-3 text-white/30">·</span>
       <span className="text-white/55">Tries</span> {riddle.maxAttempts ?? "?"}
       <span className="mx-3 text-white/30">·</span>

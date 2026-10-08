@@ -128,7 +128,7 @@ function toStaffPreview(row: Record<string, unknown> | undefined) {
     type: row.type as "riddle" | "character_puzzle",
     difficulty: row.difficulty as string,
     prompt: row.prompt as string,
-    timeLimitSeconds: row.time_limit_seconds as number,
+    timeLimitSeconds: row.time_limit_seconds as number | null,
     maxAttempts: row.max_attempts as number,
     scoringPolicy: toPublicScoringPolicy(policy.data),
     ...(policy.data.speed_bonuses ? { speedBonuses: policy.data.speed_bonuses } : {}),
@@ -177,7 +177,7 @@ export async function getStaffPlayerStatuses(client: PoolClient, dailyChallengeI
         type: row.type as "riddle" | "character_puzzle",
         difficulty: row.difficulty as string,
         maxAttempts: row.max_attempts as number,
-        timeLimitSeconds: row.time_limit_seconds as number,
+        timeLimitSeconds: row.time_limit_seconds as number | null,
       }
       : null,
     status: (!row.challenge_id ? "no_riddle"
@@ -246,7 +246,7 @@ async function getSharedPlayState(
     difficulty: row.difficulty,
     prompt: row.prompt,
     startedAt: toIsoTimestamp(row.started_at),
-    deadline: toIsoTimestamp(row.deadline),
+    deadline: row.deadline === null ? null : toIsoTimestamp(row.deadline),
     serverTime: toIsoTimestamp(row.server_time),
     timeLimitSeconds: row.time_limit_seconds,
     maxAttempts: row.max_attempts,
@@ -516,9 +516,9 @@ export async function submitChallenge(
       [submission.started_at],
     );
     const elapsedMs = Number(elapsedMsRaw);
-    const deadlineMs = challenge.time_limit_seconds * 1000;
+    const deadlineMs = challenge.time_limit_seconds === null ? null : challenge.time_limit_seconds * 1000;
 
-    if (elapsedMs >= deadlineMs) {
+    if (deadlineMs !== null && elapsedMs >= deadlineMs) {
       const breakdown = computeResult(
         false,
         0,
