@@ -15,7 +15,7 @@ const TILE_CLASSES: Record<CharacterFeedback | "filled" | "empty", string> = {
 // The images are red, so the result is shown by shifting the letter's own hue.
 const LETTER_FILTERS: Record<CharacterFeedback, string> = {
   correct: "hue-rotate(120deg) saturate(1.2) brightness(1.5)",
-  present: "hue-rotate(71deg) saturate(2.2) brightness(2.4)",
+  present: "hue-rotate(67deg) saturate(2.2) brightness(3)",
   absent: "grayscale(1) brightness(2.6)",
 };
 

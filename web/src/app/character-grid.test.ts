@@ -25,7 +25,7 @@ describe("CharacterBoard", () => {
     }));
 
     expect(html).toContain("filter:hue-rotate(120deg)");
-    expect(html).toContain("filter:hue-rotate(71deg)");
+    expect(html).toContain("filter:hue-rotate(67deg)");
     expect(html).toContain("filter:grayscale(1)");
     expect(html).not.toContain("bg-[#538d4e]");
     expect(html).not.toContain("bg-[#b59f3b]");
