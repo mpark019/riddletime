@@ -359,7 +359,7 @@ export function RiddleGame({
   }
 
   if (!loaded.data.schedule) {
-    return <RiddleFrame><p className="text-lg font-semibold">No riddle is scheduled for today.</p><p className="mt-2 text-white/65">Check back tomorrow for a new challenge.</p></RiddleFrame>;
+    return <RiddleFrame><p className="text-lg font-semibold">Nothing here right now</p><p className="mt-2 text-white/65">Check later</p></RiddleFrame>;
   }
 
   if (role !== "player") {
