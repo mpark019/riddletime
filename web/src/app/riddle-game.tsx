@@ -517,6 +517,7 @@ export function NotStartedRiddle({
     <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">Daily challenge</p>
     <h3 className="mt-3 text-2xl font-semibold capitalize">{play.difficulty ?? "Ready when you are?"}</h3>
     <p className="mt-3 max-w-xl text-white/70">Your timer starts only after the game has begun. Refreshing will not reset it.</p>
+    {play.scoringPolicy && <div className="mt-6"><RiddleStakes policy={play.scoringPolicy} /></div>}
     {error && <div className="mt-5"><ErrorMessage message={error} /></div>}
     {play.available
       ? <PrimaryButton type="button" disabled={busy} onClick={onStart} className="mt-7 px-6 py-3">{busy ? "Starting…" : "Start riddle"}</PrimaryButton>

@@ -141,10 +141,21 @@ async function getSharedPlayState(
   );
   const row = rows[0];
   if (!row?.submission_id) {
+    const policy = scoringPolicySchema.safeParse(row?.scoring_policy);
     return {
       status: "not_started" as const,
       available: Boolean(row?.challenge_id),
       difficulty: (row?.difficulty as string | undefined) ?? null,
+      ...(policy.success
+        ? {
+            scoringPolicy: {
+              base_points: policy.data.base_points,
+              ...(policy.data.failure_penalty_points === undefined
+                ? {}
+                : { failure_penalty_points: policy.data.failure_penalty_points }),
+            },
+          }
+        : {}),
     };
   }
 

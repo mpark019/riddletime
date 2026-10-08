@@ -613,7 +613,12 @@ describe("getTodayChallenge access", () => {
 
     expect(result).toEqual({
       schedule: { id: dailyId, mode: "shared", allowedTypes: ["riddle"] },
-      play: { status: "not_started", available: true, difficulty: "standard" },
+      play: {
+        status: "not_started",
+        available: true,
+        difficulty: "standard",
+        scoringPolicy: expect.objectContaining({ base_points: expect.any(Number) }),
+      },
     });
     expect(JSON.stringify(result)).not.toContain("accepted");
     expect(JSON.stringify(result)).not.toContain("What has keys");

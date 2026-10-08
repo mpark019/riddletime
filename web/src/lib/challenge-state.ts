@@ -48,7 +48,7 @@ export interface ActiveRiddle {
 }
 
 export type PlayerChallengeState =
-  | { status: "not_started"; available: boolean; difficulty: string | null }
+  | { status: "not_started"; available: boolean; difficulty: string | null; scoringPolicy?: Pick<ScoringPolicy, "base_points" | "failure_penalty_points"> }
   | ({ status: "in_progress" } & ActiveRiddle)
   | ({
       status: "completed";

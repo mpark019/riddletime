@@ -215,7 +215,7 @@ describe("RiddleStakes", () => {
 });
 
 describe("NotStartedRiddle", () => {
-  function render(play: { available: boolean; difficulty: string | null }) {
+  function render(play: { available: boolean; difficulty: string | null; scoringPolicy?: { base_points: number; failure_penalty_points?: number } }) {
     return renderToStaticMarkup(createElement(NotStartedRiddle, {
       play: { status: "not_started", ...play },
       busy: false,
@@ -230,6 +230,19 @@ describe("NotStartedRiddle", () => {
     expect(html).toContain("hard");
     expect(html).not.toContain("Ready when you are");
     expect(html).toContain("Start riddle");
+  });
+
+  it("shows the winnable points and the failure penalty before the game starts", () => {
+    const html = render({ available: true, difficulty: "hard", scoringPolicy: { base_points: 100, failure_penalty_points: 20 } });
+
+    expect(html).toContain("+100");
+    expect(html).toContain("-20");
+  });
+
+  it("omits the stakes when no scoring policy is available", () => {
+    const html = render({ available: true, difficulty: "hard" });
+
+    expect(html).not.toContain("Correct answer");
   });
 
   it("falls back to a neutral heading when the difficulty is unknown", () => {
