@@ -5,6 +5,7 @@ import { z } from "zod";
 import { withTransaction } from "@/lib/db";
 import { requireProfileRead, requirePlayer } from "@/server/identity/identity";
 import { BadRequestError, ForbiddenError, NotFoundError } from "@/server/http/errors";
+import { isRepeatGuess } from "@/lib/challenge-state";
 import { gradeRiddle } from "./grading";
 import { computeResult, type SpeedBonus } from "./scoring";
 
@@ -16,6 +17,7 @@ const answerDataSchema = z.object({
 
 const scoringPolicySchema = z.object({
   base_points: z.number().int().nonnegative(),
+  failure_penalty_points: z.number().int().nonnegative().max(2_147_483_647).optional(),
   speed_bonuses: z
     .array(
       z.object({
@@ -68,6 +70,11 @@ function toSpeedBonuses(policy: ScoringPolicy): SpeedBonus[] {
   }));
 }
 
+function failurePenaltyFromStoredPolicy(scoringPolicy: unknown): number {
+  const parsed = scoringPolicySchema.safeParse(scoringPolicy);
+  return parsed.success ? (parsed.data.failure_penalty_points ?? 0) : 0;
+}
+
 function toSchedule(daily: { id: string; mode: string; allowed_types: string[] }) {
   return {
     id: daily.id,
@@ -96,7 +103,11 @@ async function getSharedPlayState(
   );
   const row = rows[0];
   if (!row?.submission_id) {
-    return { status: "not_started" as const, available: Boolean(row?.challenge_id) };
+    return {
+      status: "not_started" as const,
+      available: Boolean(row?.challenge_id),
+      difficulty: (row?.difficulty as string | undefined) ?? null,
+    };
   }
 
   const guessHistory = parseGuessHistory(row.guess_history);
@@ -192,6 +203,18 @@ export async function getTodayChallenge() {
 
     if (profile.role !== "player") return { schedule };
     return { schedule, play: await getSharedPlayState(client, daily.id, profile.id) };
+  });
+}
+
+export async function finalizeOverdueSessions(): Promise<number> {
+  return withTransaction(async (client) => {
+    const profile = await requireProfileRead(client);
+    if (profile.role !== "player") return 0;
+    const { rows } = await client.query(
+      "select riddle_private.finalize_expired_sessions($1) as finalized",
+      [profile.id],
+    );
+    return rows[0].finalized;
   });
 }
 
@@ -324,7 +347,13 @@ export async function submitChallenge(
     const deadlineMs = challenge.time_limit_seconds * 1000;
 
     if (elapsedMs >= deadlineMs) {
-      const breakdown = computeResult(false, 0, [], deadlineMs);
+      const breakdown = computeResult(
+        false,
+        0,
+        [],
+        deadlineMs,
+        failurePenaltyFromStoredPolicy(challenge.scoring_policy),
+      );
       if (response === null) {
         await client.query(
           `update submissions s
@@ -357,8 +386,8 @@ export async function submitChallenge(
       }
       await client.query(
         `insert into point_transactions (user_id, amount, kind, reason, submission_id, operation_key)
-         values ($1, 0, 'challenge_result', 'Deadline expired', $2, $3)`,
-        [player.id, submission.id, `result:${submission.id}`],
+         values ($1, $2, 'challenge_result', 'Deadline expired', $3, $4)`,
+        [player.id, breakdown.total_points, submission.id, `result:${submission.id}`],
       );
       return {
         submissionId: submission.id,
@@ -373,6 +402,10 @@ export async function submitChallenge(
 
     if (response === null) {
       throw new BadRequestError("The challenge has not expired");
+    }
+
+    if (isRepeatGuess(parseGuessHistory(submission.guess_history), response)) {
+      throw new BadRequestError("You already tried that answer");
     }
 
     // Parse only now: an already-finalized or expired session shouldn't fail just because stored data is malformed.
@@ -411,6 +444,7 @@ export async function submitChallenge(
       scoringPolicy.base_points,
       toSpeedBonuses(scoringPolicy),
       elapsedMs,
+      scoringPolicy.failure_penalty_points ?? 0,
     );
 
     await client.query(

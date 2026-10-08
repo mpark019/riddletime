@@ -2,10 +2,21 @@ import { describe, expect, it } from "vitest";
 import { computeResult } from "./scoring";
 
 describe("computeResult", () => {
-  it("awards zero for an incorrect result", () => {
-    expect(computeResult(false, 100, [{ underMs: 30000, points: 20 }], 5000)).toEqual({
+  it("deducts the configured failure penalty for an incorrect result", () => {
+    expect(computeResult(false, 100, [{ underMs: 30000, points: 20 }], 5000, 25)).toEqual({
       base_points: 0,
       speed_bonus_points: null,
+      penalty_points: 25,
+      total_points: -25,
+      bonus_under_ms: null,
+    });
+  });
+
+  it("keeps older policies penalty-free", () => {
+    expect(computeResult(false, 100, [], 5000)).toEqual({
+      base_points: 0,
+      speed_bonus_points: null,
+      penalty_points: 0,
       total_points: 0,
       bonus_under_ms: null,
     });
@@ -15,6 +26,7 @@ describe("computeResult", () => {
     expect(computeResult(true, 100, [{ underMs: 30000, points: 20 }], 30000)).toEqual({
       base_points: 100,
       speed_bonus_points: null,
+      penalty_points: 0,
       total_points: 100,
       bonus_under_ms: null,
     });
@@ -24,6 +36,7 @@ describe("computeResult", () => {
     expect(computeResult(true, 100, [{ underMs: 30000, points: 20 }], 29999)).toEqual({
       base_points: 100,
       speed_bonus_points: 20,
+      penalty_points: 0,
       total_points: 120,
       bonus_under_ms: 30000,
     });
@@ -41,6 +54,7 @@ describe("computeResult", () => {
     expect(computeResult(true, 100, [], 5000)).toEqual({
       base_points: 100,
       speed_bonus_points: null,
+      penalty_points: 0,
       total_points: 100,
       bonus_under_ms: null,
     });

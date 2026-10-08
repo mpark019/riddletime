@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pool } from "@/lib/db";
 import {
@@ -13,7 +14,7 @@ const { getVerifiedUser } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/supabase/server", () => ({ getVerifiedUser }));
 
-const { getChallengeSession, getTodayChallenge, startChallenge, submitChallenge } = await import(
+const { finalizeOverdueSessions, getChallengeSession, getTodayChallenge, startChallenge, submitChallenge } = await import(
   "./challenges"
 );
 const { BadRequestError, ForbiddenError, NotFoundError } = await import("@/server/http/errors");
@@ -84,7 +85,7 @@ async function createPlayer() {
   return id;
 }
 
-async function createStartedPastRiddle(maxAttempts: number) {
+async function createStartedPastRiddle(maxAttempts: number, failurePenaltyPoints?: number) {
   const daysAgo = 1000 + Math.floor(Math.random() * 1_000_000);
   const adminId = await createAuthUser();
   await pool.query(
@@ -111,7 +112,13 @@ async function createStartedPastRiddle(maxAttempts: number) {
       dailyRows[0].id,
       JSON.stringify({ accepted: ["piano"] }),
       maxAttempts,
-      JSON.stringify({ base_points: 100, speed_bonuses: [] }),
+      JSON.stringify({
+        base_points: 100,
+        speed_bonuses: [],
+        ...(failurePenaltyPoints === undefined
+          ? {}
+          : { failure_penalty_points: failurePenaltyPoints }),
+      }),
     ],
   );
   const playerId = await createPlayer();
@@ -306,6 +313,88 @@ describe("start -> submit -> stored score", () => {
     expect(rows).toEqual([{ amount: 0 }]);
   });
 
+  it("deducts the configured penalty when the final answer is incorrect (AC-1)", async () => {
+    const { dailyId, playerId, submissionId } = await createStartedPastRiddle(1, 20);
+    getVerifiedUser.mockResolvedValue({ id: playerId });
+
+    const result = await submitChallenge(dailyId, "guitar");
+
+    expect(result).toMatchObject({
+      correct: false,
+      finalized: true,
+      scoringBreakdown: {
+        base_points: 0,
+        speed_bonus_points: null,
+        penalty_points: 20,
+        total_points: -20,
+        bonus_under_ms: null,
+      },
+      play: {
+        status: "completed",
+        result: { scoringBreakdown: { penalty_points: 20, total_points: -20 } },
+      },
+    });
+    const { rows } = await pool.query(
+      "select amount, kind from point_transactions where submission_id = $1",
+      [submissionId],
+    );
+    expect(rows).toEqual([{ amount: -20, kind: "challenge_result" }]);
+  });
+
+  it("does not penalize a recoverable wrong answer and awards a later correct answer (AC-3)", async () => {
+    const { dailyId, playerId, submissionId } = await createStartedPastRiddle(2, 20);
+    getVerifiedUser.mockResolvedValue({ id: playerId });
+
+    const first = await submitChallenge(dailyId, "guitar");
+    expect(first).toMatchObject({
+      finalized: false,
+      attemptsRemaining: 1,
+      play: { scoringPolicy: { failure_penalty_points: 20 } },
+    });
+    const beforeFinal = await pool.query(
+      "select amount from point_transactions where submission_id = $1",
+      [submissionId],
+    );
+    expect(beforeFinal.rows).toEqual([]);
+
+    const result = await submitChallenge(dailyId, "piano");
+    expect(result).toMatchObject({
+      correct: true,
+      finalized: true,
+      scoringBreakdown: { penalty_points: 0, total_points: 100 },
+    });
+    const { rows } = await pool.query(
+      "select amount from point_transactions where submission_id = $1",
+      [submissionId],
+    );
+    expect(rows).toEqual([{ amount: 100 }]);
+  });
+
+  it("rejects a guess that matches an earlier one without using a try", async () => {
+    const { dailyId, playerId, submissionId } = await createStartedPastRiddle(3);
+    getVerifiedUser.mockResolvedValue({ id: playerId });
+    await submitChallenge(dailyId, "bye", randomUUID());
+
+    await expect(submitChallenge(dailyId, "  BYE! ", randomUUID())).rejects.toThrow("already tried");
+    await expect(submitChallenge(dailyId, "bye", randomUUID())).rejects.toBeInstanceOf(BadRequestError);
+
+    const { rows } = await pool.query("select attempts, jsonb_array_length(guess_history) as guesses from submissions where id = $1", [submissionId]);
+    expect(rows[0]).toEqual({ attempts: 1, guesses: 1 });
+    const next = await submitChallenge(dailyId, "yo", randomUUID());
+    expect(next).toMatchObject({ finalized: false, attemptsRemaining: 1 });
+  });
+
+  it("still treats a retry of the same operation as a duplicate, not a repeat guess", async () => {
+    const { dailyId, playerId } = await createStartedPastRiddle(3);
+    getVerifiedUser.mockResolvedValue({ id: playerId });
+    const operationKey = randomUUID();
+    await submitChallenge(dailyId, "bye", operationKey);
+
+    const retry = await submitChallenge(dailyId, "bye", operationKey);
+
+    expect(retry).toMatchObject({ duplicateOperation: true });
+  });
+
   it("rejects Submit before Start", async () => {
     const { dailyId } = await ensureTodaysSharedRiddle();
     const playerId = await createPlayer();
@@ -396,6 +485,26 @@ describe("start -> submit -> stored score", () => {
     expect(rows[0]).toEqual({ response: null, attempts: 0, guess_history: [] });
   });
 
+  it("deducts the configured penalty when the deadline expires (AC-2)", async () => {
+    const { dailyId, playerId, submissionId } = await createStartedPastRiddle(2, 15);
+    getVerifiedUser.mockResolvedValue({ id: playerId });
+    await backdateSubmissionStart(submissionId, 125);
+
+    const result = await submitChallenge(dailyId, null);
+
+    expect(result).toMatchObject({
+      correct: false,
+      finalized: true,
+      expired: true,
+      scoringBreakdown: { penalty_points: 15, total_points: -15 },
+    });
+    const { rows } = await pool.query(
+      "select amount, reason from point_transactions where submission_id = $1",
+      [submissionId],
+    );
+    expect(rows).toEqual([{ amount: -15, reason: "Deadline expired" }]);
+  });
+
   it("rejects answerless finalization before the deadline", async () => {
     const { dailyId } = await ensureTodaysSharedRiddle();
     const playerId = await createPlayer();
@@ -423,6 +532,39 @@ describe("start -> submit -> stored score", () => {
       [playerId],
     );
     expect(rows[0]).toEqual({ count: 1, total: 0 });
+  });
+
+  it("returns a stored failed result without deducting the penalty twice (AC-4)", async () => {
+    const { dailyId, playerId, submissionId } = await createStartedPastRiddle(1, 30);
+    getVerifiedUser.mockResolvedValue({ id: playerId });
+    await submitChallenge(dailyId, "guitar");
+
+    const retry = await submitChallenge(dailyId, "guitar");
+
+    expect(retry).toMatchObject({
+      alreadyFinalized: true,
+      scoringBreakdown: { penalty_points: 30, total_points: -30 },
+    });
+    const { rows } = await pool.query(
+      `select count(*)::int as count, sum(amount)::int as total
+       from point_transactions where submission_id = $1`,
+      [submissionId],
+    );
+    expect(rows[0]).toEqual({ count: 1, total: -30 });
+  });
+
+  it("rejects a signed result that differs from the saved failure breakdown (AC-7)", async () => {
+    const { dailyId, playerId, submissionId } = await createStartedPastRiddle(1, 20);
+    getVerifiedUser.mockResolvedValue({ id: playerId });
+    await submitChallenge(dailyId, "guitar");
+    await pool.query("delete from point_transactions where submission_id = $1", [submissionId]);
+
+    await expect(pool.query(
+      `insert into point_transactions
+         (user_id, amount, kind, reason, submission_id, operation_key)
+       values ($1, -19, 'challenge_result', 'Mismatched penalty', $2, $3)`,
+      [playerId, submissionId, `mismatch:${submissionId}`],
+    )).rejects.toThrow();
   });
 });
 
@@ -471,7 +613,7 @@ describe("getTodayChallenge access", () => {
 
     expect(result).toEqual({
       schedule: { id: dailyId, mode: "shared", allowedTypes: ["riddle"] },
-      play: { status: "not_started", available: true },
+      play: { status: "not_started", available: true, difficulty: "standard" },
     });
     expect(JSON.stringify(result)).not.toContain("accepted");
     expect(JSON.stringify(result)).not.toContain("What has keys");
@@ -741,5 +883,182 @@ describe("stored puzzle shape validation", () => {
     expect(result.alreadyFinalized).toBe(true);
     expect(result.correct).toBe(true);
     expect(result.scoringBreakdown).toMatchObject({ total_points: 50 });
+  });
+});
+
+describe("finalize_expired_sessions sweep", () => {
+  async function sweep(playerId: string): Promise<number> {
+    const { rows } = await requireTestAdminPool().query(
+      "select riddle_private.finalize_expired_sessions($1) as finalized",
+      [playerId],
+    );
+    return rows[0].finalized;
+  }
+
+  async function resultEntries(submissionId: string) {
+    const { rows } = await pool.query(
+      "select amount, kind, reason, operation_key from point_transactions where submission_id = $1",
+      [submissionId],
+    );
+    return rows;
+  }
+
+  it("finalizes an abandoned overdue session with its failure penalty (AC-1)", async () => {
+    const { playerId, submissionId } = await createStartedPastRiddle(2, 25);
+    await backdateSubmissionStart(submissionId, 125);
+
+    expect(await sweep(playerId)).toBe(1);
+
+    const { rows } = await pool.query(
+      `select correct, time_taken_ms, scoring_breakdown,
+              submitted_at = started_at + interval '120 seconds' as at_deadline
+       from submissions where id = $1`,
+      [submissionId],
+    );
+    expect(rows[0]).toEqual({
+      correct: false,
+      time_taken_ms: "120000",
+      at_deadline: true,
+      scoring_breakdown: {
+        base_points: 0,
+        speed_bonus_points: null,
+        penalty_points: 25,
+        total_points: -25,
+        bonus_under_ms: null,
+      },
+    });
+    expect(await resultEntries(submissionId)).toEqual([{
+      amount: -25,
+      kind: "challenge_result",
+      reason: "Deadline expired",
+      operation_key: `result:${submissionId}`,
+    }]);
+  });
+
+  it("leaves sessions before their deadline unresolved (AC-2)", async () => {
+    const { playerId, submissionId } = await createStartedPastRiddle(1, 25);
+    await backdateSubmissionStart(submissionId, 60);
+
+    expect(await sweep(playerId)).toBe(0);
+
+    const { rows } = await pool.query("select submitted_at from submissions where id = $1", [submissionId]);
+    expect(rows[0].submitted_at).toBeNull();
+    expect(await resultEntries(submissionId)).toEqual([]);
+  });
+
+  it("does nothing on a repeated run or for an already finalized session (AC-2)", async () => {
+    const { playerId, submissionId } = await createStartedPastRiddle(1, 25);
+    await backdateSubmissionStart(submissionId, 125);
+
+    expect(await sweep(playerId)).toBe(1);
+    expect(await sweep(playerId)).toBe(0);
+
+    expect(await resultEntries(submissionId)).toHaveLength(1);
+  });
+
+  it("applies no penalty when the policy has none (AC-3)", async () => {
+    const { playerId, submissionId } = await createStartedPastRiddle(1);
+    await backdateSubmissionStart(submissionId, 125);
+
+    expect(await sweep(playerId)).toBe(1);
+
+    expect(await resultEntries(submissionId)).toMatchObject([{ amount: 0 }]);
+  });
+
+  it("applies no penalty when the stored policy is malformed (AC-3)", async () => {
+    const { playerId, submissionId } = await createStartedPastRiddle(1, 25);
+    const admin = await requireTestAdminPool().connect();
+    try {
+      await admin.query("begin");
+      await admin.query("set local session_replication_role = replica");
+      await admin.query(
+        `update challenges c set scoring_policy = '{"base_points": 100, "failure_penalty_points": "lots"}'::jsonb
+         from submissions s where s.id = $1 and c.id = s.challenge_id`,
+        [submissionId],
+      );
+      await admin.query("commit");
+    } finally {
+      admin.release();
+    }
+    await backdateSubmissionStart(submissionId, 125);
+
+    expect(await sweep(playerId)).toBe(1);
+
+    expect(await resultEntries(submissionId)).toMatchObject([{ amount: 0 }]);
+  });
+
+  it("skips a session locked by an in-flight submit (AC-4)", async () => {
+    const { playerId, submissionId } = await createStartedPastRiddle(1, 25);
+    await backdateSubmissionStart(submissionId, 125);
+    const submitter = await pool.connect();
+    try {
+      await submitter.query("begin");
+      await submitter.query("select id from submissions where id = $1 for update", [submissionId]);
+
+      expect(await sweep(playerId)).toBe(0);
+    } finally {
+      await submitter.query("rollback");
+      submitter.release();
+    }
+
+    expect(await sweep(playerId)).toBe(1);
+  });
+
+  it("returns the swept result to a later submit without a second entry (AC-5)", async () => {
+    const { dailyId, playerId, submissionId } = await createStartedPastRiddle(1, 25);
+    await backdateSubmissionStart(submissionId, 125);
+    await sweep(playerId);
+    getVerifiedUser.mockResolvedValue({ id: playerId });
+
+    const result = await submitChallenge(dailyId, null);
+
+    expect(result).toMatchObject({
+      alreadyFinalized: true,
+      correct: false,
+      scoringBreakdown: { penalty_points: 25, total_points: -25 },
+    });
+    expect(await resultEntries(submissionId)).toHaveLength(1);
+  });
+});
+
+describe("finalizeOverdueSessions on riddle load", () => {
+  it("finalizes the loading player's overdue game so today's riddle is shown instead", async () => {
+    const { playerId, submissionId } = await createStartedPastRiddle(1, 25);
+    await backdateSubmissionStart(submissionId, 125);
+    await ensureTodaysSharedRiddle();
+    getVerifiedUser.mockResolvedValue({ id: playerId });
+
+    expect(await finalizeOverdueSessions()).toBe(1);
+
+    const today = await getTodayChallenge();
+    expect(today.play?.status).toBe("not_started");
+    const { rows } = await pool.query(
+      "select amount from point_transactions where submission_id = $1",
+      [submissionId],
+    );
+    expect(rows).toEqual([{ amount: -25 }]);
+  });
+
+  it("does not finalize another player's overdue game", async () => {
+    const { submissionId } = await createStartedPastRiddle(1, 25);
+    await backdateSubmissionStart(submissionId, 125);
+    const otherPlayer = await createPlayer();
+    getVerifiedUser.mockResolvedValue({ id: otherPlayer });
+
+    expect(await finalizeOverdueSessions()).toBe(0);
+
+    const { rows } = await pool.query("select submitted_at from submissions where id = $1", [submissionId]);
+    expect(rows[0].submitted_at).toBeNull();
+  });
+
+  it("does nothing for a non-player account", async () => {
+    const adminId = await createAuthUser();
+    await pool.query(
+      "insert into profiles (id, display_name, role) values ($1, concat('Admin ', ($1::uuid)::text), 'admin')",
+      [adminId],
+    );
+    getVerifiedUser.mockResolvedValue({ id: adminId });
+
+    expect(await finalizeOverdueSessions()).toBe(0);
   });
 });

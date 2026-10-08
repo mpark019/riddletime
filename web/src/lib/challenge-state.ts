@@ -1,3 +1,5 @@
+import { normalizeAnswer } from "@/server/challenges/grading";
+
 export interface ChallengeSchedule {
   id: string;
   mode: "shared" | "personal";
@@ -12,12 +14,14 @@ export interface GuessHistoryEntry {
 
 export interface ScoringPolicy {
   base_points: number;
+  failure_penalty_points?: number;
   speed_bonuses?: Array<{ under_ms: number; points: number }>;
 }
 
 export interface ScoringBreakdown {
   base_points: number;
   speed_bonus_points: number | null;
+  penalty_points?: number;
   total_points: number;
   bonus_under_ms: number | null;
 }
@@ -41,7 +45,7 @@ export interface ActiveRiddle {
 }
 
 export type PlayerChallengeState =
-  | { status: "not_started"; available: boolean }
+  | { status: "not_started"; available: boolean; difficulty: string | null }
   | ({ status: "in_progress" } & ActiveRiddle)
   | ({
       status: "completed";
@@ -167,6 +171,17 @@ export function isSubmissionConfirmed(
   );
 }
 
+// Uses the grader's normalization so "Bra!" and "bra" count as the same guess.
+export function isRepeatGuess(history: readonly { response: string }[], response: string): boolean {
+  const normalized = normalizeAnswer(response);
+  return history.some((guess) => normalizeAnswer(guess.response) === normalized);
+}
+
+// While a request is still in flight the pending note is expected, so only warn once it has settled unconfirmed.
+export function needsPendingRetry(pending: PendingRiddleSubmission | null, busy: boolean): boolean {
+  return pending !== null && !busy;
+}
+
 export function estimateServerClockOffset(
   serverTime: string,
   requestStartedAt: number,
@@ -183,6 +198,111 @@ export function remainingSeconds(
 ): number {
   const milliseconds = Date.parse(deadline) - (clientNow + serverClockOffsetMs);
   return Math.max(0, Math.ceil(milliseconds / 1000));
+}
+
+// The client clock estimate can run slightly ahead of the server, which rejects an early finalize.
+const DEADLINE_GRACE_MS = 1_000;
+
+export function isPastDeadline(
+  deadline: string,
+  serverClockOffsetMs: number,
+  clientNow: number,
+): boolean {
+  return clientNow + serverClockOffsetMs >= Date.parse(deadline) + DEADLINE_GRACE_MS;
+}
+
+export interface SpeedTierStatus {
+  underMs: number;
+  points: number;
+  expired: boolean;
+  current: boolean;
+}
+
+// Mirrors the server rule: a tier pays only while elapsed time is strictly under its threshold.
+export function speedTierStatuses(
+  tiers: ScoringPolicy["speed_bonuses"],
+  timeLimitSeconds: number,
+  deadline: string,
+  serverClockOffsetMs: number,
+  clientNow: number,
+): SpeedTierStatus[] {
+  const elapsedMs = timeLimitSeconds * 1000 - (Date.parse(deadline) - (clientNow + serverClockOffsetMs));
+  const statuses = [...(tiers ?? [])]
+    .sort((a, b) => a.under_ms - b.under_ms)
+    .map((tier) => ({
+      underMs: tier.under_ms,
+      points: tier.points,
+      expired: elapsedMs >= tier.under_ms,
+      current: false,
+    }));
+  const best = statuses
+    .filter((tier) => !tier.expired)
+    .reduce<SpeedTierStatus | null>((max, tier) => (!max || tier.points > max.points ? tier : max), null);
+  return statuses.map((tier) => ({ ...tier, current: tier === best }));
+}
+
+// Runs `attempt` once, then once more after each delay, stopping at the first success.
+export async function retryWithDelays(
+  attempt: () => Promise<boolean>,
+  delaysMs: readonly number[],
+  sleep: (ms: number) => Promise<void>,
+  shouldContinue: () => boolean = () => true,
+): Promise<boolean> {
+  for (let index = 0; index <= delaysMs.length; index += 1) {
+    if (await attempt().catch(() => false)) return true;
+    if (index === delaysMs.length) break;
+    await sleep(delaysMs[index]);
+    if (!shouldContinue()) break;
+  }
+  return false;
+}
+
+const URGENT_SECONDS = 10;
+const MIN_WARNING_SECONDS = 15;
+
+// 0 = calm, 1 = fully urgent; ramps up over the last 30 percent of the limit and is full in the last 10 seconds.
+export function countdownUrgency(secondsRemaining: number, timeLimitSeconds: number): number {
+  const rampStart = Math.max(timeLimitSeconds * 0.3, MIN_WARNING_SECONDS);
+  if (secondsRemaining <= URGENT_SECONDS) return 1;
+  if (secondsRemaining >= rampStart) return 0;
+  return (rampStart - secondsRemaining) / (rampStart - URGENT_SECONDS);
+}
+
+// 0 with every try left, 1 on the last one; a single-try riddle has no build-up.
+export function attemptsUrgency(attemptsRemaining: number, maxAttempts: number): number {
+  if (maxAttempts <= 1) return 0;
+  const used = (maxAttempts - attemptsRemaining) / (maxAttempts - 1);
+  return Math.min(1, Math.max(0, used));
+}
+
+// 0 at the start, 1 once time is up or on the last try; whichever is further along drives it.
+export function stakesPressure(
+  secondsRemaining: number,
+  timeLimitSeconds: number,
+  attemptsRemaining: number,
+  maxAttempts: number,
+): number {
+  const timeUsed = timeLimitSeconds <= 0
+    ? 1
+    : Math.min(1, Math.max(0, 1 - secondsRemaining / timeLimitSeconds));
+  return Math.max(timeUsed, attemptsUrgency(attemptsRemaining, maxAttempts));
+}
+
+const MIN_REWARD_SCALE = 0.3;
+const MAX_PENALTY_SCALE = 4.5;
+
+// The reward shrinks steadily while the penalty swells slowly at first and fast near the end.
+export function stakeScales(pressure: number): { reward: number; penalty: number } {
+  const level = Math.min(1, Math.max(0, pressure));
+  return {
+    reward: 1 - (1 - MIN_REWARD_SCALE) * level,
+    penalty: 1 + (MAX_PENALTY_SCALE - 1) * level * level,
+  };
+}
+
+// 0 until pressure passes the halfway point, then ramps to 1.
+export function shakeLevel(pressure: number): number {
+  return Math.min(1, Math.max(0, (pressure - 0.5) / 0.5));
 }
 
 export function formatCountdown(totalSeconds: number): string {
