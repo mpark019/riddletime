@@ -1,0 +1,217 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import type { PlayerChallengeState } from "@/lib/challenge-state";
+import { CompletedRiddle, NotStartedRiddle, RiddleStakes } from "./riddle-game";
+
+type Completed = Extract<PlayerChallengeState, { status: "completed" }>;
+
+function completed(correct: boolean, breakdown: Partial<Completed["result"]["scoringBreakdown"]>): Completed {
+  return {
+    status: "completed",
+    submissionId: "s",
+    challengeId: "c",
+    type: "riddle",
+    difficulty: "standard",
+    prompt: "2 + 2 ?",
+    startedAt: "2026-10-07T12:00:00.000Z",
+    deadline: "2026-10-07T12:02:00.000Z",
+    serverTime: "2026-10-07T12:01:00.000Z",
+    timeLimitSeconds: 120,
+    maxAttempts: 2,
+    attempts: 2,
+    attemptsRemaining: 0,
+    guessHistory: [],
+    feedback: null,
+    scoringPolicy: { base_points: 100 },
+    result: {
+      correct,
+      timeTakenMs: 5_000,
+      scoringBreakdown: {
+        base_points: 0,
+        speed_bonus_points: null,
+        penalty_points: 0,
+        total_points: 0,
+        bonus_under_ms: null,
+        ...breakdown,
+      },
+    },
+  };
+}
+
+function render(play: Completed) {
+  return renderToStaticMarkup(createElement(CompletedRiddle, { play }));
+}
+
+// The surface class forces its own text color, so the tone color must sit on the number itself.
+function valueClasses(html: string, label: string) {
+  return new RegExp(`${label}</p><p[^>]*class="([^"]*)"`).exec(html)?.[1] ?? "";
+}
+
+function tone(html: string, label: string) {
+  return new RegExp(`data-tone="(\\w+)"><p[^>]*>${label}</p>`).exec(html)?.[1];
+}
+
+describe("CompletedRiddle", () => {
+  it("shows a SUCCESS stamp and green positive numbers for a solved riddle", () => {
+    const html = render(completed(true, { base_points: 100, speed_bonus_points: 50, total_points: 150 }));
+
+    expect(html).toContain('aria-label="Success"');
+    expect(html).toContain("SUCCESS");
+    expect(html).not.toContain("FAIL");
+    expect(tone(html, "Base points")).toBe("positive");
+    expect(tone(html, "Speed bonus")).toBe("positive");
+    expect(tone(html, "Total points")).toBe("positive");
+  });
+
+  it("shows a FAIL stamp and red negative numbers for a failed riddle", () => {
+    const html = render(completed(false, { penalty_points: 20, total_points: -20 }));
+
+    expect(html).toContain('aria-label="Fail"');
+    expect(html).toContain("FAIL");
+    expect(html).not.toContain("SUCCESS");
+    expect(tone(html, "Penalty")).toBe("negative");
+    expect(tone(html, "Total points")).toBe("negative");
+  });
+
+  it("leaves zero values neutral", () => {
+    const html = render(completed(false, { penalty_points: 20, total_points: -20 }));
+
+    expect(tone(html, "Base points")).toBe("zero");
+    expect(tone(html, "Speed bonus")).toBe("zero");
+  });
+
+  it("shows FAIL with a neutral zero total when there is no penalty", () => {
+    const html = render(completed(false, {}));
+
+    expect(html).toContain("FAIL");
+    expect(tone(html, "Total points")).toBe("zero");
+  });
+
+  it("puts the tone color on the number so the surface text color cannot override it", () => {
+    const html = render(completed(false, { penalty_points: 20, total_points: -20 }));
+
+    expect(valueClasses(html, "Penalty")).toContain("text-[#f00000]");
+    expect(valueClasses(html, "Total points")).toContain("text-[#f00000]");
+    expect(valueClasses(html, "Base points")).toContain("text-white");
+
+    const solved = render(completed(true, { base_points: 100, speed_bonus_points: 50, total_points: 150 }));
+    expect(valueClasses(solved, "Base points")).toContain("text-[#00940a]");
+    expect(valueClasses(solved, "Speed bonus")).toContain("text-[#00940a]");
+  });
+});
+
+describe("RiddleStakes", () => {
+  function stakes(policy: Parameters<typeof RiddleStakes>[0]["policy"], pressure?: number) {
+    return renderToStaticMarkup(createElement(RiddleStakes, { policy, pressure }));
+  }
+
+  it("shows only the reward and the failure penalty, not the speed bonus", () => {
+    const html = stakes({
+      base_points: 100,
+      speed_bonuses: [{ under_ms: 30_000, points: 20 }, { under_ms: 50_000, points: 10 }],
+      failure_penalty_points: 20,
+    });
+
+    expect(tone(html, "Correct answer")).toBe("positive");
+    expect(html).toContain("+100");
+    expect(tone(html, "If you fail")).toBe("negative");
+    expect(html).toContain("-20");
+    expect(html).toContain("Out of tries or time");
+    expect(html).not.toContain("Speed bonus");
+  });
+
+  it("omits the penalty cell when the riddle has none", () => {
+    const html = stakes({ base_points: 50 });
+
+    expect(html).toContain("+50");
+    expect(html).not.toContain("If you fail");
+  });
+
+  it("colors the number itself so the surface text color cannot override it", () => {
+    const html = stakes({ base_points: 100, failure_penalty_points: 20 });
+
+    expect(valueClasses(html, "Correct answer")).toContain("text-[#00940a]");
+    expect(valueClasses(html, "If you fail")).toContain("text-[#f00000]");
+  });
+
+  function scales(html: string) {
+    return [...html.matchAll(/--stake-scale:([\d.]+)/g)].map((match) => match[1]);
+  }
+
+  const policy = { base_points: 100, failure_penalty_points: 20 };
+
+  it("starts both numbers at normal size and still", () => {
+    const html = stakes(policy, 0);
+
+    expect(scales(html)).toEqual(["1.000", "1.000"]);
+    expect(html).not.toContain("stake-shake");
+  });
+
+  it("shrinks the reward and swells the penalty over it as pressure builds, keeping the amounts", () => {
+    const half = stakes(policy, 0.5);
+    const full = stakes(policy, 1);
+
+    expect(scales(half)).toEqual(["0.650", "1.875"]);
+    expect(scales(full)).toEqual(["0.300", "4.500"]);
+    expect(full).toContain("+100");
+    expect(full).toContain("-20");
+    expect(full).toContain("pointer-events-none");
+  });
+
+  it("shakes only the penalty, harder and faster as pressure rises", () => {
+    expect(stakes(policy, 0.5)).not.toContain("stake-shake");
+
+    const mid = stakes(policy, 0.75);
+    expect(mid.match(/stake-shake/g)).toHaveLength(1);
+    expect(mid).toContain("--shake:3.5px");
+    expect(mid).toContain("--shake-duration:0.325s");
+
+    const full = stakes(policy, 1);
+    expect(full).toContain("--shake:7px");
+    expect(full).toContain("--shake-duration:0.15s");
+  });
+
+  it("clamps the pressure to its range", () => {
+    expect(scales(stakes(policy, 4))).toEqual(["0.300", "4.500"]);
+    expect(scales(stakes(policy, -1))).toEqual(["1.000", "1.000"]);
+  });
+
+  it("shrinks the reward even when there is no penalty cell", () => {
+    expect(scales(stakes({ base_points: 50 }, 1))).toEqual(["0.300"]);
+  });
+
+  it("sits directly on the page without a card or navy box around it", () => {
+    const html = stakes({ base_points: 100, failure_penalty_points: 20 });
+
+    expect(html).not.toContain("navy-surface");
+    expect(html).not.toContain("border");
+    expect(html).not.toContain("overflow-hidden");
+  });
+});
+
+describe("NotStartedRiddle", () => {
+  function render(play: { available: boolean; difficulty: string | null }) {
+    return renderToStaticMarkup(createElement(NotStartedRiddle, {
+      play: { status: "not_started", ...play },
+      busy: false,
+      error: null,
+      onStart: () => undefined,
+    }));
+  }
+
+  it("shows the difficulty level instead of the generic prompt", () => {
+    const html = render({ available: true, difficulty: "hard" });
+
+    expect(html).toContain("hard");
+    expect(html).not.toContain("Ready when you are");
+    expect(html).toContain("Start riddle");
+  });
+
+  it("falls back to a neutral heading when the difficulty is unknown", () => {
+    const html = render({ available: false, difficulty: null });
+
+    expect(html).toContain("Ready when you are?");
+    expect(html).toContain("has not been published yet");
+  });
+});
