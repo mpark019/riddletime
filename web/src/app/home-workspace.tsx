@@ -106,7 +106,7 @@ function AccountMenu({ active, profile, onOpenSettings }: { active: boolean; pro
       <span className="sm:hidden">Settings</span>
       <span className="ml-1 hidden text-white sm:inline" aria-hidden="true">⌄</span>
     </button>
-    {open && <div role="menu" className="navy-surface absolute bottom-[calc(100%+0.75rem)] right-0 z-20 isolate w-64 overflow-hidden rounded-md border border-white/20 shadow-[0_1rem_2rem_rgb(0_2_46_/_30%)] sm:bottom-auto sm:top-[calc(100%+0.75rem)]">
+    {open && <div role="menu" className="navy-surface flat-on-mobile absolute bottom-[calc(100%+0.75rem)] right-0 z-20 isolate w-64 overflow-hidden rounded-md border border-white/20 shadow-[0_1rem_2rem_rgb(0_2_46_/_30%)] sm:bottom-auto sm:top-[calc(100%+0.75rem)]">
       <FloatingQuestionMarks contained compact start={20} />
       <div className="flex flex-col gap-0.5 p-1.5">
         <button type="button" role="menuitem" onClick={() => { setOpen(false); onOpenSettings(); }} className="flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-semibold transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white">
@@ -149,7 +149,7 @@ function SettingsPage({ profile, isAdmin, tab, onTabChange }: { profile: Profile
 }
 
 function SettingsButton({ active, children, onClick }: { active: boolean; children: ReactNode; onClick: () => void }) {
-  return <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`rounded-md border border-white/80 px-4 py-3 text-left text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-white ${active ? "navy-surface relative isolate overflow-hidden" : "bg-black/[0.04] text-white hover:bg-white/10 hover:text-white"}`}>{active && <FloatingQuestionMarks contained compact start={6} />}{children}</button>;
+  return <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`rounded-md border border-white/80 px-4 py-3 text-left text-sm font-semibold transition focus-visible:outline-2 focus-visible:outline-white ${active ? "navy-surface flat-on-mobile relative isolate overflow-hidden" : "bg-black/[0.04] text-white hover:bg-white/10 hover:text-white"}`}>{active && <FloatingQuestionMarks contained compact start={6} />}{children}</button>;
 }
 
 function ProfilePanel({ profile, initials }: { profile: Profile; initials: string }) {

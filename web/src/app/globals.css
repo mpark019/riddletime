@@ -59,6 +59,17 @@ body {
     radial-gradient(circle at 82% 100%, rgb(26 24 86 / 40%), transparent 32rem);
 }
 
+@media (max-width: 1023.98px) {
+  .navy-surface.flat-on-mobile {
+    background-color: var(--surface-solid);
+    background-image: none;
+  }
+
+  .flat-on-mobile .floating-question-marks {
+    display: none;
+  }
+}
+
 .floating-question-marks--compact span {
   font-size: calc(var(--mark-size) * 0.4);
 }
