@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { buildManualRiddleScheduleRequest } from "@/lib/admin-riddle-schedule";
+import { buildCharacterScheduleRequest, buildManualRiddleScheduleRequest } from "@/lib/admin-riddle-schedule";
 import { AdminRiddleList } from "./admin-riddle-list";
 import { DatePicker } from "./date-picker";
 import { FloatingQuestionMarks } from "./floating-question-marks";
@@ -13,6 +13,8 @@ interface SpeedBonusRow {
   points: string;
 }
 
+type PuzzleKind = "riddle" | "character_puzzle";
+
 const MAX_SPEED_BONUSES = 20;
 const inputClass = "mt-1 w-full rounded-md border border-white/40 bg-black/[0.04] px-3 py-2.5 text-white placeholder:text-white/45 focus:outline-2 focus:outline-white";
 
@@ -23,6 +25,8 @@ export function AdminRiddleScheduler({ appTimezone, today }: { appTimezone: stri
   const [acceptedAnswers, setAcceptedAnswers] = useState("");
   const [timeLimitSeconds, setTimeLimitSeconds] = useState("120");
   const [maxAttempts, setMaxAttempts] = useState("1");
+  const [puzzleKind, setPuzzleKind] = useState<PuzzleKind>("riddle");
+  const [targetWord, setTargetWord] = useState("");
   const [basePoints, setBasePoints] = useState("100");
   const [failurePenaltyPoints, setFailurePenaltyPoints] = useState("20");
   const [speedBonuses, setSpeedBonuses] = useState<SpeedBonusRow[]>([]);
@@ -32,6 +36,15 @@ export function AdminRiddleScheduler({ appTimezone, today }: { appTimezone: stri
   const [listVersion, setListVersion] = useState(0);
   const [tab, setTab] = useState<"schedule" | "scheduled">("schedule");
   const nextSpeedBonusId = useRef(1);
+
+  function selectPuzzleKind(kind: PuzzleKind) {
+    if (kind === puzzleKind) return;
+    setPuzzleKind(kind);
+    setMaxAttempts(kind === "character_puzzle" ? "6" : "1");
+    setTargetWord("");
+    setError(null);
+    setNotice(null);
+  }
 
   function addSpeedBonus() {
     if (speedBonuses.length >= MAX_SPEED_BONUSES) return;
@@ -47,19 +60,20 @@ export function AdminRiddleScheduler({ appTimezone, today }: { appTimezone: stri
     event.preventDefault();
     setError(null);
     setNotice(null);
-    let body: ReturnType<typeof buildManualRiddleScheduleRequest>;
+    let body: ReturnType<typeof buildManualRiddleScheduleRequest | typeof buildCharacterScheduleRequest>;
     try {
-      body = buildManualRiddleScheduleRequest({
+      const rules = {
         activeDate,
         difficulty,
-        prompt,
-        acceptedAnswers,
         timeLimitSeconds,
         maxAttempts,
         basePoints,
         failurePenaltyPoints,
         speedBonuses,
-      });
+      };
+      body = puzzleKind === "character_puzzle"
+        ? buildCharacterScheduleRequest({ ...rules, targetWord })
+        : buildManualRiddleScheduleRequest({ ...rules, prompt, acceptedAnswers });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Check the schedule values.");
       return;
@@ -74,18 +88,21 @@ export function AdminRiddleScheduler({ appTimezone, today }: { appTimezone: stri
       });
       const result = await response.json().catch(() => ({})) as { error?: string; active_date?: string };
       if (!response.ok) {
-        setError(result.error ?? "Could not schedule this riddle.");
+        setError(result.error ?? `Could not schedule this ${puzzleLabel}.`);
         return;
       }
       setPrompt("");
       setAcceptedAnswers("");
-      setNotice(`Riddle scheduled for ${result.active_date ?? activeDate}.`);
+      setTargetWord("");
+      setNotice(`${puzzleLabel[0].toUpperCase()}${puzzleLabel.slice(1)} scheduled for ${result.active_date ?? activeDate}.`);
     } catch {
-      setError("Could not confirm whether the riddle was scheduled. Retry may report that the date is already in use.");
+      setError(`Could not confirm whether the ${puzzleLabel} was scheduled. Retry may report that the date is already in use.`);
     } finally {
       setBusy(false);
     }
   }
+
+  const puzzleLabel = puzzleKind === "character_puzzle" ? "character puzzle" : "riddle";
 
   function openScheduled() {
     setTab("scheduled");
@@ -120,16 +137,26 @@ export function AdminRiddleScheduler({ appTimezone, today }: { appTimezone: stri
           </div>
           <div className="mt-5 flex flex-wrap gap-2" aria-label="Schedule type">
             <span className="rounded-full border border-white/30 px-3 py-1 text-sm font-semibold">Shared</span>
-            <span className="rounded-full border border-white/30 px-3 py-1 text-sm font-semibold">Riddle</span>
+            <div className="inline-flex overflow-hidden rounded-full border border-white/30" role="radiogroup" aria-label="Puzzle type">
+              <PuzzleKindButton active={puzzleKind === "riddle"} onClick={() => selectPuzzleKind("riddle")}>Riddle</PuzzleKindButton>
+              <PuzzleKindButton active={puzzleKind === "character_puzzle"} onClick={() => selectPuzzleKind("character_puzzle")}>Character puzzle</PuzzleKindButton>
+            </div>
             <span className="rounded-full border border-white/30 px-3 py-1 text-sm font-semibold">Fixed difficulty</span>
           </div>
+          {puzzleKind === "riddle" ? <>
           <label className="mt-5 block text-sm font-semibold">Riddle prompt
-            <textarea required maxLength={10_000} rows={5} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="What has keys but no locks?" className={`${inputClass} resize-y`} />
-          </label>
-          <label className="mt-5 block text-sm font-semibold">Accepted answers
-            <textarea required maxLength={25_050} rows={4} value={acceptedAnswers} onChange={(event) => setAcceptedAnswers(event.target.value)} placeholder={"piano\na piano"} className={`${inputClass} resize-y`} />
-            <span className="mt-1 block text-xs font-normal text-white/55">One answer per line, up to 50. Capitalization and punctuation are ignored during grading.</span>
-          </label>
+              <textarea required maxLength={10_000} rows={5} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="What has keys but no locks?" className={`${inputClass} resize-y`} />
+            </label>
+            <label className="mt-5 block text-sm font-semibold">Accepted answers
+              <textarea required maxLength={25_050} rows={4} value={acceptedAnswers} onChange={(event) => setAcceptedAnswers(event.target.value)} placeholder={"piano\na piano"} className={`${inputClass} resize-y`} />
+              <span className="mt-1 block text-xs font-normal text-white/55">One answer per line, up to 50. Capitalization and punctuation are ignored during grading.</span>
+            </label>
+          </> : <>
+            <label className="mt-5 block text-sm font-semibold">Answer
+              <input type="text" required maxLength={50} autoComplete="off" spellCheck={false} value={targetWord} onChange={(event) => setTargetWord(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder="CRANE" className={`${inputClass} font-mono uppercase tracking-widest`} />
+              <span className="mt-1 block text-xs font-normal text-white/55">Up to 50 letters and digits, no spaces. Players see only the length and are never shown the answer, even after they fail.</span>
+            </label>
+          </>}
         </section>
 
         <section className="rounded-md border border-white/25 bg-black/[0.04] p-5 sm:p-6">
@@ -175,7 +202,7 @@ export function AdminRiddleScheduler({ appTimezone, today }: { appTimezone: stri
           {error && <p role="alert" className="rounded-md border border-red-300/60 bg-red-950/45 px-4 py-3 text-sm text-red-100">{error}</p>}
           {notice && <p className="rounded-md border border-emerald-300/60 bg-emerald-950/45 px-4 py-3 text-sm text-emerald-100">{notice}</p>}
         </div>
-        <PrimaryButton type="submit" disabled={busy} className="mt-4 w-full px-5 py-3">{busy ? "Scheduling…" : "Schedule riddle"}</PrimaryButton>
+        <PrimaryButton type="submit" disabled={busy} className="mt-4 w-full px-5 py-3">{busy ? "Scheduling…" : `Schedule ${puzzleLabel}`}</PrimaryButton>
       </section>
     </form>
 
@@ -185,4 +212,8 @@ export function AdminRiddleScheduler({ appTimezone, today }: { appTimezone: stri
 
 function TabButton({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
   return <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`h-9 px-3 text-sm font-semibold transition lg:h-11 lg:px-5 lg:text-base ${active ? "navy-surface relative isolate" : "text-white hover:bg-white/15"}`}>{active && <FloatingQuestionMarks contained compact start={4} />}{children}</button>;
+}
+
+function PuzzleKindButton({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
+  return <button type="button" role="radio" aria-checked={active} onClick={onClick} className={`px-3 py-1 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-white ${active ? "bg-white/20" : "hover:bg-white/10"}`}>{children}</button>;
 }

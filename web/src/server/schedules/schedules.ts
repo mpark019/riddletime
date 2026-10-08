@@ -2,6 +2,11 @@ import "server-only";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import { withTransaction } from "@/lib/db";
+import {
+  CHARACTER_SET,
+  characterTargetSchema,
+  type CharacterConfig,
+} from "@/server/challenges/character-puzzle";
 import { normalizeAnswer } from "@/server/challenges/grading";
 import { requireAdmin, requireAdminRead } from "@/server/identity/identity";
 import { BadRequestError, ConflictError, NotFoundError } from "@/server/http/errors";
@@ -10,6 +15,7 @@ const MAX_DATABASE_INTEGER = 2_147_483_647;
 const MAX_PRESETS = 20;
 const MAX_SPEED_BONUSES = 20;
 const MAX_ACCEPTED_ANSWERS = 50;
+const MAX_CHARACTER_ATTEMPTS = 100;
 
 const speedBonusSchema = z.object({
   under_ms: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
@@ -22,13 +28,16 @@ const scoringPolicySchema = z.object({
   failure_penalty_points: z.number().int().nonnegative().max(MAX_DATABASE_INTEGER).default(0),
 }).strict();
 
-const riddleSettingsSchema = z.object({
+const baseSettingsShape = {
   time_limit_seconds: z.number().int().positive().max(MAX_DATABASE_INTEGER),
-  max_attempts: z.number().int().positive().max(MAX_DATABASE_INTEGER).default(1),
   generation_settings: z.object({}).strict().default({}),
-  config: z.object({}).strict().default({}),
   scoring_policy: scoringPolicySchema,
-}).strict().superRefine((settings, context) => {
+};
+
+function refineSettings(
+  settings: { time_limit_seconds: number; scoring_policy: z.infer<typeof scoringPolicySchema> },
+  context: z.RefinementCtx,
+) {
   const durationMs = settings.time_limit_seconds * 1000;
   const thresholds = new Set<number>();
   for (const [index, bonus] of settings.scoring_policy.speed_bonuses.entries()) {
@@ -60,10 +69,31 @@ const riddleSettingsSchema = z.object({
       message: "Maximum reward exceeds the database integer limit",
     });
   }
-});
+}
+
+const riddleSettingsSchema = z.object({
+  ...baseSettingsShape,
+  max_attempts: z.number().int().positive().max(MAX_DATABASE_INTEGER).default(1),
+  config: z.object({}).strict().default({}),
+}).strict().superRefine(refineSettings);
+
+const characterSettingsSchema = z.object({
+  ...baseSettingsShape,
+  max_attempts: z.number().int().positive().max(MAX_CHARACTER_ATTEMPTS),
+  config: z.object({}).strict().default({}),
+}).strict().superRefine(refineSettings);
 
 const presetSchema = z.object({
   types: z.object({ riddle: riddleSettingsSchema }).strict(),
+}).strict();
+
+const characterPresetSchema = z.object({
+  types: z.object({ character_puzzle: characterSettingsSchema }).strict(),
+}).strict();
+
+const characterPuzzleSchema = z.object({
+  type: z.literal("character_puzzle"),
+  target: characterTargetSchema,
 }).strict();
 
 const manualPuzzleSchema = z.object({
@@ -93,19 +123,10 @@ const manualPuzzleSchema = z.object({
   }
 });
 
-export const createManualSharedRiddleInput = z.object({
-  active_date: z.iso.date(),
-  mode: z.literal("shared"),
-  allowed_types: z.tuple([z.literal("riddle")]),
-  difficulty_selection: z.literal("fixed"),
-  difficulty_presets: z.record(
-    z.string().trim().min(1).max(100),
-    presetSchema,
-  ),
-  selected_difficulty: z.string().trim().min(1).max(100),
-  generation_prompt: z.string().trim().min(1).max(5_000).optional(),
-  manual_puzzle: manualPuzzleSchema,
-}).strict().superRefine((input, context) => {
+function refineSelectedPreset(
+  input: { difficulty_presets: Record<string, unknown>; selected_difficulty: string },
+  context: z.RefinementCtx,
+) {
   const presetNames = Object.keys(input.difficulty_presets);
   if (presetNames.length === 0 || presetNames.length > MAX_PRESETS) {
     context.addIssue({
@@ -121,9 +142,35 @@ export const createManualSharedRiddleInput = z.object({
       message: "Selected difficulty must name one of the submitted presets",
     });
   }
-});
+}
+
+const presetNameSchema = z.string().trim().min(1).max(100);
+
+export const createManualSharedRiddleInput = z.object({
+  active_date: z.iso.date(),
+  mode: z.literal("shared"),
+  allowed_types: z.tuple([z.literal("riddle")]),
+  difficulty_selection: z.literal("fixed"),
+  difficulty_presets: z.record(presetNameSchema, presetSchema),
+  selected_difficulty: presetNameSchema,
+  generation_prompt: z.string().trim().min(1).max(5_000).optional(),
+  manual_puzzle: manualPuzzleSchema,
+}).strict().superRefine(refineSelectedPreset);
+
+export const createSharedCharacterPuzzleInput = z.object({
+  active_date: z.iso.date(),
+  mode: z.literal("shared"),
+  allowed_types: z.tuple([z.literal("character_puzzle")]),
+  difficulty_selection: z.literal("fixed"),
+  difficulty_presets: z.record(presetNameSchema, characterPresetSchema),
+  selected_difficulty: presetNameSchema,
+  manual_puzzle: characterPuzzleSchema,
+}).strict().superRefine(refineSelectedPreset);
 
 export type CreateManualSharedRiddleInput = z.infer<typeof createManualSharedRiddleInput>;
+export type CreateSharedCharacterPuzzleInput = z.infer<typeof createSharedCharacterPuzzleInput>;
+
+const DUPLICATE_DATE_MESSAGE = "A riddle is already scheduled for that date";
 
 export function isDuplicateDateViolation(error: unknown): boolean {
   return typeof error === "object"
@@ -132,70 +179,147 @@ export function isDuplicateDateViolation(error: unknown): boolean {
     && (error as { constraint?: unknown }).constraint === "daily_challenges_active_date_key";
 }
 
-export async function createManualSharedRiddle(input: unknown) {
+interface SharedPuzzleRow {
+  type: "riddle" | "character_puzzle";
+  prompt: string;
+  config: object;
+  answerData: object;
+  maxAttempts: number;
+  timeLimitSeconds: number;
+  scoringPolicy: object;
+}
+
+async function insertSharedSchedule(
+  client: PoolClient,
+  adminId: string,
+  schedule: {
+    activeDate: string;
+    allowedType: SharedPuzzleRow["type"];
+    presets: object;
+    difficulty: string;
+    generationPrompt?: string;
+  },
+  puzzle: SharedPuzzleRow,
+) {
+  const { rows: dateRows } = await client.query(
+    `select $1::date < current_date as is_past,
+            exists(select 1 from daily_challenges where active_date = $1::date) as already_exists`,
+    [schedule.activeDate],
+  );
+  if (dateRows[0].is_past) {
+    throw new BadRequestError("Scheduled date cannot be in the past");
+  }
+  if (dateRows[0].already_exists) {
+    throw new ConflictError(DUPLICATE_DATE_MESSAGE);
+  }
+
+  const { rows: scheduleRows } = await client.query(
+    `insert into daily_challenges
+       (active_date, mode, allowed_types, difficulty_selection,
+        difficulty_presets, selected_difficulty, generation_prompt, created_by)
+     values ($1::date, 'shared', array[$2]::text[], 'fixed', $3::jsonb, $4, $5, $6)
+     returning id`,
+    [
+      schedule.activeDate,
+      schedule.allowedType,
+      JSON.stringify(schedule.presets),
+      schedule.difficulty,
+      schedule.generationPrompt ?? null,
+      adminId,
+    ],
+  );
+  const scheduleId = scheduleRows[0].id as string;
+
+  await client.query(
+    `insert into challenges
+       (daily_challenge_id, mode, type, difficulty, prompt, config,
+        answer_data, max_attempts, time_limit_seconds, scoring_policy)
+     values ($1, 'shared', $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9::jsonb)`,
+    [
+      scheduleId,
+      puzzle.type,
+      schedule.difficulty,
+      puzzle.prompt,
+      JSON.stringify(puzzle.config),
+      JSON.stringify(puzzle.answerData),
+      puzzle.maxAttempts,
+      puzzle.timeLimitSeconds,
+      JSON.stringify(puzzle.scoringPolicy),
+    ],
+  );
+
+  return { scheduleId, activeDate: schedule.activeDate, status: "ready" as const };
+}
+
+async function withDuplicateDateGuard<T>(create: () => Promise<T>): Promise<T> {
   try {
-    return await withTransaction(async (client) => {
-      const admin = await requireAdmin(client);
-      const parsed = createManualSharedRiddleInput.parse(input);
-      const settings = parsed.difficulty_presets[parsed.selected_difficulty].types.riddle;
-      const { rows: dateRows } = await client.query(
-        `select $1::date < current_date as is_past,
-                exists(select 1 from daily_challenges where active_date = $1::date) as already_exists`,
-        [parsed.active_date],
-      );
-      if (dateRows[0].is_past) {
-        throw new BadRequestError("Scheduled date cannot be in the past");
-      }
-      if (dateRows[0].already_exists) {
-        throw new ConflictError("A riddle is already scheduled for that date");
-      }
-
-      const { rows: scheduleRows } = await client.query(
-        `insert into daily_challenges
-           (active_date, mode, allowed_types, difficulty_selection,
-            difficulty_presets, selected_difficulty, generation_prompt, created_by)
-         values ($1::date, 'shared', array['riddle'], 'fixed', $2::jsonb, $3, $4, $5)
-         returning id`,
-        [
-          parsed.active_date,
-          JSON.stringify(parsed.difficulty_presets),
-          parsed.selected_difficulty,
-          parsed.generation_prompt ?? null,
-          admin.id,
-        ],
-      );
-      const scheduleId = scheduleRows[0].id as string;
-
-      await client.query(
-        `insert into challenges
-           (daily_challenge_id, mode, type, difficulty, prompt, config,
-            answer_data, max_attempts, time_limit_seconds, scoring_policy)
-         values ($1, 'shared', 'riddle', $2, $3, $4::jsonb,
-                 $5::jsonb, $6, $7, $8::jsonb)`,
-        [
-          scheduleId,
-          parsed.selected_difficulty,
-          parsed.manual_puzzle.prompt,
-          JSON.stringify(settings.config),
-          JSON.stringify({ accepted: parsed.manual_puzzle.accepted_answers }),
-          settings.max_attempts,
-          settings.time_limit_seconds,
-          JSON.stringify(settings.scoring_policy),
-        ],
-      );
-
-      return {
-        scheduleId,
-        activeDate: parsed.active_date,
-        status: "ready" as const,
-      };
-    });
+    return await create();
   } catch (error) {
-    if (isDuplicateDateViolation(error)) {
-      throw new ConflictError("A riddle is already scheduled for that date");
-    }
+    if (isDuplicateDateViolation(error)) throw new ConflictError(DUPLICATE_DATE_MESSAGE);
     throw error;
   }
+}
+
+export async function createManualSharedRiddle(input: unknown) {
+  return withDuplicateDateGuard(() => withTransaction(async (client) => {
+    const admin = await requireAdmin(client);
+    const parsed = createManualSharedRiddleInput.parse(input);
+    const settings = parsed.difficulty_presets[parsed.selected_difficulty].types.riddle;
+    return insertSharedSchedule(
+      client,
+      admin.id,
+      {
+        activeDate: parsed.active_date,
+        allowedType: "riddle",
+        presets: parsed.difficulty_presets,
+        difficulty: parsed.selected_difficulty,
+        generationPrompt: parsed.generation_prompt,
+      },
+      {
+        type: "riddle",
+        prompt: parsed.manual_puzzle.prompt,
+        config: settings.config,
+        answerData: { accepted: parsed.manual_puzzle.accepted_answers },
+        maxAttempts: settings.max_attempts,
+        timeLimitSeconds: settings.time_limit_seconds,
+        scoringPolicy: settings.scoring_policy,
+      },
+    );
+  }));
+}
+
+export async function createSharedCharacterPuzzle(input: unknown) {
+  return withDuplicateDateGuard(() => withTransaction(async (client) => {
+    const admin = await requireAdmin(client);
+    const parsed = createSharedCharacterPuzzleInput.parse(input);
+    const settings = parsed.difficulty_presets[parsed.selected_difficulty].types.character_puzzle;
+    const target = parsed.manual_puzzle.target;
+    const config: CharacterConfig = { target_length: target.length, character_set: CHARACTER_SET };
+    return insertSharedSchedule(
+      client,
+      admin.id,
+      {
+        activeDate: parsed.active_date,
+        allowedType: "character_puzzle",
+        presets: parsed.difficulty_presets,
+        difficulty: parsed.selected_difficulty,
+      },
+      {
+        type: "character_puzzle",
+        prompt: "Letter game",
+        config,
+        answerData: { target },
+        maxAttempts: settings.max_attempts,
+        timeLimitSeconds: settings.time_limit_seconds,
+        scoringPolicy: settings.scoring_policy,
+      },
+    );
+  }));
+}
+
+export function isCharacterScheduleRequest(input: unknown): boolean {
+  const allowed = (input as { allowed_types?: unknown } | null)?.allowed_types;
+  return Array.isArray(allowed) && allowed.includes("character_puzzle");
 }
 
 export interface ScheduledRiddle {
@@ -226,6 +350,11 @@ export interface ScheduledRiddlePlayer {
   points: number | null;
 }
 
+function adminAnswers(answerData: { accepted?: unknown; target?: unknown } | null): string[] {
+  if (Array.isArray(answerData?.accepted)) return answerData.accepted;
+  return typeof answerData?.target === "string" ? [answerData.target] : [];
+}
+
 async function selectSchedules(client: PoolClient, scheduleId: string | null): Promise<ScheduledRiddle[]> {
   const { rows } = await client.query(
     `select d.id, d.active_date::text as active_date,
@@ -251,7 +380,7 @@ async function selectSchedules(client: PoolClient, scheduleId: string | null): P
     type: row.type,
     difficulty: row.selected_difficulty,
     prompt: row.prompt,
-    acceptedAnswers: Array.isArray(row.answer_data?.accepted) ? row.answer_data.accepted : [],
+    acceptedAnswers: adminAnswers(row.answer_data),
     timeLimitSeconds: row.time_limit_seconds,
     maxAttempts: row.max_attempts,
     scoringPolicy: row.scoring_policy,

@@ -20,4 +20,15 @@ describe("AdminRiddleScheduler", () => {
     expect(html).toContain('value="05/06/2030"');
     expect(html).toContain('aria-label="Choose date"');
   });
+
+  it("offers both puzzle types with the riddle fields selected first", () => {
+    const html = renderToStaticMarkup(createElement(AdminRiddleScheduler, {
+      appTimezone: "UTC",
+      today: "2030-05-06",
+    }));
+
+    expect(html).toContain('aria-label="Puzzle type"');
+    expect(html).toContain("Character puzzle");
+    expect(html).not.toContain("Allowed characters");
+  });
 });

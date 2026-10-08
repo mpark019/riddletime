@@ -1,9 +1,16 @@
 import { apiError, ok } from "@/server/http/api-response";
-import { createManualSharedRiddle } from "@/server/schedules/schedules";
+import {
+  createManualSharedRiddle,
+  createSharedCharacterPuzzle,
+  isCharacterScheduleRequest,
+} from "@/server/schedules/schedules";
 
 export async function POST(request: Request) {
   try {
-    const result = await createManualSharedRiddle(await request.json());
+    const body = await request.json();
+    const result = isCharacterScheduleRequest(body)
+      ? await createSharedCharacterPuzzle(body)
+      : await createManualSharedRiddle(body);
     return ok(
       {
         schedule_id: result.scheduleId,
