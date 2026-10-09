@@ -330,10 +330,14 @@ describe("manual point adjustments", () => {
 });
 
 describe("point-transaction HTTP contract", () => {
-  it("accepts an omitted reason and stores the default audit explanation", async () => {
-    const admin = await createProfile("admin", "Default reason admin");
-    const player = await createProfile("player", "Default reason player");
+  it.each([
+    ["omitted", {}],
+    ["blank", { reason: "   " }],
+  ])("rejects a %s reason and writes nothing", async (label, reasonField) => {
+    const admin = await createProfile("admin", `Required reason admin ${label}`);
+    const player = await createProfile("player", `Required reason player ${label}`);
     getVerifiedUser.mockResolvedValue({ id: admin });
+    const operationKey = randomUUID();
 
     const response = await postPointTransaction(
       new Request("http://localhost/api/admin/point-transactions", {
@@ -342,15 +346,15 @@ describe("point-transaction HTTP contract", () => {
         body: JSON.stringify({
           user_id: player,
           amount: 5,
-          operation_key: randomUUID(),
+          operation_key: operationKey,
+          ...reasonField,
         }),
       }),
     );
 
-    expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toMatchObject({
-      entry: { user_id: player, reason: "Manual adjustment" },
-    });
+    expect(response.status).toBe(400);
+    const { rows } = await pool.query("select 1 from point_transactions where user_id = $1 and kind = 'manual_adjustment'", [player]);
+    expect(rows).toEqual([]);
   });
 
   it("accepts the documented snake_case body and returns snake_case fields", async () => {
@@ -396,6 +400,22 @@ describe("audit trail pagination", () => {
     const page = await listPointTransactions({ query: "Pager player", limit: 2, offset: 1 });
 
     expect(page.map((entry) => entry.id)).toEqual(all.slice(1, 3).map((entry) => entry.id));
+  });
+
+  it("names the actor on manual adjustments and leaves system entries unattributed", async () => {
+    const admin = await createProfile("admin", "Actor admin");
+    const player = await createProfile("player", "Actor player");
+    await pool.query(
+      "insert into point_transactions (user_id, amount, kind, reason, operation_key) values ($1, 2, 'initial_score', 'actor-system', $2)",
+      [player, `initial:${randomUUID()}`],
+    );
+    getVerifiedUser.mockResolvedValue({ id: admin });
+    await createManualAdjustment({ userId: player, amount: 3, reason: "Actor check", operationKey: randomUUID() });
+
+    const entries = await listPointTransactions({ query: "Actor player" });
+
+    expect(entries.find((entry) => entry.reason === "Actor check")).toMatchObject({ createdBy: admin, createdByName: "Actor admin" });
+    expect(entries.find((entry) => entry.reason === "actor-system")).toMatchObject({ createdBy: null, createdByName: null });
   });
 
   it("filters entries by a case-insensitive match on display name or name", async () => {

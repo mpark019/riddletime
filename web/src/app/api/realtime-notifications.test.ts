@@ -65,7 +65,7 @@ describe("realtime notifications after durable point changes", () => {
 
     await createAdjustment(new Request("https://riddletime.test/api/admin/point-transactions", {
       method: "POST",
-      body: JSON.stringify({ user_id: id, amount: 5, operation_key: "test-key" }),
+      body: JSON.stringify({ user_id: id, amount: 5, reason: "Test reason", operation_key: "test-key" }),
       headers: { "Content-Type": "application/json" },
     }));
     await deleteAdjustment(new Request(`https://riddletime.test/api/admin/point-transactions/${id}`, { method: "DELETE" }), {
@@ -82,7 +82,7 @@ describe("realtime notifications after durable point changes", () => {
 
     await createAdjustment(new Request("https://riddletime.test/api/admin/point-transactions", {
       method: "POST",
-      body: JSON.stringify({ user_id: id, amount: 5, operation_key: "test-key" }),
+      body: JSON.stringify({ user_id: id, amount: 5, reason: "Test reason", operation_key: "test-key" }),
       headers: { "Content-Type": "application/json" },
     }));
     await runAfterCallbacks();

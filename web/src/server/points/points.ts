@@ -14,7 +14,7 @@ const manualAdjustmentFields = {
     .min(-2_147_483_648)
     .max(2_147_483_647)
     .refine((amount) => amount !== 0, "amount must not be zero"),
-  reason: z.string().trim().max(500).optional().transform((reason) => reason || "Manual adjustment"),
+  reason: z.string().trim().min(1, "reason is required").max(500),
   operationKey: z.string().trim().min(1).max(200),
 };
 
@@ -49,6 +49,7 @@ export interface PointTransaction {
   reason: string;
   submissionId: string | null;
   createdBy: string | null;
+  createdByName: string | null;
   operationKey: string;
   createdAt: Date;
 }
@@ -63,6 +64,7 @@ function mapTransaction(row: Record<string, unknown>): PointTransaction {
     reason: row.reason as string,
     submissionId: row.submission_id as string | null,
     createdBy: row.created_by as string | null,
+    createdByName: (row.created_by_name as string | null | undefined) ?? null,
     operationKey: row.operation_key as string,
     createdAt: row.created_at as Date,
   };
@@ -124,9 +126,11 @@ export async function listPointTransactions(page: PointTransactionPage = {}): Pr
     await requireAdminRead(client);
     const { rows } = await client.query(
       `select pt.id, pt.user_id, p.display_name, pt.amount, pt.kind, pt.reason,
-              pt.submission_id, pt.created_by, pt.operation_key, pt.created_at
+              pt.submission_id, pt.created_by, actor.display_name as created_by_name,
+              pt.operation_key, pt.created_at
        from point_transactions pt
        join profiles p on p.id = pt.user_id
+       left join profiles actor on actor.id = pt.created_by
        where $3::text is null or p.display_name ilike $3 or p.name ilike $3
        order by pt.created_at desc, pt.id desc
        limit $1 offset $2`,

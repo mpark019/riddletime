@@ -13,6 +13,7 @@ type PointTransaction = {
   amount: number;
   kind: string;
   reason: string;
+  created_by_name: string | null;
   created_at: string;
 };
 
@@ -113,6 +114,10 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
   const [busy, setBusy] = useState(false);
   const [undoBusyKey, setUndoBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reasonMissing, setReasonMissing] = useState(false);
+  const [shaking, setShaking] = useState(false);
+  const mobileReasonRef = useRef<HTMLInputElement>(null);
+  const desktopReasonRef = useRef<HTMLInputElement>(null);
   const [recentAdjustments, setRecentAdjustments] = useState<RecentAdjustment[]>([]);
   const operationKey = useRef<string | null>(null);
   const effectiveAmount = customAmount === "" ? amount : Number(customAmount);
@@ -124,6 +129,7 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
 
   function changeField(callback: () => void) {
     operationKey.current = null;
+    setReasonMissing(false);
     callback();
   }
 
@@ -146,6 +152,13 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
       setError("Select at least one player and enter a positive whole-number amount.");
       return;
     }
+    if (reason.trim() === "") {
+      setReasonMissing(true);
+      setShaking(true);
+      const visibleInput = [mobileReasonRef.current, desktopReasonRef.current].find((input) => input?.offsetParent);
+      visibleInput?.focus();
+      return;
+    }
     setBusy(true);
     setError(null);
     operationKey.current ??= crypto.randomUUID();
@@ -158,10 +171,10 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(selectedUserIds.length === players.length
-          ? { scope: "all_players", amount: direction * parsedAmount, ...(savedReason && { reason: savedReason }), operation_key: operationKey.current }
+          ? { scope: "all_players", amount: direction * parsedAmount, reason: savedReason, operation_key: operationKey.current }
           : selectedUserIds.length === 1
-            ? { user_id: selectedUserIds[0], amount: direction * parsedAmount, ...(savedReason && { reason: savedReason }), operation_key: operationKey.current }
-            : { user_ids: selectedUserIds, amount: direction * parsedAmount, ...(savedReason && { reason: savedReason }), operation_key: operationKey.current }),
+            ? { user_id: selectedUserIds[0], amount: direction * parsedAmount, reason: savedReason, operation_key: operationKey.current }
+            : { user_ids: selectedUserIds, amount: direction * parsedAmount, reason: savedReason, operation_key: operationKey.current }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
@@ -188,7 +201,7 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
       userIds: savedUserIds,
       who,
       delta: direction * parsedAmount,
-      reason: savedReason || "Manual adjustment",
+      reason: savedReason,
       undoOperationKey: crypto.randomUUID(),
       undone: false,
     }, ...entries].slice(0, 4));
@@ -259,12 +272,12 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
       <section className="app-header relative isolate flex min-h-0 shrink-0 flex-col gap-2 rounded-md border-t px-5 py-3 lg:gap-[22px] lg:self-start lg:px-6 lg:py-6"><FloatingQuestionMarks contained />
         <p className="hidden text-[15px] leading-snug text-white lg:block">{selectionSummary}</p>
         <fieldset><legend className="sr-only lg:not-sr-only lg:text-[15px] lg:font-semibold">Amount</legend><div className="grid grid-cols-[repeat(4,minmax(0,52px))_minmax(0,1fr)] gap-1.5 lg:mt-2 lg:gap-2">{[1, 5, 10, 25].map((value) => <button key={value} type="button" onClick={() => changeField(() => { setAmount(value); setCustomAmount(""); })} aria-pressed={customAmount === "" && amount === value} className={`h-11 min-w-0 rounded-md border px-2 font-semibold tabular-nums ${customAmount === "" && amount === value ? "border-white bg-white text-on-fill" : "border-white/25 text-white hover:bg-white/10"}`}>{value}</button>)}<input type="number" inputMode="numeric" min="1" step="1" aria-label="Custom amount" value={customAmount} onChange={(event) => changeField(() => setCustomAmount(event.target.value))} placeholder="Other" className={`number-field h-11 w-full min-w-0 rounded-md border bg-surface-solid px-2 font-semibold tabular-nums text-white placeholder:text-white transition focus:outline-2 focus:outline-white lg:px-3 ${customAmount === "" ? "border-white/25" : "rounded-md border-2 border-white"}`} /></div></fieldset>
-        <label className="lg:hidden"><span className="sr-only">Reason (optional)</span><input value={reason} onChange={(event) => changeField(() => setReason(event.target.value))} aria-label="Reason (optional)" placeholder="Reason (optional)" className="h-11 w-full rounded-md border border-white/25 bg-surface-solid/70 px-3 text-base text-white placeholder:text-white transition focus:bg-surface-solid/90 focus:outline-2 focus:outline-white" /></label>
-        <label className="hidden flex-col gap-2 text-[15px] font-semibold text-white lg:flex"><span>Reason <span className="font-normal text-white">(optional)</span></span><input value={reason} onChange={(event) => changeField(() => setReason(event.target.value))} placeholder="What was this for?" className="h-11 rounded-md border border-white/25 bg-white/10 px-3.5 text-[15px] font-normal text-white placeholder:text-white focus:outline-2 focus:outline-white" /></label>
+        <label className="lg:hidden"><span className="sr-only">Reason</span><input value={reason} onChange={(event) => changeField(() => setReason(event.target.value))} ref={mobileReasonRef} aria-label="Reason" aria-invalid={reasonMissing} placeholder={reasonMissing ? "REQUIRED" : "Reason"} onAnimationEnd={() => setShaking(false)} className={`h-11 w-full rounded-md border px-3 text-base text-white placeholder:text-white transition focus:bg-surface-solid/90 focus:outline-2 focus:outline-white ${reasonMissing ? "border-[#f00000] bg-[#f00000]/25 ring-2 ring-[#f00000] placeholder:font-bold placeholder:tracking-wider" : "border-white/25 bg-surface-solid/70"} ${shaking ? "field-shake" : ""}`} /></label>
+        <label className="hidden flex-col gap-2 text-[15px] font-semibold text-white lg:flex"><span>Reason</span><input ref={desktopReasonRef} aria-invalid={reasonMissing} value={reason} onChange={(event) => changeField(() => setReason(event.target.value))} onAnimationEnd={() => setShaking(false)} placeholder={reasonMissing ? "REQUIRED" : "What was this for?"} className={`h-11 rounded-md border px-3.5 text-[15px] font-normal text-white placeholder:text-white focus:outline-2 focus:outline-white ${reasonMissing ? "border-[#f00000] bg-[#f00000]/25 ring-2 ring-[#f00000] placeholder:font-bold placeholder:tracking-wider" : "border-white/25 bg-white/10"} ${shaking ? "field-shake" : ""}`} /></label>
         <div className="grid grid-cols-2 gap-2 lg:gap-3"><button type="button" onClick={() => void saveAdjustment(-1)} disabled={busy || !validAdjustment} className="flex h-14 min-w-0 flex-col items-center justify-center rounded-md border-2 border-[#c00000] bg-[#f00000] px-2 text-white transition enabled:hover:bg-[#d60000] disabled:cursor-not-allowed disabled:border-white/25 disabled:bg-white/10 disabled:text-white lg:h-[76px] lg:px-3"><span className="text-xl font-bold tabular-nums lg:text-2xl">− {Number.isInteger(effectiveAmount) && effectiveAmount > 0 ? number.format(effectiveAmount) : 0}</span><span className="max-w-full truncate text-xs font-medium lg:text-[13px]">{busy ? "Saving..." : actionHint ?? `from ${selectedTarget}`}</span></button><button type="button" onClick={() => void saveAdjustment(1)} disabled={busy || !validAdjustment} className="flex h-14 min-w-0 flex-col items-center justify-center rounded-md border-2 border-[#006f08] bg-[#00940a] px-2 text-white transition enabled:hover:bg-[#00800a] disabled:cursor-not-allowed disabled:border-white/25 disabled:bg-white/10 disabled:text-white lg:h-[76px] lg:px-3"><span className="text-xl font-bold tabular-nums lg:text-2xl">+ {Number.isInteger(effectiveAmount) && effectiveAmount > 0 ? number.format(effectiveAmount) : 0}</span><span className="max-w-full truncate text-xs font-medium lg:text-[13px]">{busy ? "Saving..." : actionHint ?? `to ${selectedTarget}`}</span></button></div>
         <div className="hidden min-h-0 flex-1 border-t border-white/25 pt-[18px] lg:block"><h4 className="text-[15px] font-semibold">Recent</h4>{recentAdjustments.length === 0 ? <p className="mt-2 text-sm text-white">No recent adjustments</p> : <div className="mt-3 flex flex-col gap-3">{recentAdjustments.map((entry, index) => <div key={entry.key} className={`flex min-h-10 items-center gap-3 ${entry.undone ? "opacity-60" : ""}`}><span className={`min-w-11 px-1.5 py-1 text-center text-sm font-bold tabular-nums ${entry.delta > 0 ? "bg-[#00940a] text-white ring-2 ring-[#006f08]" : "bg-[#f00000] text-white ring-2 ring-[#c00000]"}`}>{entry.delta > 0 ? "+" : "−"}{number.format(Math.abs(entry.delta))}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{entry.who}</span><span className="block truncate text-[13px] text-white">{entry.reason}</span></span>{index === 0 && !entry.undone ? <button type="button" onClick={() => void undoAdjustment(entry)} disabled={undoBusyKey !== null} className="h-9 rounded-md border border-white px-3 text-sm font-semibold disabled:opacity-50">{undoBusyKey === entry.key ? "Undoing..." : "Undo"}</button> : entry.undone ? <span className="text-[13px] text-white">Undone</span> : null}</div>)}</div>}</div>
       </section>
-      {error && <p role="alert" className="border-t border-white bg-black/[0.06] px-5 py-3 text-sm text-white lg:col-span-2">{error}</p>}
+      {error && <p role="alert" className="border-t-2 border-[#c00000] bg-[#f00000] px-5 py-3 text-sm font-semibold text-white lg:col-span-2">{error}</p>}
     </form>
     </>
   );
@@ -368,7 +381,7 @@ function AuditRow({ transaction, disabled, onDelete }: { transaction: PointTrans
   return <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 rounded-md border border-white/25 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_5rem_auto]">
     <div className="min-w-0">
       <p className="truncate font-semibold">{transaction.display_name ?? transaction.user_id}</p>
-      <p className="text-xs">{auditDateFormat.format(new Date(transaction.created_at))}</p>
+      <p className="truncate text-xs">{auditDateFormat.format(new Date(transaction.created_at))} · {transaction.created_by_name ? `by ${transaction.created_by_name}` : "System"}</p>
     </div>
     <span className={`col-start-2 row-start-1 justify-self-end rounded-md px-2.5 py-1 text-center text-sm font-semibold tabular-nums text-on-fill ring-2 sm:col-start-3 ${positive ? "bg-[#00940a] ring-[#006f08]" : "bg-[#f00000] ring-[#c00000]"}`}>{positive ? "+" : "−"}{number.format(Math.abs(transaction.amount))}</span>
     <p className="col-start-1 row-start-2 truncate text-sm sm:col-start-2 sm:row-start-1">{transaction.reason}</p>

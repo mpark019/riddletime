@@ -15,7 +15,7 @@ import { z } from "zod";
 
 const adjustmentFields = {
   amount: z.number(),
-  reason: z.string().optional(),
+  reason: z.string(),
   operation_key: z.string(),
 };
 const requestSchema = z.union([
@@ -34,6 +34,7 @@ function transactionResponse(transaction: PointTransaction) {
     reason: transaction.reason,
     submission_id: transaction.submissionId,
     created_by: transaction.createdBy,
+    created_by_name: transaction.createdByName,
     operation_key:
       transaction.kind === "manual_adjustment"
         ? transaction.operationKey.replace(/^manual:/, "")
