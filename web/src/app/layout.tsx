@@ -7,6 +7,9 @@ const fraunces = Fraunces({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "riddletime",
   description: "Daily riddle challenges",
+  icons: {
+    icon: { url: "/images/dancing-alphabet/dancing-question.gif", type: "image/gif" },
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
