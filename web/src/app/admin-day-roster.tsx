@@ -16,9 +16,8 @@ const number = new Intl.NumberFormat();
 
 function outcome(assignment: DateAssignment) {
   if (assignment.status !== "completed") return { label: statusLabels[assignment.status], tone: "" };
-  return assignment.correct
-    ? { label: "Solved", tone: "text-[#00940a]" }
-    : { label: "Failed", tone: "text-[#f00000]" };
+  if (assignment.correct) return { label: "Solved", tone: "text-[#00940a]" };
+  return { label: assignment.missed ? "DNF" : "Failed", tone: "text-[#f00000]" };
 }
 
 function Tile({ label, value }: { label: string; value: number }) {

@@ -195,7 +195,8 @@ const outcomeLabels: Record<ScheduledRiddlePlayer["status"], string> = {
 
 function outcomeOf(player: ScheduledRiddlePlayer) {
   if (player.status !== "completed") return { label: outcomeLabels[player.status], tone: "zero" as const };
-  return player.correct ? { label: "Solved", tone: "positive" as const } : { label: "Failed", tone: "negative" as const };
+  if (player.correct) return { label: "Solved", tone: "positive" as const };
+  return { label: player.missed ? "DNF" : "Failed", tone: "negative" as const };
 }
 
 function PlayersTable({ players, maxAttempts, timeFormat }: { players: ScheduledRiddlePlayer[]; maxAttempts: number | null; timeFormat: Intl.DateTimeFormat }) {

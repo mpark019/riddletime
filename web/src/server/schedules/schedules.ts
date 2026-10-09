@@ -546,6 +546,7 @@ export interface ScheduledRiddlePlayer {
   timeTakenMs: number | null;
   points: number | null;
   breakdown: { basePoints: number; speedBonusPoints: number; penaltyPoints: number } | null;
+  missed: boolean;
 }
 
 function adminAnswers(answerData: { accepted?: unknown; target?: unknown } | null): string[] {
@@ -633,12 +634,14 @@ export async function getScheduleDetail(
               c.max_attempts, c.time_limit_seconds,
               s.id as submission_id, s.started_at, s.submitted_at, s.correct,
               s.attempts, s.guess_history, s.time_taken_ms, s.scoring_breakdown,
+              coalesce(s.scoring_breakdown @> '{"missed": true}', false) as missed,
               s.submitted_at is null
-                and s.started_at + c.time_limit_seconds * interval '1 second' <= clock_timestamp() as overdue,
+                and riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) <= clock_timestamp() as overdue,
               (select sum(pt.amount)::int from point_transactions pt
                 where pt.submission_id = s.id and pt.kind = 'challenge_result') as points
        from profiles p
-       left join challenges c on c.daily_challenge_id = $1 and (c.mode = 'shared' or c.assigned_to = p.id)
+       join daily_challenges d on d.id = $1
+       left join challenges c on c.daily_challenge_id = d.id and (c.mode = 'shared' or c.assigned_to = p.id)
        left join submissions s on s.challenge_id = c.id and s.user_id = p.id
        where p.role = 'player'
        order by (s.id is null), (c.id is null), s.started_at, lower(p.display_name), p.id`,
@@ -668,6 +671,7 @@ export async function getScheduleDetail(
       timeTakenMs: row.time_taken_ms === null || row.time_taken_ms === undefined ? null : Number(row.time_taken_ms),
       points: row.points ?? null,
       breakdown: toBreakdown(row.scoring_breakdown),
+      missed: row.missed,
     }));
     return { schedule, players };
   });
@@ -698,6 +702,7 @@ export interface DateAssignment {
   status: "not_started" | "in_progress" | "expired" | "completed";
   correct: boolean | null;
   points: number | null;
+  missed: boolean;
 }
 
 export interface DateRoster {
@@ -713,8 +718,9 @@ export async function getDateAssignments(activeDate: string): Promise<DateRoster
     const { rows } = await client.query(
       `select d.id as schedule_id, d.mode, c.id as challenge_id, c.assigned_to, c.type,
               c.difficulty, c.prompt, s.id as submission_id, s.submitted_at, s.correct,
+              coalesce(s.scoring_breakdown @> '{"missed": true}', false) as missed,
               s.submitted_at is null
-                and s.started_at + c.time_limit_seconds * interval '1 second' <= clock_timestamp() as overdue,
+                and riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) <= clock_timestamp() as overdue,
               (select sum(pt.amount)::int from point_transactions pt
                 where pt.submission_id = s.id and pt.kind = 'challenge_result') as points
        from daily_challenges d
@@ -743,6 +749,7 @@ export async function getDateAssignments(activeDate: string): Promise<DateRoster
           : row.overdue ? "expired" : "in_progress",
         correct: row.mode === "shared" ? null : row.correct,
         points: row.mode === "shared" ? null : row.points,
+        missed: row.mode !== "shared" && row.missed,
       }];
     });
     return { scheduleId: rows[0].schedule_id, mode: rows[0].mode, assignments };

@@ -371,7 +371,7 @@ describe("player runtime on a personal day (AC-5)", () => {
     const { rows: day } = await pool.query(
       `insert into daily_challenges
          (active_date, mode, allowed_types, difficulty_selection, difficulty_presets, created_by)
-       values (current_date - $1::int, 'personal', array['riddle'], 'random_player', $2::jsonb, $3)
+       values (current_date + $1::int, 'personal', array['riddle'], 'random_player', $2::jsonb, $3)
        returning id`,
       [daysAgo, JSON.stringify({ easy: { types: { riddle: {} } } }), admin],
     );

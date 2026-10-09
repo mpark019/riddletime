@@ -35,7 +35,7 @@ async function createStartedCharacterGame(options: {
   const { rows: dailyRows } = await pool.query(
     `insert into daily_challenges
        (active_date, mode, allowed_types, difficulty_selection, difficulty_presets, selected_difficulty, created_by)
-     values (current_date - $3::int, 'shared', array['character_puzzle'], 'fixed', $1::jsonb, 'standard', $2)
+     values (current_date + $3::int, 'shared', array['character_puzzle'], 'fixed', $1::jsonb, 'standard', $2)
      returning id`,
     [
       JSON.stringify({

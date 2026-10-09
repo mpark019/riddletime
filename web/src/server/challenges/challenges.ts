@@ -152,11 +152,12 @@ export async function getStaffPlayerStatuses(client: PoolClient, dailyChallengeI
             c.id as challenge_id, c.type, c.difficulty, c.max_attempts, c.time_limit_seconds,
             s.id as submission_id, s.submitted_at, s.correct, s.attempts, s.time_taken_ms,
             s.submitted_at is null
-              and s.started_at + c.time_limit_seconds * interval '1 second' <= clock_timestamp() as overdue,
+              and riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) <= clock_timestamp() as overdue,
             (select sum(pt.amount)::int from point_transactions pt
               where pt.submission_id = s.id and pt.kind = 'challenge_result') as points
      from profiles p
-     left join challenges c on c.daily_challenge_id = $1 and c.assigned_to = p.id
+     join daily_challenges d on d.id = $1
+     left join challenges c on c.daily_challenge_id = d.id and c.assigned_to = p.id
      left join submissions s on s.challenge_id = c.id and s.user_id = p.id
      where p.role = 'player'`,
     [dailyChallengeId],
@@ -210,8 +211,9 @@ async function getSharedPlayState(
             s.id as submission_id, s.started_at, s.submitted_at, s.correct,
             s.feedback, s.guess_history, s.attempts, s.time_taken_ms,
             s.scoring_breakdown, clock_timestamp() as server_time,
-            s.started_at + (c.time_limit_seconds * interval '1 second') as deadline
+            riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) as deadline
      from challenges c
+     join daily_challenges d on d.id = c.daily_challenge_id
      left join submissions s
        on s.challenge_id = c.id and s.user_id = $2
      where c.daily_challenge_id = $1 and (c.mode = 'shared' or c.assigned_to = $2)`,
@@ -307,8 +309,7 @@ function gradeGuess(
 
 async function findUnresolvedSharedGame(client: PoolClient, playerId: string) {
   const { rows } = await client.query(
-    `select d.id, d.mode, d.allowed_types,
-            s.started_at + (c.time_limit_seconds * interval '1 second') <= clock_timestamp() as overdue
+    `select d.id, d.mode, d.allowed_types
      from submissions s
      join challenges c on c.id = s.challenge_id
      join daily_challenges d on d.id = c.daily_challenge_id
@@ -325,15 +326,12 @@ async function loadTodayChallengeIn(client: PoolClient) {
   let finalized = 0;
 
   if (profile.role === "player") {
-    let unresolved = await findUnresolvedSharedGame(client, profile.id);
-    if (unresolved?.overdue) {
-      const { rows } = await client.query(
-        "select riddle_private.finalize_expired_sessions($1) as finalized",
-        [profile.id],
-      );
-      finalized = rows[0].finalized;
-      unresolved = await findUnresolvedSharedGame(client, profile.id);
-    }
+    const { rows } = await client.query(
+      "select riddle_private.finalize_expired_sessions($1) as finalized",
+      [profile.id],
+    );
+    finalized = rows[0].finalized;
+    const unresolved = await findUnresolvedSharedGame(client, profile.id);
     if (unresolved) {
       return {
         finalized,
@@ -451,7 +449,7 @@ export async function submitChallenge(
 
     const { rows: challengeRows } = await client.query(
       `select c.id as challenge_id, c.type, c.answer_data, c.config, c.scoring_policy,
-              c.max_attempts, c.time_limit_seconds
+              c.max_attempts, c.time_limit_seconds, d.active_date::text as active_date
        from challenges c
        join daily_challenges d on d.id = c.daily_challenge_id
        where d.id = $1 and (c.mode = 'shared' or c.assigned_to = $2)`,
@@ -508,17 +506,20 @@ export async function submitChallenge(
 
     // One clock read reused for both the stored timestamp and elapsed time, so they can't disagree.
     const {
-      rows: [{ t: now, elapsed_ms: elapsedMsRaw }],
+      rows: [{ t: now, elapsed_ms: elapsedMsRaw, deadline_ms: deadlineMsRaw }],
     } = await client.query(
       `with now_at as (select clock_timestamp() as t)
-       select t, floor(extract(epoch from (t - $1::timestamptz)) * 1000)::bigint as elapsed_ms
+       select t, floor(extract(epoch from (t - $1::timestamptz)) * 1000)::bigint as elapsed_ms,
+              greatest(floor(extract(epoch from (
+                riddle_private.session_deadline($1::timestamptz, $2::int, $3::date, current_setting('timezone')) - $1::timestamptz
+              )) * 1000), 0)::bigint as deadline_ms
        from now_at`,
-      [submission.started_at],
+      [submission.started_at, challenge.time_limit_seconds, challenge.active_date],
     );
     const elapsedMs = Number(elapsedMsRaw);
-    const deadlineMs = challenge.time_limit_seconds === null ? null : challenge.time_limit_seconds * 1000;
+    const deadlineMs = Number(deadlineMsRaw);
 
-    if (deadlineMs !== null && elapsedMs >= deadlineMs) {
+    if (elapsedMs >= deadlineMs) {
       const breakdown = computeResult(
         false,
         0,

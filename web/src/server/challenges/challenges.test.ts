@@ -95,7 +95,7 @@ async function createStartedPastRiddle(maxAttempts: number, failurePenaltyPoints
   const { rows: dailyRows } = await pool.query(
     `insert into daily_challenges
        (active_date, mode, allowed_types, difficulty_selection, difficulty_presets, selected_difficulty, created_by)
-     values (current_date - $3::int, 'shared', array['riddle'], 'fixed', $1::jsonb, 'standard', $2)
+     values (current_date + $3::int, 'shared', array['riddle'], 'fixed', $1::jsonb, 'standard', $2)
      returning id`,
     [
       JSON.stringify({ standard: { types: { riddle: { time_limit_seconds: 120, max_attempts: maxAttempts } } } }),
@@ -700,7 +700,7 @@ describe("getTodayChallenge access", () => {
     });
   });
 
-  it("restores an unresolved previous-day session ahead of today's schedule", async () => {
+  it("restores an unresolved session on another day ahead of today's schedule", async () => {
     await ensureTodaysSharedRiddle();
     const { dailyId, playerId, submissionId } = await createStartedPastRiddle(2);
     getVerifiedUser.mockResolvedValue({ id: playerId });
@@ -717,7 +717,7 @@ describe("getTodayChallenge access", () => {
     });
   });
 
-  it("reads a completed previous-day session by its schedule id", async () => {
+  it("reads a completed session on another day by its schedule id", async () => {
     const { dailyId, playerId } = await createStartedPastRiddle(2);
     getVerifiedUser.mockResolvedValue({ id: playerId });
     await submitChallenge(dailyId, "piano");
@@ -816,7 +816,7 @@ describe("stored puzzle shape validation", () => {
     const { rows: dailyRows } = await pool.query(
       `insert into daily_challenges
          (active_date, mode, allowed_types, difficulty_selection, difficulty_presets, selected_difficulty, created_by)
-       values (current_date - $3::int, 'shared', array['riddle'], 'fixed', $1::jsonb, 'standard', $2)
+       values (current_date + $3::int, 'shared', array['riddle'], 'fixed', $1::jsonb, 'standard', $2)
        returning id`,
       [
         JSON.stringify({ standard: { types: { riddle: { time_limit_seconds: 120, max_attempts: 1 } } } }),

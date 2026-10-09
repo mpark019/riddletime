@@ -35,6 +35,7 @@ function player(overrides: Partial<ScheduledRiddlePlayer>): ScheduledRiddlePlaye
     timeTakenMs: null,
     points: null,
     breakdown: null,
+    missed: false,
     ...overrides,
   };
 }
@@ -89,6 +90,18 @@ describe("RiddleDashboard", () => {
     expect(html).toContain("Avg time");
     expect(html).toContain("0:26");
     expect(html).toContain("Points given");
+  });
+
+  it("marks a missed riddle DNF in the same red as a failure", () => {
+    const dnf = player({
+      userId: "d", displayName: "Dee", status: "completed", correct: false, timeTakenMs: 0, points: -20,
+      breakdown: { basePoints: 0, speedBonusPoints: 0, penaltyPoints: 20 }, missed: true,
+    });
+
+    const html = render({}, [dnf]);
+
+    expect(html).toMatch(/text-\[#f00000\]">DNF</);
+    expect(html).not.toContain(`text-[#f00000]">Failed<`);
   });
 
   it("lists the rules including each speed bonus tier", () => {

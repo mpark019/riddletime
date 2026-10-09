@@ -16,6 +16,7 @@ function player(overrides: Partial<ScheduledRiddlePlayer>): ScheduledRiddlePlaye
     timeTakenMs: null,
     points: null,
     breakdown: null,
+    missed: false,
     ...overrides,
   };
 }

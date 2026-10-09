@@ -14,7 +14,7 @@ const players = [
 function assignment(overrides: Partial<DateAssignment>): DateAssignment {
   return {
     playerId: "a", challengeId: "c1", type: "riddle", difficulty: "easy", prompt: "What has keys?",
-    status: "not_started", correct: null, points: null, ...overrides,
+    status: "not_started", correct: null, points: null, missed: false, ...overrides,
   };
 }
 
@@ -42,6 +42,16 @@ describe("AdminDayRoster (AC-8)", () => {
     expect(html).toContain(">40<");
     expect(html).toContain("cy");
     expect(html).toContain("No riddle");
+  });
+
+  it("marks a missed riddle DNF in the same red as a failure", () => {
+    const html = render({
+      scheduleId: "s", mode: "personal",
+      assignments: [assignment({ playerId: "a", status: "completed", correct: false, points: -25, missed: true })],
+    });
+
+    expect(html).toContain('text-[#f00000]">DNF (-25)<');
+    expect(html).not.toContain("Failed (");
   });
 
   it("offers a scoped Delete on every assigned player, played or not (AC-10)", () => {
