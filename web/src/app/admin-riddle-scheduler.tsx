@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildBankScheduleRequest } from "@/lib/admin-riddle-schedule";
-import { isDifficulty, type Difficulty } from "@/lib/difficulty";
+import { DIFFICULTY_RULES, isDifficulty, type Difficulty } from "@/lib/difficulty";
 import type { BankPuzzle } from "@/server/puzzles/puzzles";
 import { AdminPuzzleBank, FilterMenu, PuzzleTable, puzzleMatches } from "./admin-puzzle-bank";
 import { AdminRiddleList } from "./admin-riddle-list";
@@ -24,6 +24,7 @@ interface SpeedBonusRow {
 }
 
 type PuzzleKind = "riddle" | "character_puzzle";
+const LETTER_GAME_ATTEMPTS = "6";
 
 const MAX_SPEED_BONUSES = 20;
 const card = "rounded-xl border border-white/25 bg-black/[0.04] p-4";
@@ -129,8 +130,16 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
 
   function chooseBankPuzzle(puzzle: BankPuzzle) {
     setBankPuzzleId(puzzle.id);
-    if (isDifficulty(puzzle.difficulty)) setDifficulty(puzzle.difficulty);
-    if (puzzle.type !== puzzleKind) setMaxAttempts(puzzle.type === "character_puzzle" ? "6" : "1");
+    if (isDifficulty(puzzle.difficulty)) {
+      const rules = DIFFICULTY_RULES[puzzle.difficulty];
+      setDifficulty(puzzle.difficulty);
+      setTimeLimitSeconds(rules.timeLimitSeconds);
+      setBasePoints(rules.basePoints);
+      setFailurePenaltyPoints(rules.failurePenaltyPoints);
+      setMaxAttempts(puzzle.type === "character_puzzle" ? LETTER_GAME_ATTEMPTS : rules.maxAttempts);
+    } else if (puzzle.type !== puzzleKind) {
+      setMaxAttempts(puzzle.type === "character_puzzle" ? LETTER_GAME_ATTEMPTS : "1");
+    }
     setError(null);
     setNotice(null);
   }

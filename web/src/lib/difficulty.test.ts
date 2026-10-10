@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DIFFICULTIES, difficultyColor, isDifficulty } from "./difficulty";
+import { DIFFICULTIES, DIFFICULTY_RULES, difficultyColor, isDifficulty } from "./difficulty";
 
 describe("difficulty", () => {
   it("offers exactly easy, medium, hard and extreme, each with its own color", () => {
@@ -15,5 +15,10 @@ describe("difficulty", () => {
 
   it("matches case-insensitively for display", () => {
     expect(difficultyColor("HARD")).toBe(difficultyColor("hard"));
+  });
+
+  it("defines scheduling defaults for every difficulty", () => {
+    expect(Object.keys(DIFFICULTY_RULES)).toEqual([...DIFFICULTIES]);
+    expect(DIFFICULTY_RULES.extreme).toEqual({ timeLimitSeconds: "120", maxAttempts: "2", basePoints: "5", failurePenaltyPoints: "25" });
   });
 });
