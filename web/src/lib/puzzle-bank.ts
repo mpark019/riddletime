@@ -1,4 +1,4 @@
-import { CHARACTER_SET } from "@/server/challenges/character-puzzle";
+import { CHARACTER_SET, MAX_TARGET_LENGTH } from "@/server/challenges/character-puzzle";
 import { isDifficulty } from "./difficulty";
 import type { StaffRiddlePreview } from "./challenge-state";
 
@@ -13,7 +13,6 @@ export interface PuzzleForm {
   targetWord: string;
 }
 
-const MAX_TARGET_LENGTH = 50;
 export const MAX_NAME_LENGTH = 80;
 const TARGET_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 

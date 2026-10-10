@@ -224,10 +224,13 @@ async function getSharedPlayState(
   const row = rows[0];
   if (!row?.submission_id) {
     const policy = scoringPolicySchema.safeParse(row?.scoring_policy);
+    const config = row?.type === "character_puzzle" ? characterConfigSchema.safeParse(row.config) : null;
     return {
       status: "not_started" as const,
       available: Boolean(row?.challenge_id),
       difficulty: (row?.difficulty as string | undefined) ?? null,
+      ...(row?.type ? { type: row.type as "riddle" | "character_puzzle" } : {}),
+      ...(config?.success ? { targetLength: config.data.target_length } : {}),
       ...(policy.success ? { scoringPolicy: toPublicScoringPolicy(policy.data) } : {}),
     };
   }

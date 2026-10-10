@@ -2,6 +2,7 @@
 
 import { DIFFICULTIES, difficultyColor, type Difficulty } from "@/lib/difficulty";
 import type { BankPuzzleKind } from "@/lib/puzzle-bank";
+import { MAX_TARGET_LENGTH } from "@/server/challenges/character-puzzle";
 
 export const inputClass = "mt-1 w-full rounded-md border border-white/40 bg-black/[0.04] px-3 py-2.5 text-white placeholder:text-white/45 focus:outline-2 focus:outline-white";
 
@@ -41,12 +42,12 @@ export function PuzzleContentFields({ kind, values, onChange, onRandomTarget }: 
   if (kind === "character_puzzle") {
     return <label className="mt-5 block text-sm font-semibold">Answer
       <span className="mt-1 flex gap-2">
-        <input type="text" required maxLength={50} autoComplete="off" spellCheck={false} value={values.targetWord}
+        <input type="text" required maxLength={MAX_TARGET_LENGTH} autoComplete="off" spellCheck={false} value={values.targetWord}
           onChange={(event) => onChange({ ...values, targetWord: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })}
           placeholder="CRANE" className={`${inputClass} mt-0 font-mono uppercase tracking-widest`} />
         {onRandomTarget && <button type="button" onClick={onRandomTarget} className="shrink-0 rounded-md border border-white/60 px-3 text-sm font-semibold hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white">Random</button>}
       </span>
-      <span className="mt-1 block text-xs font-normal text-white/55">Up to 50 letters and digits, no spaces. Players see only the length.</span>
+      <span className="mt-1 block text-xs font-normal text-white/55">Up to {MAX_TARGET_LENGTH} letters and digits, no spaces. Players see only the length.</span>
     </label>;
   }
   return <>

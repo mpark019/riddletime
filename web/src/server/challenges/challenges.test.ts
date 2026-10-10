@@ -643,6 +643,7 @@ describe("getTodayChallenge access", () => {
       play: {
         status: "not_started",
         available: true,
+        type: "riddle",
         difficulty: "standard",
         scoringPolicy: expect.objectContaining({ base_points: expect.any(Number) }),
       },

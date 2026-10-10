@@ -106,6 +106,36 @@ describe("puzzle bank service", () => {
     expect(rows[0].config).toEqual({ target_length: 6, character_set: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" });
   });
 
+  it("records who made each puzzle and shows their name in the list and detail", async () => {
+    const adminId = await asAdmin();
+    const byAdmin = await createPuzzle(riddle());
+    const spectatorId = await createProfile("spectator");
+    getVerifiedUser.mockResolvedValue({ id: spectatorId });
+    const bySpectator = await createPuzzle(riddle());
+
+    const name = async (id: string) =>
+      (await pool.query("select display_name from profiles where id = $1", [id])).rows[0].display_name;
+    expect(byAdmin.createdByName).toBe(await name(adminId));
+    expect(bySpectator.createdByName).toBe(await name(spectatorId));
+
+    const listed = await listPuzzles({});
+    expect(listed.find((p) => p.id === bySpectator.id)?.createdByName).toBe(await name(spectatorId));
+    expect((await getPuzzle(byAdmin.id)).createdByName).toBe(await name(adminId));
+  });
+
+  it("falls back to the profile's name, then null, when it has no display name", async () => {
+    const named = await createProfile("admin");
+    await pool.query("update profiles set display_name = null, name = 'Pat Lee' where id = $1", [named]);
+    const anonymous = await createProfile("admin");
+    await pool.query("update profiles set display_name = null, name = null where id = $1", [anonymous]);
+    const fromNamed = await insertPuzzle(pool, { createdBy: named });
+    const fromAnonymous = await insertPuzzle(pool, { createdBy: anonymous });
+    await asAdmin();
+
+    expect((await getPuzzle(fromNamed)).createdByName).toBe("Pat Lee");
+    expect((await getPuzzle(fromAnonymous)).createdByName).toBe(null);
+  });
+
   it("rejects invalid content and persists nothing (AC-2)", async () => {
     const adminId = await asAdmin();
     const bad = [
@@ -128,7 +158,7 @@ describe("puzzle bank service", () => {
     ["a space inside", "AB CD"],
     ["punctuation", "AB-CD"],
     ["an accented letter", "CAFÉ"],
-    ["more than 50 characters", "A".repeat(51)],
+    ["more than 25 characters", "A".repeat(26)],
   ])("rejects a letter game with %s and persists nothing (AC-2)", async (_name, target) => {
     const adminId = await asAdmin();
     await expect(createPuzzle({
@@ -138,9 +168,9 @@ describe("puzzle bank service", () => {
     expect(rowCount).toBe(0);
   });
 
-  it("accepts a 50-character and a single-character letter game (AC-2)", async () => {
+  it("accepts a 25-character and a single-character letter game (AC-2)", async () => {
     await asAdmin();
-    const long = "A1".repeat(25);
+    const long = `${"A1".repeat(12)}A`;
     expect(await createPuzzle({ name: "Long", difficulty: "easy", puzzle: { type: "character_puzzle", target: long } }))
       .toMatchObject({ acceptedAnswers: [long] });
     expect(await createPuzzle({ name: "One", difficulty: "easy", puzzle: { type: "character_puzzle", target: "z" } }))

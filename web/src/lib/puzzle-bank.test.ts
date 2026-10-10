@@ -44,7 +44,7 @@ describe("buildPuzzleRequest", () => {
     [{ name: "N", kind: "riddle", difficulty: "nope", prompt: "ok", acceptedAnswers: "x", targetWord: "" }, "Choose a difficulty."],
     [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "" }, "Enter the word or code players will guess."],
     [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "no spaces" }, "The answer can only use letters A-Z and digits 0-9, with no spaces."],
-    [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "A".repeat(51) }, "The answer must be at most 50 characters."],
+    [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "A".repeat(26) }, "The answer must be at most 25 characters."],
   ] as const)("rejects invalid input %#", (form, message) => {
     expect(() => buildPuzzleRequest(form)).toThrow(message);
   });
@@ -61,7 +61,7 @@ describe("randomTarget", () => {
     expect(randomTarget(2, () => 0.999999)).toBe("99");
   });
 
-  it.each([0, 51, 1.5])("rejects the length %s", (length) => {
+  it.each([0, 26, 1.5])("rejects the length %s", (length) => {
     expect(() => randomTarget(length)).toThrow();
   });
 });
@@ -118,7 +118,7 @@ describe("buildPuzzlePreview", () => {
     [{ name: "N", kind: "riddle", difficulty: "easy", prompt: "   ", acceptedAnswers: "", targetWord: "" }],
     [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "" }],
     [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "bad word" }],
-    [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "A".repeat(51) }],
+    [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "A".repeat(26) }],
   ] as const)("returns nothing while the content is not valid yet %#", (form) => {
     expect(buildPuzzlePreview(form)).toBeNull();
   });

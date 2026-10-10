@@ -271,7 +271,7 @@ export function AdminPuzzleBank({ canManage = true }: { canManage?: boolean }) {
       </div>
     </div>
 
-    <PuzzleTable puzzles={visible} total={puzzles?.length ?? 0} matching={matching?.length ?? 0}
+    <PuzzleTable puzzles={visible} total={puzzles?.length ?? 0} matching={matching?.length ?? 0} showCreator
       page={currentPage} pageCount={pageCount} onPage={setPage} onOpen={openPuzzle} />
 
     {drawer !== "closed" && <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
@@ -299,10 +299,16 @@ export function AdminPuzzleBank({ canManage = true }: { canManage?: boolean }) {
         </>}
         {drawer === "form" && <>
           <form onSubmit={(event) => void save(event)} className="mt-4" aria-labelledby="puzzle-modal-title">
-            <div className="inline-flex overflow-hidden rounded-full border border-white/30" role="radiogroup" aria-label="Puzzle type">
-              {(["riddle", "character_puzzle"] as const).map((option) => <button key={option} type="button" role="radio" aria-checked={kind === option}
-                disabled={editing} onClick={() => changeKind(option)}
-                className={`px-3 py-1 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-white disabled:cursor-not-allowed ${kind === option ? "bg-white/20" : "hover:bg-white/10 disabled:opacity-45"}`}>{kindLabel(option)}</button>)}
+            <div className="text-sm font-semibold">
+              <span id="puzzle-type-label">Puzzle type</span>
+              <div className="mt-1 grid grid-cols-2 gap-2" role="radiogroup" aria-labelledby="puzzle-type-label">
+                {(["riddle", "character_puzzle"] as const).map((option) => {
+                  const active = kind === option;
+                  return <button key={option} type="button" role="radio" aria-checked={active}
+                    disabled={editing} onClick={() => changeKind(option)}
+                    className={`flex min-w-0 items-center justify-center whitespace-nowrap rounded-md border-2 border-white px-2 py-2.5 text-sm font-bold uppercase tracking-wide transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:cursor-not-allowed ${active ? "bg-white text-on-fill" : "text-white hover:bg-white/10 disabled:opacity-45 disabled:hover:bg-transparent"}`}>{kindLabel(option)}</button>;
+                })}
+              </div>
             </div>
             <label className="mt-4 block text-sm font-semibold">Name
               <input value={name} required maxLength={MAX_NAME_LENGTH} onChange={(event) => setName(event.target.value)}
@@ -373,9 +379,9 @@ function StatusPill({ status }: { status: BankPuzzle["status"] }) {
   return <span className={`${pill} ${STATUS_COLOR[status]}`}>{STATUS_LABEL[status]}</span>;
 }
 
-export function PuzzleTable({ puzzles, total, matching, page, pageCount, onPage, onOpen, selectedId, hideStatus = false, footerNote, caption = "Stored puzzles. Select a row to preview it." }: {
+export function PuzzleTable({ puzzles, total, matching, page, pageCount, onPage, onOpen, selectedId, hideStatus = false, showCreator = false, footerNote, caption = "Stored puzzles. Select a row to preview it." }: {
   puzzles: BankPuzzle[] | null; total: number; matching: number; page: number; pageCount: number; onPage: (page: number) => void;
-  onOpen: (puzzle: BankPuzzle) => void; selectedId?: string; hideStatus?: boolean; footerNote?: string; caption?: string;
+  onOpen: (puzzle: BankPuzzle) => void; selectedId?: string; hideStatus?: boolean; showCreator?: boolean; footerNote?: string; caption?: string;
 }) {
   if (puzzles === null) return <p className="text-sm text-white/60">Loading puzzles…</p>;
   if (puzzles.length === 0) {
@@ -391,10 +397,10 @@ export function PuzzleTable({ puzzles, total, matching, page, pageCount, onPage,
         <caption className="sr-only">{caption}</caption>
         <thead><tr>
           <th scope="col" className={`${th} w-1/2 rounded-l-lg`}>Puzzle</th>
-          <th scope="col" className={`${th} max-sm:rounded-r-lg`}>Type</th>
+          <th scope="col" className={`${th} max-sm:rounded-r-lg max-sm:text-right`}>Type</th>
           <th scope="col" className={`${th} hidden sm:table-cell`}>Difficulty</th>
           {!hideStatus && <th scope="col" className={`${th} hidden sm:table-cell`}>Status</th>}
-          <th scope="col" className={`${th} hidden text-right sm:table-cell`}>Used</th>
+          {showCreator && <th scope="col" className={`${th} hidden sm:table-cell`}>Created by</th>}
           <th scope="col" className={`${th} hidden rounded-r-lg text-right sm:table-cell`}>Solve rate</th>
         </tr></thead>
         <tbody>
@@ -404,10 +410,10 @@ export function PuzzleTable({ puzzles, total, matching, page, pageCount, onPage,
               <button type="button" aria-pressed={selectedId === undefined ? undefined : selectedId === puzzle.id} onClick={(event) => { event.stopPropagation(); onOpen(puzzle); }}
                 className="block w-full truncate text-left focus-visible:outline-2 focus-visible:outline-white">{puzzleName(puzzle)}</button>
             </td>
-            <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg max-sm:rounded-r-lg px-3 py-4">{kindLabel(puzzle.type)}</td>
+            <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg max-sm:rounded-r-lg max-sm:text-right px-3 py-4">{kindLabel(puzzle.type)}</td>
             <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg hidden px-3 py-4 font-semibold capitalize sm:table-cell" style={{ color: difficultyColor(puzzle.difficulty) }}>{puzzle.difficulty}</td>
             {!hideStatus && <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg hidden px-3 py-4 sm:table-cell"><StatusPill status={puzzle.status} /></td>}
-            <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg hidden px-3 py-4 text-right tabular-nums sm:table-cell">{puzzle.timesUsed === 0 ? "-" : `${puzzle.timesUsed}×`}</td>
+            {showCreator && <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg hidden max-w-40 truncate px-3 py-4 sm:table-cell">{puzzle.createdByName ?? "Unknown"}</td>}
             <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg hidden px-3 py-4 text-right tabular-nums sm:table-cell">{formatSolveRate(puzzle.stats.solveRate)}</td>
           </tr>)}
         </tbody>
@@ -453,6 +459,7 @@ export function PuzzleDetails({ puzzle, busy, canManage, onEdit, onStatus, onRen
       <div className="flex gap-2"><dt className={label}>Difficulty:</dt><dd className="font-semibold capitalize" style={{ color: difficultyColor(puzzle.difficulty) }}>{puzzle.difficulty}</dd></div>
       <div className="flex items-center gap-2"><dt className={label}>Status:</dt><dd><StatusPill status={puzzle.status} /></dd></div>
       <div className="flex gap-2"><dt className={label}>Accepted:</dt><dd className="break-words">{puzzle.acceptedAnswers.join(", ")}</dd></div>
+      <div className="flex gap-2"><dt className={label}>Created by:</dt><dd className="break-words">{puzzle.createdByName ?? "Unknown"}</dd></div>
     </dl>
     <div className="mt-4 flex flex-wrap gap-2">
       {editable && <button type="button" disabled={busy} onClick={onEdit} className={fill}>Edit</button>}

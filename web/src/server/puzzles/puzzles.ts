@@ -74,6 +74,7 @@ export interface BankPuzzle {
   difficulty: string;
   status: "draft" | "active" | "retired";
   createdAt: string;
+  createdByName: string | null;
   timesUsed: number;
   stats: PuzzleStats;
   activity?: PuzzleActivity;
@@ -160,12 +161,14 @@ function toBankPuzzle(row: Record<string, unknown>, stats: PuzzleStats | undefin
     difficulty: row.difficulty as string,
     status: row.status as BankPuzzle["status"],
     createdAt: new Date(row.created_at as string).toISOString(),
+    createdByName: (row.created_by_name as string | null) ?? null,
     timesUsed: row.times_used as number,
     stats: stats ?? EMPTY_STATS,
   };
 }
 
 const PUZZLE_COLUMNS = `pz.id, pz.type, pz.name, pz.prompt, pz.answer_data, pz.difficulty, pz.status, pz.created_at,
+  (select coalesce(p.display_name, p.name) from profiles p where p.id = pz.created_by) as created_by_name,
   (select count(*)::int from challenges c where c.puzzle_id = pz.id) as times_used`;
 
 async function loadOne(client: PoolClient, id: string): Promise<BankPuzzle> {

@@ -107,10 +107,10 @@ describe("shared character puzzle scheduling", () => {
     expect(rows[0].scoring_policy.failure_penalty_points).toBe(20);
   });
 
-  it("supports a 50-character answer and a single character (AC-1)", async () => {
+  it("supports a 25-character answer and a single character (AC-1)", async () => {
     const adminId = await createProfile("admin");
     getVerifiedUser.mockResolvedValue({ id: adminId });
-    const long = "A1".repeat(25);
+    const long = `${"A1".repeat(12)}A`;
     const first = await createSharedCharacterPuzzle(await withBankPuzzle(pool, validInput({ target: long })));
     const second = await createSharedCharacterPuzzle(await withBankPuzzle(pool, validInput({ target: "z" })));
     const { rows } = await pool.query(
@@ -118,7 +118,7 @@ describe("shared character puzzle scheduling", () => {
        from challenges c join puzzles pz on pz.id = c.puzzle_id where c.daily_challenge_id = any($1)`,
       [[first.scheduleId, second.scheduleId]],
     );
-    expect(rows.map((row) => [row.target, row.length]).sort()).toEqual([[long, 50], ["Z", 1]]);
+    expect(rows.map((row) => [row.target, row.length]).sort()).toEqual([[long, 25], ["Z", 1]]);
   });
 
   it("checks the admin role before validating the body (AC-1)", async () => {
