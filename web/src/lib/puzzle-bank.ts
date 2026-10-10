@@ -14,7 +14,6 @@ export interface PuzzleForm {
 }
 
 export const MAX_NAME_LENGTH = 80;
-const TARGET_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 export function buildPuzzleRequest(form: PuzzleForm) {
   const difficulty = form.difficulty.trim();
@@ -41,13 +40,6 @@ export function buildPuzzleRequest(form: PuzzleForm) {
   if (!prompt) throw new Error("Enter the riddle prompt.");
   if (acceptedAnswers.length === 0) throw new Error("Enter at least one accepted answer.");
   return { ...named, difficulty, puzzle: { type: "riddle" as const, prompt, accepted_answers: acceptedAnswers } };
-}
-
-export function randomTarget(length: number, random: () => number = Math.random): string {
-  if (!Number.isInteger(length) || length < 1 || length > MAX_TARGET_LENGTH) {
-    throw new Error(`Length must be a whole number from 1 to ${MAX_TARGET_LENGTH}.`);
-  }
-  return Array.from({ length }, () => TARGET_ALPHABET[Math.floor(random() * TARGET_ALPHABET.length)]).join("");
 }
 
 export function formatSolveRate(rate: number | null): string {

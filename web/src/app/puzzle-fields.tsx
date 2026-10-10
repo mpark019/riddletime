@@ -33,11 +33,10 @@ export interface PuzzleFieldValues {
   targetWord: string;
 }
 
-export function PuzzleContentFields({ kind, values, onChange, onRandomTarget }: {
+export function PuzzleContentFields({ kind, values, onChange }: {
   kind: BankPuzzleKind;
   values: PuzzleFieldValues;
   onChange: (values: PuzzleFieldValues) => void;
-  onRandomTarget?: () => void;
 }) {
   if (kind === "character_puzzle") {
     return <label className="mt-5 block text-sm font-semibold">Answer
@@ -45,7 +44,6 @@ export function PuzzleContentFields({ kind, values, onChange, onRandomTarget }: 
         <input type="text" required maxLength={MAX_TARGET_LENGTH} autoComplete="off" spellCheck={false} value={values.targetWord}
           onChange={(event) => onChange({ ...values, targetWord: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })}
           placeholder="CRANE" className={`${inputClass} mt-0 font-mono uppercase tracking-widest`} />
-        {onRandomTarget && <button type="button" onClick={onRandomTarget} className="shrink-0 rounded-md border border-white/60 px-3 text-sm font-semibold hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white">Random</button>}
       </span>
       <span className="mt-1 block text-xs font-normal text-white/55">Up to {MAX_TARGET_LENGTH} letters and digits, no spaces. Players see only the length.</span>
     </label>;

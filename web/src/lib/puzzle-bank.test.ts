@@ -5,7 +5,6 @@ import {
   previewRulesFromForm,
   formatMedianSeconds,
   formatSolveRate,
-  randomTarget,
 } from "./puzzle-bank";
 
 describe("buildPuzzleRequest", () => {
@@ -47,22 +46,6 @@ describe("buildPuzzleRequest", () => {
     [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "A".repeat(26) }, "The answer must be at most 25 characters."],
   ] as const)("rejects invalid input %#", (form, message) => {
     expect(() => buildPuzzleRequest(form)).toThrow(message);
-  });
-});
-
-describe("randomTarget", () => {
-  it("returns the requested length from letters and digits only", () => {
-    const target = randomTarget(8);
-    expect(target).toMatch(/^[A-Z0-9]{8}$/);
-  });
-
-  it("is driven by the supplied random source", () => {
-    expect(randomTarget(3, () => 0)).toBe("AAA");
-    expect(randomTarget(2, () => 0.999999)).toBe("99");
-  });
-
-  it.each([0, 26, 1.5])("rejects the length %s", (length) => {
-    expect(() => randomTarget(length)).toThrow();
   });
 });
 

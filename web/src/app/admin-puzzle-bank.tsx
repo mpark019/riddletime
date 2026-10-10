@@ -6,7 +6,6 @@ import {
   buildPuzzleRequest,
   MAX_NAME_LENGTH,
   formatSolveRate,
-  randomTarget,
   type BankPuzzleKind,
   type PuzzleForm,
 } from "@/lib/puzzle-bank";
@@ -318,8 +317,7 @@ export function AdminPuzzleBank({ canManage = true }: { canManage?: boolean }) {
               <DifficultyPicker label="Difficulty" value={difficulty} onChange={(value) => { setDifficulty(value); setDifficultyTouched(true); }} />
             </div>
             <PuzzleContentFields kind={kind} values={values}
-              onChange={setValues}
-              onRandomTarget={() => setValues({ ...values, targetWord: randomTarget(5) })} />
+              onChange={setValues} />
             <div className="mt-5 flex flex-wrap gap-2">
               <PrimaryButton type="submit" disabled={busy} className="px-5 py-2.5">{busy ? "Saving…" : editing ? "Save changes" : "Save as draft"}</PrimaryButton>
               <button type="button" onClick={cancelForm} className="rounded-md border border-white/60 px-4 py-2.5 font-semibold hover:bg-white/10">Cancel</button>
