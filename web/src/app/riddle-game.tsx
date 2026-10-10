@@ -480,7 +480,7 @@ export function RiddleGame({
           />}
         </div>
       </div>
-      : <p className="mt-8 border-y border-white/25 py-8 text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{play.prompt}</p>}
+      : <p className="mt-8 border-y border-white/25 py-8 whitespace-pre-line text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{play.prompt}</p>}
 
     {!characterConfig && play.guessHistory.length > 0 && <div className="mt-6">
       <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Previous guesses</h4>
@@ -627,7 +627,7 @@ function StaffPlayView({ player, play }: { player: StaffPlayerStatus; play: Play
         <p className="mb-5 text-center text-sm font-semibold uppercase tracking-wide text-white/55">Letter game</p>
         <CharacterBoard guesses={play.guessHistory} current="" length={characterConfig.target_length} rows={play.maxAttempts} />
       </div>
-      : <p className="mt-8 border-y border-white/25 py-8 text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{play.prompt}</p>}
+      : <p className="mt-8 border-y border-white/25 py-8 whitespace-pre-line text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{play.prompt}</p>}
     {!characterConfig && play.guessHistory.length > 0 && <div className="mt-6">
       <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Previous guesses</h4>
       <ul className="mt-2 divide-y divide-white/20 border-y border-white/25">
@@ -708,7 +708,7 @@ function StaffRiddleBody({ preview }: { preview: StaffRiddlePreview }) {
         />
       </div>
       : <>
-        <p className="mt-8 border-y border-white/25 py-8 text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{preview.prompt}</p>
+        <p className="mt-8 border-y border-white/25 py-8 whitespace-pre-line text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{preview.prompt}</p>
         <div className="mt-7">
           <label htmlFor="riddle-response" className="text-sm font-semibold text-white/70">Your answer</label>
           <div className="mt-2 flex flex-col gap-3 sm:flex-row">
@@ -770,7 +770,7 @@ export function CompletedRiddle({ play }: { play: Extract<PlayerChallengeState, 
     </div>
     <div className="mt-7">
       <p className="text-sm font-semibold uppercase tracking-wide text-white/55">{play.type === "character_puzzle" ? "Letter game" : "Riddle"}</p>
-      {play.type !== "character_puzzle" && <p className="mt-2 text-xl font-medium">{play.prompt}</p>}
+      {play.type !== "character_puzzle" && <p className="mt-2 whitespace-pre-line text-xl font-medium">{play.prompt}</p>}
     </div>
     {play.guessHistory.length > 0 && <div className="mt-6">
       <p className="text-sm font-semibold uppercase tracking-wide text-white/55">Your answers</p>
