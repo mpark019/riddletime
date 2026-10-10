@@ -59,4 +59,46 @@ describe("computeResult", () => {
       bonus_under_ms: null,
     });
   });
+  describe("hint cost", () => {
+    it("subtracts the hint cost from a correct result and records it", () => {
+      expect(computeResult(true, 100, [{ underMs: 30000, points: 20 }], 5000, 0, 30)).toEqual({
+        base_points: 100,
+        speed_bonus_points: 20,
+        penalty_points: 0,
+        hint_cost_points: 30,
+        total_points: 90,
+        bonus_under_ms: 30000,
+      });
+    });
+
+    it("clamps a correct result at zero when the hint costs more than it earned", () => {
+      const result = computeResult(true, 100, [], 5000, 0, 150);
+      expect(result.total_points).toBe(0);
+      expect(result.hint_cost_points).toBe(150);
+    });
+
+    it("adds the hint cost to the failure penalty for an incorrect result", () => {
+      expect(computeResult(false, 100, [], 5000, 25, 30)).toEqual({
+        base_points: 0,
+        speed_bonus_points: null,
+        penalty_points: 25,
+        hint_cost_points: 30,
+        total_points: -55,
+        bonus_under_ms: null,
+      });
+    });
+
+    it("charges the hint on an incorrect result even without a failure penalty", () => {
+      expect(computeResult(false, 100, [], 5000, 0, 30).total_points).toBe(-30);
+    });
+
+    it("keeps an incorrect total inside the database integer range", () => {
+      expect(computeResult(false, 100, [], 5000, 2_147_483_647, 30).total_points).toBe(-2_147_483_647);
+    });
+
+    it("leaves the breakdown untouched when no hint was used", () => {
+      expect(computeResult(true, 100, [], 5000, 0, 0)).not.toHaveProperty("hint_cost_points");
+      expect(computeResult(false, 100, [], 5000, 25, 0)).not.toHaveProperty("hint_cost_points");
+    });
+  });
 });

@@ -14,9 +14,20 @@ export interface PuzzleForm {
   targetWord: string;
   promptImagePath?: string;
   promptImageUrl?: string | null;
+  hint?: string;
+  hintCost?: string;
 }
 
 export const MAX_NAME_LENGTH = 80;
+
+// A blank hint field means no hint; a hint always needs an explicit whole-number cost.
+function hintFields(form: PuzzleForm) {
+  const hint = (form.hint ?? "").trim();
+  if (!hint) return {};
+  const cost = (form.hintCost ?? "").trim();
+  if (!/^\d+$/.test(cost)) throw new Error("Enter what the hint costs, as a whole number of points (0 or more).");
+  return { hint, hint_cost_points: Number(cost) };
+}
 
 export function buildPuzzleRequest(form: PuzzleForm) {
   const difficulty = form.difficulty.trim();
@@ -35,7 +46,7 @@ export function buildPuzzleRequest(form: PuzzleForm) {
     if (target.length > MAX_TARGET_LENGTH) {
       throw new Error(`The answer must be at most ${MAX_TARGET_LENGTH} characters.`);
     }
-    return { ...named, difficulty, puzzle: { type: "character_puzzle" as const, target } };
+    return { ...named, difficulty, puzzle: { type: "character_puzzle" as const, target, ...hintFields(form) } };
   }
 
   if (form.kind === "image_submission") {
@@ -57,7 +68,11 @@ export function buildPuzzleRequest(form: PuzzleForm) {
   const acceptedAnswers = form.acceptedAnswers.split("\n").map((answer) => answer.trim()).filter(Boolean);
   if (!prompt) throw new Error("Enter the riddle prompt.");
   if (acceptedAnswers.length === 0) throw new Error("Enter at least one accepted answer.");
-  return { ...named, difficulty, puzzle: { type: "riddle" as const, prompt, accepted_answers: acceptedAnswers } };
+  return {
+    ...named,
+    difficulty,
+    puzzle: { type: "riddle" as const, prompt, accepted_answers: acceptedAnswers, ...hintFields(form) },
+  };
 }
 
 export function formatSolveRate(rate: number | null): string {

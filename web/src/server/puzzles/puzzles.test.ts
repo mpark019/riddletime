@@ -531,3 +531,70 @@ describe("puzzle statistics (AC-10)", () => {
     });
   });
 });
+
+describe("puzzle hints in the bank", () => {
+  it("stores a hint and its cost on create and returns them (AC-1)", async () => {
+    await asAdmin();
+    const created = await createPuzzle({
+      difficulty: "easy",
+      puzzle: { type: "riddle", prompt: "Keys?", accepted_answers: ["piano"], hint: "  An instrument  ", hint_cost_points: 15 },
+    });
+    expect(created).toMatchObject({ hint: "An instrument", hintCostPoints: 15 });
+
+    const letter = await createPuzzle({
+      difficulty: "easy",
+      puzzle: { type: "character_puzzle", target: "crane", hint: "A bird", hint_cost_points: 0 },
+    });
+    expect(letter).toMatchObject({ hint: "A bird", hintCostPoints: 0 });
+  });
+
+  it("returns no hint for a puzzle created without one", async () => {
+    await asAdmin();
+    expect(await createPuzzle(riddle())).toMatchObject({ hint: null, hintCostPoints: null });
+  });
+
+  it.each([
+    ["a hint without a cost", { hint: "Clue" }],
+    ["a cost without a hint", { hint_cost_points: 10 }],
+    ["a negative cost", { hint: "Clue", hint_cost_points: -1 }],
+    ["a fractional cost", { hint: "Clue", hint_cost_points: 1.5 }],
+    ["a blank hint", { hint: "   ", hint_cost_points: 5 }],
+  ])("rejects %s and persists nothing (AC-1)", async (_name, extra) => {
+    const adminId = await asAdmin();
+    await expect(createPuzzle({
+      difficulty: "easy",
+      puzzle: { type: "riddle", prompt: "ok", accepted_answers: ["x"], ...extra },
+    })).rejects.toBeInstanceOf(ZodError);
+    const { rowCount } = await pool.query("select 1 from puzzles where created_by = $1", [adminId]);
+    expect(rowCount).toBe(0);
+  });
+
+  it("rejects a hint on an image puzzle (AC-8)", async () => {
+    await asAdmin();
+    await expect(createPuzzle({
+      difficulty: "easy",
+      puzzle: { type: "image_submission", prompt: "Draw", hint: "Clue", hint_cost_points: 5 },
+    })).rejects.toBeInstanceOf(ZodError);
+  });
+
+  it("replaces and clears a hint when a draft's content is edited (AC-1)", async () => {
+    const adminId = await asAdmin();
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId, status: "draft", hint: { text: "Old", costPoints: 5 } });
+
+    const changed = await updatePuzzle(puzzleId, {
+      puzzle: { type: "riddle", prompt: "P", accepted_answers: ["x"], hint: "New", hint_cost_points: 9 },
+    });
+    expect(changed).toMatchObject({ hint: "New", hintCostPoints: 9 });
+
+    const cleared = await updatePuzzle(puzzleId, { puzzle: { type: "riddle", prompt: "P", accepted_answers: ["x"] } });
+    expect(cleared).toMatchObject({ hint: null, hintCostPoints: null });
+  });
+
+  it("keeps the hint when only the name or status changes", async () => {
+    const adminId = await asAdmin();
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId, status: "draft", hint: { text: "Keep", costPoints: 5 } });
+
+    expect(await updatePuzzle(puzzleId, { name: "Renamed", status: "active" }))
+      .toMatchObject({ hint: "Keep", hintCostPoints: 5 });
+  });
+});

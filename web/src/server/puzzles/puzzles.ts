@@ -82,6 +82,8 @@ export interface BankPuzzle {
   name: string | null;
   prompt: string;
   acceptedAnswers: string[];
+  hint: string | null;
+  hintCostPoints: number | null;
   maxImages: number | null;
   promptImageUrl: string | null;
   promptImagePath: string | null;
@@ -101,6 +103,12 @@ const EMPTY_STATS: PuzzleStats = {
   solveRate: null, medianSolveSeconds: null, averageAttempts: null,
 };
 
+function hintOf(puzzle: { hint?: string; hint_cost_points?: number }): Pick<NewPuzzleContent, "hint"> {
+  return puzzle.hint === undefined || puzzle.hint_cost_points === undefined
+    ? {}
+    : { hint: { text: puzzle.hint, costPoints: puzzle.hint_cost_points } };
+}
+
 function toContent(puzzle: PuzzleContentInput): NewPuzzleContent {
   if (puzzle.type === "riddle") {
     return {
@@ -108,6 +116,7 @@ function toContent(puzzle: PuzzleContentInput): NewPuzzleContent {
       prompt: puzzle.prompt,
       config: {},
       answerData: { accepted: puzzle.accepted_answers },
+      ...hintOf(puzzle),
     };
   }
   if (puzzle.type === "image_submission") {
@@ -122,7 +131,13 @@ function toContent(puzzle: PuzzleContentInput): NewPuzzleContent {
     };
   }
   const config: CharacterConfig = { target_length: puzzle.target.length, character_set: CHARACTER_SET };
-  return { type: "character_puzzle", prompt: "Letter game", config, answerData: { target: puzzle.target } };
+  return {
+    type: "character_puzzle",
+    prompt: "Letter game",
+    config,
+    answerData: { target: puzzle.target },
+    ...hintOf(puzzle),
+  };
 }
 
 // Missed days carry no play, so they stay out of every rate.
@@ -227,6 +242,8 @@ function toBankPuzzle(
     name: (row.name as string | null) ?? null,
     prompt: row.prompt as string,
     acceptedAnswers: puzzleAnswers(row.answer_data as { accepted?: unknown; target?: unknown }),
+    hint: (row.hint as string | null) ?? null,
+    hintCostPoints: (row.hint_cost_points as number | null) ?? null,
     maxImages: image?.max_images ?? null,
     promptImagePath: image?.prompt_image_path ?? null,
     promptImageUrl: image?.prompt_image_path ? (imageUrls.get(image.prompt_image_path) ?? null) : null,
@@ -249,7 +266,7 @@ async function signPromptImages(rows: Array<Record<string, unknown>>) {
   return signPuzzleImages(paths);
 }
 
-const PUZZLE_COLUMNS = `pz.id, pz.type, pz.name, pz.prompt, pz.config, pz.answer_data, pz.difficulty, pz.status, pz.created_at, pz.created_by,
+const PUZZLE_COLUMNS = `pz.id, pz.type, pz.name, pz.prompt, pz.config, pz.answer_data, pz.hint, pz.hint_cost_points, pz.difficulty, pz.status, pz.created_at, pz.created_by,
   (select coalesce(p.display_name, p.name) from profiles p where p.id = pz.created_by) as created_by_name,
   (select count(*)::int from challenges c where c.puzzle_id = pz.id) as times_used`;
 
@@ -423,7 +440,9 @@ export async function updatePuzzle(rawId: unknown, input: LazyInput): Promise<Ba
            answer_data = coalesce($4::jsonb, answer_data),
            difficulty = coalesce($5, difficulty),
            status = coalesce($6, status),
-           name = case when $7::boolean then $8 else name end
+           name = case when $7::boolean then $8 else name end,
+           hint = case when $9::boolean then $10 else hint end,
+           hint_cost_points = case when $9::boolean then $11::int else hint_cost_points end
          where id = $1`,
         [
           id,
@@ -434,6 +453,9 @@ export async function updatePuzzle(rawId: unknown, input: LazyInput): Promise<Ba
           parsed.status ?? null,
           parsed.name !== undefined,
           parsed.name ?? null,
+          content !== null,
+          content?.hint?.text ?? null,
+          content?.hint?.costPoints ?? null,
         ],
       );
       return loadOne(client, id);

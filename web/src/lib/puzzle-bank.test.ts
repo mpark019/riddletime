@@ -31,6 +31,37 @@ describe("buildPuzzleRequest", () => {
     expect(() => buildPuzzleRequest({ ...form, name: "x".repeat(81) })).toThrow("The name can be at most 80 characters.");
   });
 
+  it("adds a trimmed hint and its cost to a riddle or letter game", () => {
+    const riddle = { name: "Keys", kind: "riddle" as const, difficulty: "easy", prompt: "p", acceptedAnswers: "a", targetWord: "" };
+    expect(buildPuzzleRequest({ ...riddle, hint: "  An instrument ", hintCost: " 15 " })).toMatchObject({
+      puzzle: { type: "riddle", hint: "An instrument", hint_cost_points: 15 },
+    });
+    expect(buildPuzzleRequest({
+      ...riddle, kind: "character_puzzle", targetWord: "crane", hint: "A bird", hintCost: "0",
+    })).toMatchObject({ puzzle: { type: "character_puzzle", hint: "A bird", hint_cost_points: 0 } });
+  });
+
+  it("leaves the hint out when the hint field is blank, whatever the cost says", () => {
+    const { puzzle } = buildPuzzleRequest({
+      name: "Keys", kind: "riddle", difficulty: "easy", prompt: "p", acceptedAnswers: "a", targetWord: "", hint: "   ", hintCost: "20",
+    });
+    expect(puzzle).not.toHaveProperty("hint");
+    expect(puzzle).not.toHaveProperty("hint_cost_points");
+  });
+
+  it.each(["", "  ", "-1", "1.5", "ten"])("rejects a hint whose cost is %j", (hintCost) => {
+    expect(() => buildPuzzleRequest({
+      name: "Keys", kind: "riddle", difficulty: "easy", prompt: "p", acceptedAnswers: "a", targetWord: "", hint: "Clue", hintCost,
+    })).toThrow("Enter what the hint costs");
+  });
+
+  it("never sends a hint for an image puzzle", () => {
+    const { puzzle } = buildPuzzleRequest({
+      name: "Draw", kind: "image_submission", difficulty: "easy", prompt: "Draw a cat", acceptedAnswers: "", targetWord: "", hint: "Clue", hintCost: "5",
+    });
+    expect(puzzle).not.toHaveProperty("hint");
+  });
+
   it("builds a letter-game request with an uppercased target", () => {
     expect(buildPuzzleRequest({
       name: "Crane", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: " crane7 ",

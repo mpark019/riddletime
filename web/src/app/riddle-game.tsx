@@ -43,6 +43,7 @@ import {
   type ChallengeMutationResponse,
   type PendingRiddleSubmission,
   type PlayerChallengeState,
+  type PlayerHint,
   type ScoringPolicy,
   type StaffPlayerStatus,
   type StaffPlayerStatusKind,
@@ -164,6 +165,7 @@ export function RiddleGame({
     nextPlay: PlayerChallengeState,
     requestStartedAt: number,
     responseReceivedAt: number,
+    keepResponse = false,
   ) {
     setLoaded((current) => current
       ? {
@@ -178,7 +180,7 @@ export function RiddleGame({
         }
       : current);
     setClientNow(responseReceivedAt);
-    setResponse("");
+    if (!keepResponse) setResponse("");
     setError(null);
     setRefreshRequired(false);
   }
@@ -253,6 +255,27 @@ export function RiddleGame({
       applyAuthoritativePlay(nextPlay, requestStartedAt, responseReceivedAt);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start the riddle.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revealHint() {
+    if (!loaded?.data.schedule) return;
+    setBusy(true);
+    setError(null);
+    const requestStartedAt = Date.now();
+    try {
+      const result = await fetch(`/api/challenge/${loaded.data.schedule.id}/hint`, { method: "POST" });
+      if (!result.ok) {
+        setError(await responseError(result, "Could not reveal the hint."));
+        return;
+      }
+      const responseReceivedAt = Date.now();
+      const body = await result.json() as { play: PlayerChallengeState };
+      applyAuthoritativePlay(body.play, requestStartedAt, responseReceivedAt, true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not reveal the hint.");
     } finally {
       setBusy(false);
     }
@@ -507,6 +530,12 @@ export function RiddleGame({
       </div>
       : <p className="mt-8 border-y border-white/25 py-8 whitespace-pre-line text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{play.prompt}</p>}
 
+    {play.hint && <HintPanel
+      hint={play.hint}
+      disabled={busy || refreshRequired || secondsRemaining === 0}
+      onReveal={() => void revealHint()}
+    />}
+
     {!isImage && !characterConfig && play.guessHistory.length > 0 && <div className="mt-6">
       <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Previous guesses</h4>
       <ul className="mt-2 divide-y divide-white/20 border-y border-white/25">
@@ -572,6 +601,9 @@ export function NotStartedRiddle({
     <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">Daily challenge{gameLabel && ` · ${gameLabel}`}</p>
     <h3 style={{ color: difficultyColor(play.difficulty) }} className="mt-3 text-2xl font-bold uppercase">{play.difficulty ?? "Ready when you are?"}</h3>
     <p className="mt-3 max-w-xl text-white/70">Your timer starts only after the game has begun. Refreshing will not reset it.</p>
+    {play.hint && <p className="mt-3 max-w-xl text-white/70">
+      {play.hint.costPoints === 0 ? "A free hint is available." : `A hint is available for ${play.hint.costPoints} ${play.hint.costPoints === 1 ? "point" : "points"}.`}
+    </p>}
     {wide && <p role="note" className="mt-4 max-w-xl rounded-md border border-amber-700/50 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
       This letter game has {play.targetLength} letters. The board is wide, so play on a laptop or desktop if feasible.
     </p>}
@@ -831,6 +863,7 @@ export function CompletedRiddle({ play }: { play: Extract<PlayerChallengeState, 
         outOf={play.type === "image_submission" && play.scoringPolicy.base_points > 0 ? play.scoringPolicy.base_points : undefined} />
       {play.type !== "image_submission" && <ResultStat label="Speed bonus" value={breakdown.speed_bonus_points ?? 0} />}
       {penaltyPoints > 0 && <ResultStat label="Penalty" value={-penaltyPoints} />}
+      {(breakdown.hint_cost_points ?? 0) > 0 && <ResultStat label="Hint" value={-(breakdown.hint_cost_points ?? 0)} />}
       {play.type !== "image_submission" && <ResultStat label="Total points" value={breakdown.total_points} />}
     </div>
     <div className="mt-7">
@@ -853,6 +886,35 @@ export function CompletedRiddle({ play }: { play: Extract<PlayerChallengeState, 
         : <ul className="mt-2 space-y-2">{play.guessHistory.map((guess, index) => <li key={`${guess.response}-${index}`} className="flex justify-between rounded-md border border-white/25 bg-black/[0.04] px-4 py-3"><span>{guess.response}</span><span className={guess.correct ? "text-emerald-700" : "text-red-700"}>{guess.correct ? "Correct" : "Incorrect"}</span></li>)}</ul>}
     </div>}
   </RiddleFrame>;
+}
+
+function HintPanel({ hint, disabled, onReveal }: { hint: PlayerHint; disabled: boolean; onReveal: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const cost = hint.costPoints === 0 ? "free" : `${hint.costPoints} ${hint.costPoints === 1 ? "point" : "points"}`;
+
+  if (hint.revealed) {
+    return <div className="mt-6 rounded-md border border-white/25 bg-black/[0.04] p-4">
+      <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Hint{hint.costPoints > 0 ? ` · −${hint.costPoints}` : ""}</h4>
+      <p className="mt-2 whitespace-pre-line text-lg">{hint.text}</p>
+    </div>;
+  }
+
+  return <div className="mt-6">
+    {confirming
+      ? <div className="flex flex-wrap items-center gap-3">
+        <p className="text-sm text-white/70">
+          {hint.costPoints === 0 ? "Reveal the hint?" : `Revealing the hint takes ${cost} off this puzzle's score.`}
+        </p>
+        <PrimaryButton type="button" disabled={disabled} onClick={() => { setConfirming(false); onReveal(); }} className="px-4 py-2">Reveal hint</PrimaryButton>
+        <button type="button" onClick={() => setConfirming(false)} className="text-sm font-semibold text-white/70 underline">Cancel</button>
+      </div>
+      : <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setConfirming(true)}
+        className="rounded-md border border-white/40 px-4 py-2 text-sm font-semibold disabled:opacity-50"
+      >{`Show hint (${cost})`}</button>}
+  </div>;
 }
 
 const NestedFrame = createContext(false);

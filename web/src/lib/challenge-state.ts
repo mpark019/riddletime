@@ -24,9 +24,16 @@ export interface ScoringBreakdown {
   base_points: number;
   speed_bonus_points: number | null;
   penalty_points?: number;
+  hint_cost_points?: number;
   total_points: number;
   bonus_under_ms: number | null;
   outcome?: ReviewOutcome;
+}
+
+export interface PlayerHint {
+  costPoints: number;
+  revealed: boolean;
+  text: string | null;
 }
 
 export type PuzzleKind = "riddle" | "character_puzzle" | "image_submission";
@@ -58,6 +65,7 @@ export interface ActiveRiddle {
   guessHistory: GuessHistoryEntry[];
   feedback: CharacterFeedback[] | null;
   scoringPolicy: ScoringPolicy;
+  hint?: PlayerHint;
 }
 
 export type PlayerChallengeState =
@@ -69,6 +77,7 @@ export type PlayerChallengeState =
       targetLength?: number;
       maxImages?: number;
       scoringPolicy?: PublicScoringPolicy;
+      hint?: PlayerHint;
     }
   | ({ status: "in_progress" } & ActiveRiddle)
   | ({ status: "pending_review" } & ActiveRiddle)
