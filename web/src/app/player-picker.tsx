@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { compareByName } from "@/lib/account-order";
+import { sortPlayers, type PlayerSort } from "@/lib/account-order";
 import type { LeaderboardEntry } from "@/server/points/points";
-import { PlayerButton } from "./scoreboard";
+import { PlayerButton, PlayerSortToggle } from "./scoreboard";
 
 export function PlayerPicker({
   players,
@@ -17,7 +17,8 @@ export function PlayerPicker({
   onChange: (userIds: string[]) => void;
 }) {
   const [query, setQuery] = useState("");
-  const sorted = useMemo(() => [...players].sort(compareByName), [players]);
+  const [sort, setSort] = useState<PlayerSort>("name");
+  const sorted = useMemo(() => sortPlayers(players, sort), [players, sort]);
   const needle = query.trim().toLocaleLowerCase();
   const matching = sorted.filter((player) => !needle
     || player.displayName.toLocaleLowerCase().includes(needle)
@@ -42,6 +43,7 @@ export function PlayerPicker({
         <span className="sr-only">Search players</span>
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search players" className="w-full bg-transparent outline-none placeholder:text-white/45" />
       </label>
+      <PlayerSortToggle sort={sort} onChange={setSort} />
       <button type="button" onClick={toggleShown} disabled={matching.length === 0} aria-pressed={allShownSelected} className="h-11 shrink-0 rounded-md border border-white px-3 text-[15px] font-semibold hover:bg-white/15 disabled:opacity-45">{allShownSelected ? "Clear shown" : query.trim() ? `Select ${matching.length} shown` : `Select all (${players.length})`}</button>
     </div>
     <p className="mt-2 text-sm text-white/65" aria-live="polite">{selected.length === 0 ? "Nobody selected yet." : `${selected.length} selected.`}{summary && ` ${summary}`}</p>

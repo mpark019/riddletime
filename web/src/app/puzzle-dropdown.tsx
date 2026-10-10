@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
-export function Dropdown({ label, value, options, onChange, className = "" }: {
-  label: string; value: string; options: Array<[string, string]>; onChange: (value: string) => void; className?: string;
+export function Dropdown({ label, value, options, onChange, className = "", hideLabel = false, buttonClassName = "rounded-lg border border-white/40 text-sm font-normal" }: {
+  label: string; value: string; options: Array<[string, string]>; onChange: (value: string) => void; className?: string; hideLabel?: boolean; buttonClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
@@ -42,10 +42,10 @@ export function Dropdown({ label, value, options, onChange, className = "" }: {
   }
 
   return <div ref={ref} className={`relative ${className}`} onKeyDown={onKeyDown}>
-    <span className="block text-sm font-semibold">{label}</span>
+    <span className={hideLabel ? "sr-only" : "block text-sm font-semibold"}>{label}</span>
     <button type="button" aria-haspopup="listbox" aria-expanded={open} aria-label={`${label}: ${options[selectedIndex][1]}`}
       onClick={() => (open ? setOpen(false) : openList())}
-      className="mt-1 flex h-11 w-full items-center justify-between rounded-lg border border-white/40 bg-surface-solid px-3 text-left text-sm font-normal focus-visible:outline-2 focus-visible:outline-white">
+      className={`${hideLabel ? "" : "mt-1 "}flex h-11 w-full items-center justify-between bg-surface-solid px-3 text-left ${buttonClassName} focus-visible:outline-2 focus-visible:outline-white`}>
       <span>{options[selectedIndex][1]}</span>
       <svg aria-hidden viewBox="0 0 20 20" className="h-4 w-4 text-white/55" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m5 8 5 5 5-5" /></svg>
     </button>

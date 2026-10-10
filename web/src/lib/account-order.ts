@@ -8,3 +8,14 @@ export function compareByName(a: Nameable, b: Nameable): number {
   const byName = a.name && b.name ? collator.compare(a.name, b.name) : 0;
   return byName || collator.compare(a.displayName ?? "", b.displayName ?? "");
 }
+
+export type PlayerSort = "name" | "points-high" | "points-low";
+
+export function sortPlayers<T extends Nameable & { totalPoints: number }>(players: T[], sort: PlayerSort): T[] {
+  const compare = sort === "points-high"
+    ? (a: T, b: T) => b.totalPoints - a.totalPoints || compareByName(a, b)
+    : sort === "points-low"
+      ? (a: T, b: T) => a.totalPoints - b.totalPoints || compareByName(a, b)
+      : compareByName;
+  return [...players].sort(compare);
+}

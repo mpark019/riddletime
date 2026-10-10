@@ -2,9 +2,10 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LeaderboardEntry } from "@/server/points/points";
-import { compareByName } from "@/lib/account-order";
+import { sortPlayers, type PlayerSort } from "@/lib/account-order";
 import { pruneSelection } from "@/lib/point-selection";
 import { FloatingQuestionMarks } from "./floating-question-marks";
+import { Dropdown } from "./puzzle-dropdown";
 
 type PointTransaction = {
   id: string;
@@ -93,6 +94,12 @@ function TabButton({ active, children, onClick }: { active: boolean; children: s
   return <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`h-9 px-3 text-sm font-semibold transition lg:h-11 lg:px-5 lg:text-base ${active ? "navy-surface flat-on-mobile relative isolate" : "text-white hover:bg-white/15"}`}>{active && <FloatingQuestionMarks contained compact start={4} />}{children === "Adjustment" ? <><span className="lg:hidden">Adjust</span><span className="hidden lg:inline">Adjustment</span></> : children}</button>;
 }
 
+const PLAYER_SORT_OPTIONS: Array<[PlayerSort, string]> = [["name", "Sort: Name"], ["points-high", "Sort: High"], ["points-low", "Sort: Low"]];
+
+export function PlayerSortToggle({ sort, onChange }: { sort: PlayerSort; onChange: (sort: PlayerSort) => void }) {
+  return <Dropdown className="w-36 shrink-0" buttonClassName="rounded-md border border-white text-[15px] font-semibold hover:bg-white/15" hideLabel label="Sort players" value={sort} options={PLAYER_SORT_OPTIONS} onChange={(next) => onChange(next as PlayerSort)} />;
+}
+
 type RecentAdjustment = {
   key: string;
   userIds: string[];
@@ -121,8 +128,9 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
   const [recentAdjustments, setRecentAdjustments] = useState<RecentAdjustment[]>([]);
   const operationKey = useRef<string | null>(null);
   const effectiveAmount = customAmount === "" ? amount : Number(customAmount);
-  const playersByName = useMemo(() => [...players].sort(compareByName), [players]);
-  const matchingPlayers = playersByName.filter((player) => {
+  const [playerSort, setPlayerSort] = useState<PlayerSort>("name");
+  const sortedPlayers = useMemo(() => sortPlayers(players, playerSort), [players, playerSort]);
+  const matchingPlayers = sortedPlayers.filter((player) => {
     const query = playerQuery.trim().toLocaleLowerCase();
     return !query || player.displayName.toLocaleLowerCase().includes(query) || player.name?.toLocaleLowerCase().includes(query);
   });
@@ -190,7 +198,7 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
     if (!saved) return;
     operationKey.current = null;
     setReason("");
-    const selectedNames = playersByName.filter((player) => savedUserIds.includes(player.userId)).map((player) => player.displayName);
+    const selectedNames = sortedPlayers.filter((player) => savedUserIds.includes(player.userId)).map((player) => player.displayName);
     const who = savedUserIds.length === players.length
       ? "everyone"
       : selectedNames.length <= 3
@@ -237,7 +245,7 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
     }
   }
 
-  const selectedNames = playersByName.filter((player) => selectedUserIds.includes(player.userId)).map((player) => player.displayName);
+  const selectedNames = sortedPlayers.filter((player) => selectedUserIds.includes(player.userId)).map((player) => player.displayName);
   const allPlayersSelected = players.length > 0 && selectedUserIds.length === players.length;
   const selectionSummary = selectedUserIds.length === 0
     ? "Nobody selected yet."
@@ -262,6 +270,7 @@ function AdjustmentForm({ players, onChanged }: { players: LeaderboardEntry[]; o
         <div className="flex justify-start">
           <div className="flex w-full gap-2 lg:w-auto lg:gap-3">
             <label className="flex h-11 min-w-0 flex-1 items-center rounded-md border border-white/25 bg-black/[0.04] px-3 focus-within:outline-2 focus-within:outline-white lg:w-60 lg:flex-none"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="mr-2 h-4 w-4 shrink-0 text-white lg:mr-3"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg><input type="search" aria-label="Filter players" value={playerQuery} onChange={(event) => setPlayerQuery(event.target.value)} placeholder="Filter" className="min-w-0 flex-1 bg-transparent text-base text-white placeholder:text-white focus:outline-none lg:text-[15px]" /></label>
+            <PlayerSortToggle sort={playerSort} onChange={setPlayerSort} />
             <button type="button" onClick={toggleAllPlayers} aria-pressed={allPlayersSelected} className={`h-11 shrink-0 rounded-md border px-3 text-[15px] font-semibold lg:px-4 ${allPlayersSelected ? "navy-surface flat-on-mobile relative isolate overflow-hidden border-transparent" : "border-white text-white hover:bg-white/15"}`}>{allPlayersSelected && <FloatingQuestionMarks contained compact start={2} />}{allPlayersSelected ? "Clear all" : playerQuery.trim() ? <><span className="lg:hidden">Select shown</span><span className="hidden lg:inline">Select {matchingPlayers.length} shown</span></> : <><span className="lg:hidden">All ({players.length})</span><span className="hidden lg:inline">Select all ({players.length})</span></>}</button>
           </div>
         </div>
