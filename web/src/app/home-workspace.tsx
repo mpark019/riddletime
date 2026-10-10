@@ -300,7 +300,7 @@ function ProfilePanel({ profile, initials }: { profile: Profile; initials: strin
     {avatarNotice && <p aria-live="polite" className="mt-3 text-sm font-medium text-white">{avatarNotice}</p>}
 
     <form onSubmit={saveProfile} className="mt-8 flex flex-col gap-5">
-      {spectatorAccount ? <div><p className="text-sm font-semibold text-white">Name</p><p className="mt-1 text-lg font-medium">{profile.name ?? "blank"}</p></div> : <InlineProfileField id="profile-name" label="Name" value={name} placeholder="Your name" autoComplete="name" onChange={(value) => { setName(value); setSaved(false); }} />}
+      {spectatorAccount || profile.role === "player" ? <div><p className="text-sm font-semibold text-white">Name</p><p className="mt-1 text-lg font-medium">{profile.name ?? "blank"}</p></div> : <InlineProfileField id="profile-name" label="Name" value={name} placeholder="Your name" autoComplete="name" onChange={(value) => { setName(value); setSaved(false); }} />}
       {profile.displayName && <div>
         <p className="text-sm text-white">Username</p>
         <p className="mt-1 font-medium">{profile.displayName}</p>

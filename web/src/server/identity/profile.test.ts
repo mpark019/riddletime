@@ -71,23 +71,32 @@ describe("self profile updates", () => {
     await expect(updateOwnProfile({ avatarUrl: "https://images.example.test/avatar.png" })).rejects.toBeInstanceOf(ForbiddenError);
   });
 
-  it("allows a player to edit name and avatar while retaining their display name", async () => {
+  it("allows a player to edit avatar while retaining their name and display name", async () => {
     const id = await createProfile("player");
     const before = await pool.query("select display_name from profiles where id = $1", [id]);
     getVerifiedUser.mockResolvedValue({ id });
 
     const result = await updateOwnProfile({
-      name: null,
       avatarUrl: "https://images.example.test/player.webp",
     });
 
     expect(result).toMatchObject({
       id,
-      name: null,
+      name: "Original name",
       displayName: before.rows[0].display_name,
       avatarUrl: "https://images.example.test/player.webp",
       role: "player",
     });
+  });
+
+  it("rejects a player-supplied name without changing the profile", async () => {
+    const id = await createProfile("player");
+    getVerifiedUser.mockResolvedValue({ id });
+
+    await expect(updateOwnProfile({ name: "Player rename" })).rejects.toBeInstanceOf(ForbiddenError);
+
+    const { rows } = await pool.query("select name from profiles where id = $1", [id]);
+    expect(rows[0].name).toBe("Original name");
   });
 
   it("rejects a player-supplied display name without changing the profile", async () => {

@@ -45,8 +45,8 @@ export async function updateOwnProfile(rawInput: unknown): Promise<Profile> {
     if (current.role === "spectator" && ("name" in input || "avatarUrl" in input)) {
       throw new ForbiddenError("Spectators cannot edit their name or profile picture");
     }
-    if (current.role === "player" && "displayName" in input) {
-      throw new ForbiddenError("Players cannot change their display name");
+    if (current.role === "player" && ("name" in input || "displayName" in input)) {
+      throw new ForbiddenError("Players cannot change their name or display name");
     }
 
     const assignments: string[] = [];
