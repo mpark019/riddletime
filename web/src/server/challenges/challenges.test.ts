@@ -249,7 +249,7 @@ describe("start -> submit -> stored score", () => {
       );
       expect(rows[0]).toEqual({
         attempts: 1,
-        guess_history: [{ response: "guitar", correct: false, operationKey }],
+        guess_history: [{ response: "guitar", correct: false, operationKey, offsetMs: expect.any(Number) }],
       });
     } finally {
       await blocker.query("select pg_advisory_unlock($1)", [advisoryLockKey]).catch(() => undefined);

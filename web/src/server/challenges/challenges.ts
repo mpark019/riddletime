@@ -42,11 +42,19 @@ const guessHistorySchema = z.array(
     response: z.string(),
     correct: z.boolean(),
     operationKey: z.uuid().optional(),
+    offsetMs: z.number().optional(),
   }).passthrough(),
 );
 
 function toIsoTimestamp(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+// Guess timing is an admin-only signal and must not reach player-facing state.
+function withoutOffset<T extends { offsetMs?: number }>(guess: T): T {
+  const copy = { ...guess };
+  delete copy.offsetMs;
+  return copy;
 }
 
 function parseGuessHistory(guessHistory: unknown) {
@@ -261,7 +269,7 @@ async function getSharedPlayState(
     attemptsRemaining: row.submitted_at
       ? 0
       : Math.max(row.max_attempts - row.attempts, 0),
-    guessHistory,
+    guessHistory: guessHistory.map(withoutOffset),
     feedback: row.feedback,
     scoringPolicy,
     ...(row.type === "character_puzzle" ? { config: parseStoredCharacterConfig(row.config) } : {}),
@@ -555,7 +563,8 @@ export async function submitChallenge(
                  jsonb_build_object(
                    'response', $3::text,
                    'correct', false,
-                   'operationKey', $5::text
+                   'operationKey', $5::text,
+                   'offsetMs', $2::bigint
                  )
                ),
                scoring_breakdown = $4::jsonb
@@ -605,12 +614,13 @@ export async function submitChallenge(
                  'response', $2::text,
                  'correct', $3::boolean,
                  'operationKey', $4::text,
-                 'feedback', $5::jsonb
+                 'feedback', $5::jsonb,
+                 'offsetMs', $6::bigint
                ))
              )
          where s.id = $1
          returning attempts`,
-        [submission.id, storedResponse, correct, operationKey, feedback ? JSON.stringify(feedback) : null],
+        [submission.id, storedResponse, correct, operationKey, feedback ? JSON.stringify(feedback) : null, elapsedMs],
       );
       return {
         submissionId: submission.id,
@@ -643,7 +653,8 @@ export async function submitChallenge(
                'response', $3::text,
                'correct', $4::boolean,
                'operationKey', $6::text,
-               'feedback', $7::jsonb
+               'feedback', $7::jsonb,
+               'offsetMs', $8::bigint
              ))
            ),
            scoring_breakdown = $5::jsonb
@@ -656,6 +667,7 @@ export async function submitChallenge(
         JSON.stringify(breakdown),
         operationKey,
         feedback ? JSON.stringify(feedback) : null,
+        elapsedMs,
       ],
     );
 

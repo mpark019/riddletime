@@ -3,6 +3,12 @@ import type { PoolClient } from "pg";
 import { z } from "zod";
 import { withTransaction } from "@/lib/db";
 import { characterTargetSchema } from "@/server/challenges/character-puzzle";
+import {
+  buildTimeline,
+  type ActivityEvent,
+  type TimelineEntry,
+  type TimelineGuess,
+} from "@/server/challenges/activity-timeline";
 import { normalizeAnswer } from "@/server/challenges/grading";
 import { requireAdmin, requireAdminRead } from "@/server/identity/identity";
 import { BadRequestError, ConflictError, NotFoundError } from "@/server/http/errors";
@@ -523,6 +529,7 @@ export interface ScheduledRiddlePlayer {
   correct: boolean | null;
   attempts: number;
   guesses: Array<{ response: string; correct: boolean }>;
+  timeline: TimelineEntry[];
   startedAt: string | null;
   submittedAt: string | null;
   timeTakenMs: number | null;
@@ -587,6 +594,38 @@ function toGuesses(history: unknown): ScheduledRiddlePlayer["guesses"] {
   );
 }
 
+function toTimelineGuesses(history: unknown): TimelineGuess[] {
+  if (!Array.isArray(history)) return [];
+  return history.flatMap((guess) =>
+    typeof guess?.response === "string" && typeof guess?.correct === "boolean"
+      ? [{
+        response: guess.response,
+        correct: guess.correct,
+        offsetMs: typeof guess.offsetMs === "number" ? guess.offsetMs : null,
+      }]
+      : [],
+  );
+}
+
+async function loadActivityBySubmission(client: PoolClient, scheduleId: string) {
+  const { rows } = await client.query(
+    `select a.submission_id, a.kind, a.at
+     from submission_activity a
+     join submissions s on s.id = a.submission_id
+     join challenges c on c.id = s.challenge_id
+     where c.daily_challenge_id = $1
+     order by a.at, a.id`,
+    [scheduleId],
+  );
+  const bySubmission = new Map<string, ActivityEvent[]>();
+  for (const row of rows) {
+    const events = bySubmission.get(row.submission_id) ?? [];
+    events.push({ kind: row.kind, atMs: new Date(row.at).getTime() });
+    bySubmission.set(row.submission_id, events);
+  }
+  return bySubmission;
+}
+
 function toBreakdown(value: unknown): ScheduledRiddlePlayer["breakdown"] {
   if (typeof value !== "object" || value === null) return null;
   const { base_points, speed_bonus_points, penalty_points } = value as Record<string, unknown>;
@@ -615,6 +654,9 @@ export async function getScheduleDetail(
               coalesce(s.scoring_breakdown @> '{"missed": true}', false) as missed,
               s.submitted_at is null
                 and riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) <= clock_timestamp() as overdue,
+              coalesce(s.submitted_at, least(
+                riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')),
+                clock_timestamp())) as session_end,
               (select sum(pt.amount)::int from point_transactions pt
                 where pt.submission_id = s.id and pt.kind = 'challenge_result') as points
        from profiles p
@@ -626,6 +668,7 @@ export async function getScheduleDetail(
        order by (s.id is null), (c.id is null), s.started_at, lower(p.display_name), p.id`,
       [id],
     );
+    const activity = await loadActivityBySubmission(client, id);
     const players = rows.map((row): ScheduledRiddlePlayer => ({
       userId: row.user_id,
       displayName: row.display_name,
@@ -646,6 +689,14 @@ export async function getScheduleDetail(
         }
         : null,
       guesses: toGuesses(row.guess_history),
+      timeline: row.submission_id
+        ? buildTimeline({
+          startedAtMs: new Date(row.started_at).getTime(),
+          endMs: new Date(row.session_end ?? row.started_at).getTime(),
+          events: activity.get(row.submission_id) ?? [],
+          guesses: toTimelineGuesses(row.guess_history),
+        })
+        : [],
       startedAt: row.started_at ? new Date(row.started_at).toISOString() : null,
       submittedAt: row.submitted_at ? new Date(row.submitted_at).toISOString() : null,
       timeTakenMs: row.time_taken_ms === null || row.time_taken_ms === undefined ? null : Number(row.time_taken_ms),

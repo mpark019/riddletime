@@ -11,6 +11,7 @@ function player(overrides: Partial<ScheduledRiddlePlayer>): ScheduledRiddlePlaye
     correct: null,
     attempts: 0,
     guesses: [],
+    timeline: [],
     startedAt: null,
     submittedAt: null,
     timeTakenMs: null,
