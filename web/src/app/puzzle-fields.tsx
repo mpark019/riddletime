@@ -2,6 +2,7 @@
 
 import { DIFFICULTIES, difficultyColor, type Difficulty } from "@/lib/difficulty";
 import { useRef, useState } from "react";
+import { prepareImageForUpload } from "@/lib/image-resize";
 import type { BankPuzzleKind } from "@/lib/puzzle-bank";
 import { MAX_IMAGES } from "@/server/challenges/image-puzzle";
 import { MAX_TARGET_LENGTH } from "@/server/challenges/character-puzzle";
@@ -66,7 +67,7 @@ function PromptImageField({ values, onChange }: { values: PuzzleFieldValues; onC
     setError(null);
     try {
       const body = new FormData();
-      body.set("file", file);
+      body.set("file", await prepareImageForUpload(file));
       const response = await fetch("/api/admin/puzzles/prompt-image", { method: "POST", body });
       const result = await response.json().catch(() => ({})) as { path?: string; url?: string | null; error?: string };
       if (!response.ok || !result.path) {
@@ -95,7 +96,7 @@ function PromptImageField({ values, onChange }: { values: PuzzleFieldValues; onC
         className="rounded-md border border-white/50 px-3 py-1.5 text-sm font-semibold hover:bg-white/10">Remove image</button>}
       {busy && <span className="text-xs font-normal text-white/60">Uploading…</span>}
     </div>
-    <span className="mt-1 block text-xs font-normal text-white/55">PNG, JPEG, WebP or GIF, up to 5 MiB. Players see it only after they start.</span>
+    <span className="mt-1 block text-xs font-normal text-white/55">PNG, JPEG, WebP or GIF. Large photos are resized automatically. Players see it only after they start.</span>
     {error && <p role="alert" className="mt-2 text-xs font-normal text-red-200">{error}</p>}
   </div>;
 }

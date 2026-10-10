@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { PlayerChallengeState, SubmissionImage } from "@/lib/challenge-state";
 import { PrimaryButton } from "./primary-button";
-import { IMAGE_ACCEPT, MAX_NOTE_LENGTH, pickImageFiles } from "./image-submission-helpers";
+import { prepareImageForUpload } from "@/lib/image-resize";
+import { IMAGE_ACCEPT, MAX_IMAGE_BYTES, MAX_NOTE_LENGTH, pickImageFiles } from "./image-submission-helpers";
 
 type ImagePlay = Exclude<PlayerChallengeState, { status: "not_started" }>;
 
@@ -147,11 +148,16 @@ export function ImageDraftPanel({ scheduleId, play, locked, onPlay }: {
   }
 
   async function upload(files: File[]) {
-    const { accepted, errors } = pickImageFiles(files, images.length, maxImages);
-    if (errors.length > 0) setError(errors.join(" "));
-    if (accepted.length === 0) return;
+    const picked = pickImageFiles(files, images.length, maxImages, { checkSize: false });
+    if (picked.errors.length > 0) setError(picked.errors.join(" "));
+    if (picked.accepted.length === 0) return;
     await run(async () => {
-      for (const file of accepted) {
+      for (const original of picked.accepted) {
+        const file = await prepareImageForUpload(original);
+        if (file.size > MAX_IMAGE_BYTES) {
+          setError(`${original.name} is larger than 5 MiB even after resizing.`);
+          return false;
+        }
         const body = new FormData();
         body.append("file", file);
         if (!await send(`/api/challenge/${scheduleId}/images`, { method: "POST", body }, `Could not upload ${file.name}.`)) {
@@ -196,7 +202,7 @@ export function ImageDraftPanel({ scheduleId, play, locked, onPlay }: {
       disabled={disabled || images.length >= maxImages}
       onClick={() => input.current?.click()}
       className="mt-2 w-full rounded-md border border-dashed border-white/50 px-4 py-6 text-center font-semibold hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-    >{busy ? "Working…" : images.length >= maxImages ? "Image limit reached" : "Choose images (PNG, JPEG, WebP or GIF, up to 5 MiB each)"}</button>
+    >{busy ? "Working…" : images.length >= maxImages ? "Image limit reached" : "Choose images (PNG, JPEG, WebP or GIF; large photos are resized automatically)"}</button>
 
     <ImageGallery images={images} onRemove={(image) => void remove(image)} disabled={disabled} />
 

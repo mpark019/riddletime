@@ -12,7 +12,14 @@ export interface PickedFiles {
 }
 
 // Mirrors the server rules so obvious mistakes are caught before an upload starts.
-export function pickImageFiles(files: readonly File[], existingCount: number, maxImages: number): PickedFiles {
+// Size is checked after resizing, so callers that resize first pass `checkSize: false` here.
+export function pickImageFiles(
+  files: readonly File[],
+  existingCount: number,
+  maxImages: number,
+  options: { checkSize?: boolean } = {},
+): PickedFiles {
+  const checkSize = options.checkSize ?? true;
   const accepted: File[] = [];
   const errors: string[] = [];
   for (const file of files) {
@@ -24,7 +31,7 @@ export function pickImageFiles(files: readonly File[], existingCount: number, ma
       errors.push(`${file.name} is not a PNG, JPEG, WebP, or GIF image.`);
     } else if (file.size === 0) {
       errors.push(`${file.name} is empty.`);
-    } else if (file.size > MAX_IMAGE_BYTES) {
+    } else if (checkSize && file.size > MAX_IMAGE_BYTES) {
       errors.push(`${file.name} is larger than 5 MiB.`);
     } else {
       accepted.push(file);

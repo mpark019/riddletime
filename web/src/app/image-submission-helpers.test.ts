@@ -48,3 +48,16 @@ describe("result presentation", () => {
     expect(imageResultHeading(null, false)).toBe("Time ran out");
   });
 });
+
+describe("pickImageFiles size checking", () => {
+  const big = new File([new Uint8Array(6 * 1024 * 1024)], "big.jpg", { type: "image/jpeg" });
+
+  it("rejects an oversized file by default", () => {
+    expect(pickImageFiles([big], 0, 5).accepted).toHaveLength(0);
+  });
+
+  it("accepts it when the caller will resize first", () => {
+    expect(pickImageFiles([big], 0, 5, { checkSize: false }).accepted).toEqual([big]);
+  });
+});
+
