@@ -33,9 +33,9 @@ const inputClass = "mt-1 w-full rounded-md border border-white/40 bg-black/[0.04
 export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }: { appTimezone: string; today: string; players: LeaderboardEntry[]; onChanged?: () => void }) {
   const [activeDate, setActiveDate] = useState(today);
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
-  const [timeLimitSeconds, setTimeLimitSeconds] = useState("120");
+  const [timeLimitSeconds, setTimeLimitSeconds] = useState("180");
   const [noTimeLimit, setNoTimeLimit] = useState(false);
-  const [maxAttempts, setMaxAttempts] = useState("1");
+  const [maxAttempts, setMaxAttempts] = useState("3");
   const [selection, setSelection] = useState<string[]>([]);
   const [roster, setRoster] = useState<DateRoster | null>(null);
   const [rosterError, setRosterError] = useState(false);
@@ -45,8 +45,8 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
   const takenCount = roster?.mode === "shared" ? players.length : roster?.assignments.length ?? 0;
   const selectedPlayerIds = pruneSelection(selection, players);
   const isPastDate = activeDate < today;
-  const [basePoints, setBasePoints] = useState("100");
-  const [failurePenaltyPoints, setFailurePenaltyPoints] = useState("20");
+  const [basePoints, setBasePoints] = useState("10");
+  const [failurePenaltyPoints, setFailurePenaltyPoints] = useState("30");
   const [speedBonuses, setSpeedBonuses] = useState<SpeedBonusRow[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -256,24 +256,6 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
           <p className="mb-4 mt-1 text-sm text-white/55">Pick who gets this puzzle. Players who already have one on this date are skipped.</p>
           <PlayerPicker players={players} selected={selectedPlayerIds} summary={takenCount > 0 ? `${takenCount} already ${takenCount === 1 ? "has" : "have"} a puzzle on this date.` : undefined} onChange={setSelection} />
         </section>
-
-        <section className="rounded-xl border border-white/25 bg-black/[0.04] p-4">
-          <div className="flex items-center justify-between gap-4">
-            <div><h3 className={cardTitle}>Speed bonuses</h3><p className="mt-1 text-sm text-white/55">Optional tiers do not stack; the highest qualifying bonus wins.</p></div>
-            <button type="button" disabled={speedBonuses.length >= MAX_SPEED_BONUSES} onClick={addSpeedBonus} className="shrink-0 rounded-md border border-white/60 px-3 py-2 text-sm font-semibold hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white disabled:cursor-not-allowed disabled:opacity-45">Add tier</button>
-          </div>
-          {speedBonuses.length === 0
-            ? <p className="mt-5 rounded-md border border-dashed border-white/25 px-4 py-6 text-center text-sm text-white/55">No speed bonus configured.</p>
-            : <div className="mt-5 space-y-3">{speedBonuses.map((bonus, index) => <div key={bonus.id} className="grid grid-cols-[1fr_1fr_auto] items-end gap-3 rounded-md border border-white/20 p-3">
-              <label className="text-sm font-semibold">Under seconds
-                <input type="number" min="1" step="1" required value={bonus.underSeconds} onChange={(event) => updateSpeedBonus(bonus.id, "underSeconds", event.target.value)} className={inputClass} />
-              </label>
-              <label className="text-sm font-semibold">Bonus points
-                <input type="number" min="0" step="1" required value={bonus.points} onChange={(event) => updateSpeedBonus(bonus.id, "points", event.target.value)} className={inputClass} />
-              </label>
-              <button type="button" aria-label={`Remove speed tier ${index + 1}`} onClick={() => setSpeedBonuses((rows) => rows.filter((row) => row.id !== bonus.id))} className="mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-white/30 text-xl hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white">×</button>
-            </div>)}</div>}
-        </section>
       </div>
 
       <section className="app-header relative isolate overflow-hidden rounded-xl p-4 lg:sticky lg:top-28">
@@ -299,6 +281,23 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
           <label className="text-sm font-semibold">Failure penalty
             <input type="number" min="0" step="1" required value={failurePenaltyPoints} onChange={(event) => setFailurePenaltyPoints(event.target.value)} className={inputClass} />
           </label>
+        </div>
+        <div className="mt-5 border-t border-white/20 pt-5">
+          <div className="flex items-center justify-between gap-4">
+            <div><h4 className="text-sm font-semibold">Speed bonuses</h4><p className="mt-1 text-sm text-white/55">Optional tiers do not stack; the highest qualifying bonus wins.</p></div>
+            <button type="button" disabled={speedBonuses.length >= MAX_SPEED_BONUSES} onClick={addSpeedBonus} className="shrink-0 rounded-md border border-white/60 px-3 py-2 text-sm font-semibold hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white disabled:cursor-not-allowed disabled:opacity-45">Add tier</button>
+          </div>
+          {speedBonuses.length === 0
+            ? <p className="mt-4 rounded-md border border-dashed border-white/25 px-4 py-4 text-center text-sm text-white/55">No speed bonus configured.</p>
+            : <div className="mt-4 space-y-3">{speedBonuses.map((bonus, index) => <div key={bonus.id} className="grid grid-cols-[1fr_1fr_auto] items-end gap-3 rounded-md border border-white/20 p-3">
+              <label className="text-sm font-semibold">Under seconds
+                <input type="number" min="1" step="1" required value={bonus.underSeconds} onChange={(event) => updateSpeedBonus(bonus.id, "underSeconds", event.target.value)} className={inputClass} />
+              </label>
+              <label className="text-sm font-semibold">Bonus points
+                <input type="number" min="0" step="1" required value={bonus.points} onChange={(event) => updateSpeedBonus(bonus.id, "points", event.target.value)} className={inputClass} />
+              </label>
+              <button type="button" aria-label={`Remove speed tier ${index + 1}`} onClick={() => setSpeedBonuses((rows) => rows.filter((row) => row.id !== bonus.id))} className="mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-white/30 text-xl hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white">×</button>
+            </div>)}</div>}
         </div>
         <p className="mt-5 text-sm leading-relaxed text-white/65">The failure penalty is deducted once only if the player runs out of attempts or time. Recoverable wrong guesses do not deduct points.</p>
         <div className="mt-5 min-h-12" aria-live="polite">
