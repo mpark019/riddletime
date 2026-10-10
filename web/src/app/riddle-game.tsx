@@ -9,6 +9,7 @@ import { CharacterBoard, CharacterKeyboard } from "./character-grid";
 import { compareByName } from "@/lib/account-order";
 import { FloatingQuestionMarks } from "./floating-question-marks";
 import { PrimaryButton } from "./primary-button";
+import { useSessionActivity } from "./use-session-activity";
 import {
   attemptsUrgency,
   estimateServerClockOffset,
@@ -341,6 +342,13 @@ export function RiddleGame({
     }, 0);
     return () => window.clearTimeout(timer);
   });
+
+  useSessionActivity(
+    loaded?.data.schedule?.id ?? null,
+    role === "player" && play?.status === "in_progress" && !deadlinePassed,
+    response,
+    play?.status === "in_progress" ? play.prompt : "",
+  );
 
   const activeCharacterConfig = play?.status === "in_progress" && play.type === "character_puzzle"
     ? play.config

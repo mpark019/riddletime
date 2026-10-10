@@ -5,6 +5,11 @@ import { formatCountdown, formatTimeLimit } from "@/lib/challenge-state";
 import { difficultyColor } from "@/lib/difficulty";
 import { groupPlayersByPuzzle } from "@/lib/admin-riddle-groups";
 import { summarizePlayers } from "@/lib/admin-riddle-stats";
+import {
+  MIN_VISIBLE_AWAY_MS,
+  summarizeTimeline,
+  type TimelineEntry,
+} from "@/server/challenges/activity-timeline";
 import type { ScheduledRiddle, ScheduledRiddlePlayer } from "@/server/schedules/schedules";
 
 interface Detail {
@@ -20,6 +25,54 @@ interface ScoringSummary {
 
 function formatPoints(points: number): string {
   return points > 0 ? `+${points}` : String(points);
+}
+
+function toggleMember(current: ReadonlySet<string>, id: string): ReadonlySet<string> {
+  const next = new Set(current);
+  if (!next.delete(id)) next.add(id);
+  return next;
+}
+
+function formatOffset(ms: number): string {
+  return formatCountdown(Math.floor(ms / 1000));
+}
+
+const TIMELINE_COLUMNS = "grid-cols-[3.5rem_1fr_5.5rem] gap-x-4 md:gap-x-8";
+
+function TimelineList({ timeline }: { timeline: TimelineEntry[] }) {
+  const visible = timeline.filter((entry) => entry.kind !== "away" || entry.durationMs >= MIN_VISIBLE_AWAY_MS);
+  const { awayCount, awayMs } = summarizeTimeline(timeline);
+  const hasGuess = visible.some((entry) => entry.kind === "guess");
+  return <>
+    {awayCount > 0 && <p className="mb-3 text-sm font-semibold text-white/75">
+      Left tab {awayCount} {awayCount === 1 ? "time" : "times"}, {formatOffset(awayMs)} away
+    </p>}
+    {!hasGuess && <p className="mb-3 text-sm text-white/55">No answers submitted.</p>}
+    {visible.length > 0 && <div className="space-y-1">
+      <div className={`grid ${TIMELINE_COLUMNS} px-3 pb-1 text-xs font-medium uppercase tracking-wide text-white/55`}>
+        <span>Time</span>
+        <span>Activity</span>
+        <span className="text-center">Result</span>
+      </div>
+      <ol className="space-y-1">
+        {visible.map((entry, index) => <li key={index} className={`grid ${TIMELINE_COLUMNS} rounded-md px-3 py-2 text-sm transition-colors hover:bg-black/5`}>
+          <span className="tabular-nums text-white/55">{entry.offsetMs === null ? "--:--" : formatOffset(entry.offsetMs)}</span>
+          <span className="min-w-0 break-words">
+            {entry.kind === "typing" && "started typing"}
+            {entry.kind === "copy" && <span className="text-[#f0a000]">copied the riddle text</span>}
+            {entry.kind === "paste" && <span className="text-[#f0a000]">pasted into the answer box</span>}
+            {entry.kind === "away" && <span className="text-[#f0a000]">
+              left tab for {formatOffset(entry.durationMs)}{entry.returned ? "" : " (did not return)"}
+            </span>}
+            {entry.kind === "guess" && <>guessed <span className="font-medium">{entry.response}</span></>}
+          </span>
+          <span className={`text-center font-medium ${entry.kind === "guess" ? (entry.correct ? "text-[#00940a]" : "text-[#f00000]") : ""}`}>
+            {entry.kind === "guess" ? (entry.correct ? "correct" : "wrong") : ""}
+          </span>
+        </li>)}
+      </ol>
+    </div>}
+  </>;
 }
 
 export function AdminRiddleDetail({
@@ -199,58 +252,102 @@ function outcomeOf(player: ScheduledRiddlePlayer) {
   return { label: player.missed ? "DNF" : "Failed", tone: "negative" as const };
 }
 
+function Chevron({ open }: { open: boolean }) {
+  return <svg
+    aria-hidden
+    viewBox="0 0 16 16"
+    className={`h-4 w-4 shrink-0 text-white/55 transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.75"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="m6 3 5 5-5 5" />
+  </svg>;
+}
+
 function PlayersTable({ players, maxAttempts, timeFormat }: { players: ScheduledRiddlePlayer[]; maxAttempts: number | null; timeFormat: Intl.DateTimeFormat }) {
-  const cell = "px-3 py-2 align-top tabular-nums";
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const th = "px-3 py-2.5 text-left";
   const optional = "hidden sm:table-cell";
-  return <div className="mt-3 overflow-x-auto rounded-md border border-white/25">
+  return <div className="mt-3 overflow-x-auto rounded-xl border border-white/25">
     <table className="w-full min-w-[34rem] border-collapse text-left text-sm">
-      <thead className="bg-black/[0.04] text-xs uppercase tracking-wide text-white/55">
-        <tr>
-          <th scope="col" className="px-3 py-2 font-semibold">Player</th>
-          <th scope="col" className="px-3 py-2 font-semibold">Result</th>
-          <th scope="col" className="px-3 py-2 font-semibold">Tries</th>
-          <th scope="col" className="px-3 py-2 font-semibold">Time</th>
-          <th scope="col" className={`px-3 py-2 font-semibold ${optional}`}>Base</th>
-          <th scope="col" className={`px-3 py-2 font-semibold ${optional}`}>Speed</th>
-          <th scope="col" className={`px-3 py-2 font-semibold ${optional}`}>Penalty</th>
-          <th scope="col" className="px-3 py-2 font-semibold">Total</th>
+      <caption className="sr-only">Players who played this riddle. Select a row to show their answers and activity.</caption>
+      <thead>
+        <tr className="select-none border-b border-white/25 text-xs font-medium uppercase tracking-wide text-white/55">
+          <th scope="col" className="w-10 px-4 py-2.5"><span className="sr-only">Details</span></th>
+          <th scope="col" className={th}>Player</th>
+          <th scope="col" className={th}>Result</th>
+          <th scope="col" className={th}>Tries</th>
+          <th scope="col" className={th}>Time</th>
+          <th scope="col" className={`${th} ${optional}`}>Base</th>
+          <th scope="col" className={`${th} ${optional}`}>Speed</th>
+          <th scope="col" className={`${th} ${optional}`}>Penalty</th>
+          <th scope="col" className={th}>Total</th>
         </tr>
       </thead>
-      <tbody>{players.map((player) => <PlayerRow key={player.userId} player={player} maxAttempts={maxAttempts} cell={cell} optional={optional} timeFormat={timeFormat} />)}</tbody>
+      {players.map((player) => <PlayerRow
+        key={player.userId}
+        player={player}
+        maxAttempts={maxAttempts}
+        optional={optional}
+        timeFormat={timeFormat}
+        open={expanded.has(player.userId)}
+        onToggle={() => setExpanded((current) => toggleMember(current, player.userId))}
+      />)}
     </table>
   </div>;
 }
 
-function PlayerRow({ player, maxAttempts, cell, optional, timeFormat }: { player: ScheduledRiddlePlayer; maxAttempts: number | null; cell: string; optional: string; timeFormat: Intl.DateTimeFormat }) {
+function PlayerRow({ player, maxAttempts, optional, timeFormat, open, onToggle }: {
+  player: ScheduledRiddlePlayer;
+  maxAttempts: number | null;
+  optional: string;
+  timeFormat: Intl.DateTimeFormat;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const outcome = outcomeOf(player);
   const breakdown = player.breakdown;
   const total = player.points;
-  return <>
-    <tr className="border-t border-white/25">
-      <td className={`${cell} font-semibold`}>{player.displayName}</td>
+  const cell = "px-3 py-3 align-middle tabular-nums";
+  const detailId = `player-detail-${player.userId}`;
+  return <tbody className={`border-b border-white/15 last:border-b-0 transition-colors ${open ? "bg-black/[0.06]" : "hover:bg-black/[0.03]"}`}>
+    <tr onClick={onToggle} className="cursor-pointer select-none">
+      <td className="w-10 px-4 py-3 align-middle">
+        <button
+          type="button"
+          aria-label={`Show details for ${player.displayName}`}
+          aria-expanded={open}
+          aria-controls={detailId}
+          onClick={(event) => { event.stopPropagation(); onToggle(); }}
+          className="flex items-center focus-visible:outline-2 focus-visible:outline-white"
+        >
+          <Chevron open={open} />
+        </button>
+      </td>
+      <td className={`${cell} font-medium`}>{player.displayName}</td>
       <td className={`${cell} font-semibold ${toneClasses[outcome.tone]}`}>{outcome.label}</td>
-      <td className={cell}>{player.attempts}/{player.puzzle?.maxAttempts ?? maxAttempts ?? "?"}</td>
-      <td className={cell}>{player.timeTakenMs === null ? "-" : formatCountdown(Math.round(player.timeTakenMs / 1000))}</td>
-      <td className={`${cell} ${optional}`}>{breakdown ? breakdown.basePoints : "-"}</td>
-      <td className={`${cell} ${optional}`}>{breakdown ? formatPoints(breakdown.speedBonusPoints) : "-"}</td>
-      <td className={`${cell} ${optional}`}>{breakdown ? formatPoints(-breakdown.penaltyPoints) : "-"}</td>
-      <td className={`${cell} font-bold ${total === null ? "" : toneClasses[toneOf(total)]}`}>{total === null ? "-" : formatPoints(total)}</td>
+      <td className={`${cell} text-white/65`}>{player.attempts}/{player.puzzle?.maxAttempts ?? maxAttempts ?? "?"}</td>
+      <td className={`${cell} text-white/65`}>{player.timeTakenMs === null ? "-" : formatCountdown(Math.round(player.timeTakenMs / 1000))}</td>
+      <td className={`${cell} text-white/65 ${optional}`}>{breakdown ? breakdown.basePoints : "-"}</td>
+      <td className={`${cell} text-white/65 ${optional}`}>{breakdown ? formatPoints(breakdown.speedBonusPoints) : "-"}</td>
+      <td className={`${cell} text-white/65 ${optional}`}>{breakdown ? formatPoints(-breakdown.penaltyPoints) : "-"}</td>
+      <td className={`${cell} font-semibold ${total === null ? "" : toneClasses[toneOf(total)]}`}>{total === null ? "-" : formatPoints(total)}</td>
     </tr>
-    <tr>
-      <td colSpan={8} className="px-3 pb-3 pt-0 text-xs text-white/55">
-        {player.puzzle && <span className="mb-1 block break-words text-white/75">
+    <tr id={detailId} hidden={!open}>
+      <td colSpan={9} className="px-4 pb-4 pt-1 md:px-12">
+        {player.puzzle && <p className="mb-2 break-words text-sm text-white/75">
           <span className="font-semibold">{typeLabels[player.puzzle.type] ?? "Puzzle"} · {player.puzzle.difficulty}:</span> {player.puzzle.prompt}
           {player.puzzle.acceptedAnswers.length > 0 && <> (answers: {player.puzzle.acceptedAnswers.join(", ")})</>}
-        </span>}
-        {player.startedAt && `Started ${timeFormat.format(new Date(player.startedAt))}`}
-        {player.submittedAt && ` · Finished ${timeFormat.format(new Date(player.submittedAt))}`}
-        {player.guesses.length === 0
-          ? <span className="block">No answers submitted.</span>
-          : <ol className="mt-1 flex flex-wrap gap-x-4 gap-y-1">{player.guesses.map((guess, index) => <li key={index} className="break-words">
-            <span className="text-white/45">{index + 1}.</span> <span className="text-white">{guess.response}</span>{" "}
-            <span className={guess.correct ? "text-[#00940a]" : "text-[#f00000]"}>{guess.correct ? "correct" : "wrong"}</span>
-          </li>)}</ol>}
+        </p>}
+        <p className="mb-3 text-xs text-white/55">
+          {player.startedAt && `Started ${timeFormat.format(new Date(player.startedAt))}`}
+          {player.submittedAt && ` · Finished ${timeFormat.format(new Date(player.submittedAt))}`}
+        </p>
+        <TimelineList timeline={player.timeline} />
       </td>
     </tr>
-  </>;
+  </tbody>;
 }

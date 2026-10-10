@@ -22,6 +22,7 @@ const schedule: ScheduledRiddle = {
 };
 
 function player(overrides: Partial<ScheduledRiddlePlayer>): ScheduledRiddlePlayer {
+  const guesses = overrides.guesses ?? [];
   return {
     userId: "u",
     displayName: "Pat",
@@ -29,7 +30,8 @@ function player(overrides: Partial<ScheduledRiddlePlayer>): ScheduledRiddlePlaye
     puzzle: null,
     correct: null,
     attempts: 0,
-    guesses: [],
+    guesses,
+    timeline: guesses.map((guess) => ({ kind: "guess" as const, offsetMs: null, ...guess })),
     startedAt: null,
     submittedAt: null,
     timeTakenMs: null,
@@ -128,6 +130,100 @@ describe("RiddleDashboard", () => {
     expect(html).toContain("guitar");
     expect(html).toContain("1/2");
     expect(html).toContain("2/2");
+  });
+
+  it("shows each player's timeline with absences, typing and timed guesses (AC-8)", () => {
+    const timed = player({
+      userId: "t",
+      displayName: "Tim",
+      status: "completed",
+      correct: true,
+      attempts: 1,
+      guesses: [{ response: "piano", correct: true }],
+      timeline: [
+        { kind: "typing", offsetMs: 3_000 },
+        { kind: "away", offsetMs: 7_000, durationMs: 8_000, returned: true },
+        { kind: "away", offsetMs: 17_000, durationMs: 3_000, returned: false },
+        { kind: "guess", offsetMs: 21_000, response: "piano", correct: true },
+      ],
+      timeTakenMs: 21_000,
+    });
+    const html = render({}, [timed]);
+
+    expect(html).toContain("Left tab 2 times, 0:11 away");
+    expect(html).toContain("0:03");
+    expect(html).toContain("started typing");
+    expect(html).toContain("left tab for 0:08");
+    expect(html).toContain("did not return");
+    expect(html).toContain("0:21");
+    expect(html).toContain("piano");
+  });
+
+  it("shows when the riddle text was copied (AC-14)", () => {
+    const copier = player({
+      userId: "c",
+      displayName: "Cam",
+      status: "in_progress",
+      timeline: [
+        { kind: "copy", offsetMs: 2_000 },
+        { kind: "away", offsetMs: 3_000, durationMs: 17_000, returned: true },
+      ],
+    });
+    const html = render({}, [copier]);
+
+    expect(html).toContain("0:02");
+    expect(html).toContain("copied the riddle text");
+  });
+
+  it("shows when text was pasted into the answer box (AC-15)", () => {
+    const pasted = player({
+      userId: "p2",
+      displayName: "Pia",
+      status: "in_progress",
+      timeline: [{ kind: "paste", offsetMs: 21_000 }],
+    });
+
+    expect(render({}, [pasted])).toContain("pasted into the answer box");
+  });
+
+  it("hides absences under one second from the list and the summary (AC-8)", () => {
+    const quick = player({
+      userId: "q",
+      displayName: "Quin",
+      status: "in_progress",
+      timeline: [{ kind: "away", offsetMs: 5_000, durationMs: 400, returned: true }],
+    });
+    const html = render({}, [quick]);
+
+    expect(html).not.toContain("Left tab");
+    expect(html).not.toContain("left tab for");
+  });
+
+  it("renders each player as a collapsed row with the details in a hidden row (AC-16)", () => {
+    const html = render();
+
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain('aria-expanded="true"');
+    expect(html).toMatch(/<tr id="player-detail-a" hidden="">/);
+    expect(html).toContain('aria-controls="player-detail-a"');
+  });
+
+  it("styles the table like the audit log: uppercase muted header, chevron column, shared row background (AC-16)", () => {
+    const html = render();
+    const table = html.slice(html.lastIndexOf("<div", html.indexOf("<table")));
+
+    expect(table).toContain("uppercase tracking-wide");
+    expect(table).toContain("border-collapse");
+    expect(table).toContain("hover:bg-black/[0.03]");
+    expect(table.startsWith('<div class="mt-3 overflow-x-auto rounded-xl border border-white/25')).toBe(true);
+    expect(table).toContain("last:border-b-0");
+    expect(table).toContain('aria-label="Show details for Sol"');
+  });
+
+  it("shows the activity as a sub-table with Time, Activity and Result columns (AC-16)", () => {
+    const html = render();
+
+    for (const heading of ["Time", "Activity", "Result"]) expect(html).toContain(`${heading}</span>`);
   });
 
   it("lists players who did not play as chips", () => {

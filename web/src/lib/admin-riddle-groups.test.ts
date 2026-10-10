@@ -4,7 +4,7 @@ import { groupPlayersByPuzzle } from "./admin-riddle-groups";
 
 function player(userId: string, type: string, answers: string[] | null): ScheduledRiddlePlayer {
   return {
-    userId, displayName: userId, status: answers ? "not_started" : "not_assigned", correct: null, attempts: 0, guesses: [],
+    userId, displayName: userId, status: answers ? "not_started" : "not_assigned", correct: null, attempts: 0, guesses: [], timeline: [],
     startedAt: null, submittedAt: null, timeTakenMs: null, points: null, breakdown: null, missed: false,
     puzzle: answers ? { type, name: null, difficulty: "easy", prompt: "p", acceptedAnswers: answers, maxAttempts: 1, timeLimitSeconds: 60 } : null,
   };
