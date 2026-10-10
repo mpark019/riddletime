@@ -5,7 +5,6 @@ import { DIFFICULTIES, difficultyColor, isDifficulty, type Difficulty } from "@/
 import {
   buildPuzzleRequest,
   MAX_NAME_LENGTH,
-  formatMedianSeconds,
   formatSolveRate,
   randomTarget,
   type BankPuzzleKind,
@@ -15,6 +14,8 @@ import type { BankPuzzle } from "@/server/puzzles/puzzles";
 import { PrimaryButton } from "./primary-button";
 import { DifficultyPicker, PuzzleContentFields, inputClass, type PuzzleFieldValues } from "./puzzle-fields";
 import { PuzzlePreview } from "./puzzle-preview";
+import { PuzzleActivityPanel } from "./puzzle-activity-panel";
+import { Dropdown } from "./puzzle-dropdown";
 
 type Drawer = "closed" | "view" | "form";
 type Filter = { type: "" | BankPuzzleKind; status: "" | "active" | "retired"; used: "" | "true" | "false" };
@@ -23,6 +24,13 @@ const PAGE_SIZE = 20;
 const emptyValues: PuzzleFieldValues = { prompt: "", acceptedAnswers: "", targetWord: "" };
 const puzzleName = (puzzle: BankPuzzle) => puzzle.name ?? `${puzzle.acceptedAnswers[0] ?? "No answer"} | ${kindLabel(puzzle.type)}`;
 const kindLabel = (type: BankPuzzleKind) => type === "riddle" ? "Riddle" : "Letter game";
+
+export function puzzleMatches(puzzle: BankPuzzle, needle: string, difficulty: string) {
+  return (difficulty === "" || puzzle.difficulty === difficulty) && (needle === ""
+    || (puzzle.name ?? "").toLowerCase().includes(needle)
+    || puzzle.prompt.toLowerCase().includes(needle)
+    || puzzle.acceptedAnswers.some((answer) => answer.toLowerCase().includes(needle)));
+}
 
 async function readError(response: Response, fallback: string) {
   const body = await response.json().catch(() => ({})) as { error?: string };
@@ -96,10 +104,7 @@ export function AdminPuzzleBank() {
   const editing = editingId !== "" && selected?.id === editingId;
   const draftForm: PuzzleForm = { name, kind, difficulty, ...values };
   const needle = search.trim().toLowerCase();
-  const matching = puzzles?.filter((puzzle) => (difficultyFilter === "" || puzzle.difficulty === difficultyFilter) && (needle === ""
-    || (puzzle.name ?? "").toLowerCase().includes(needle)
-    || puzzle.prompt.toLowerCase().includes(needle)
-    || puzzle.acceptedAnswers.some((answer) => answer.toLowerCase().includes(needle)))) ?? null;
+  const matching = puzzles?.filter((puzzle) => puzzleMatches(puzzle, needle, difficultyFilter)) ?? null;
   const pageCount = Math.max(1, Math.ceil((matching?.length ?? 0) / PAGE_SIZE));
   const currentPage = Math.min(page, pageCount);
   const visible = matching?.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE) ?? null;
@@ -176,7 +181,7 @@ export function AdminPuzzleBank() {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           // A stored label outside the four presets is left alone unless a new one is picked.
-          body: JSON.stringify(difficultyTouched ? { ...built, name: built.name ?? "" } : { name: built.name ?? "", puzzle: built.puzzle }),
+          body: JSON.stringify(difficultyTouched ? built : { name: built.name, puzzle: built.puzzle }),
         })
         : await fetch("/api/admin/puzzles", {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(built),
@@ -287,8 +292,8 @@ export function AdminPuzzleBank() {
                 disabled={editing} onClick={() => changeKind(option)}
                 className={`px-3 py-1 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-white disabled:cursor-not-allowed ${kind === option ? "bg-white/20" : "hover:bg-white/10 disabled:opacity-45"}`}>{kindLabel(option)}</button>)}
             </div>
-            <label className="mt-4 block text-sm font-semibold">Name <span className="font-normal text-white/60">(optional)</span>
-              <input value={name} maxLength={MAX_NAME_LENGTH} onChange={(event) => setName(event.target.value)}
+            <label className="mt-4 block text-sm font-semibold">Name
+              <input value={name} required maxLength={MAX_NAME_LENGTH} onChange={(event) => setName(event.target.value)}
                 placeholder="Shown in the bank and when scheduling" className={inputClass} />
             </label>
             <div className="mt-4">
@@ -311,67 +316,8 @@ export function AdminPuzzleBank() {
   </section>;
 }
 
-function Dropdown({ label, value, options, onChange, className = "" }: {
-  label: string; value: string; options: Array<[string, string]>; onChange: (value: string) => void; className?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [highlight, setHighlight] = useState(0);
-  const ref = useRef<HTMLDivElement>(null);
-  const selectedIndex = Math.max(0, options.findIndex(([optionValue]) => optionValue === value));
-  useEffect(() => {
-    if (!open) return;
-    const away = (event: MouseEvent) => { if (!ref.current?.contains(event.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", away);
-    return () => document.removeEventListener("mousedown", away);
-  }, [open]);
-
-  function openList() {
-    setHighlight(selectedIndex);
-    setOpen(true);
-  }
-
-  function choose(index: number) {
-    onChange(options[index][0]);
-    setOpen(false);
-  }
-
-  function onKeyDown(event: React.KeyboardEvent) {
-    if (event.key === "Escape" && open) {
-      event.stopPropagation();
-      setOpen(false);
-    } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      if (!open) return openList();
-      const step = event.key === "ArrowDown" ? 1 : -1;
-      setHighlight((current) => (current + step + options.length) % options.length);
-    } else if ((event.key === "Enter" || event.key === " ") && open) {
-      event.preventDefault();
-      choose(highlight);
-    }
-  }
-
-  return <div ref={ref} className={`relative ${className}`} onKeyDown={onKeyDown}>
-    <span className="block text-sm font-semibold">{label}</span>
-    <button type="button" aria-haspopup="listbox" aria-expanded={open} aria-label={`${label}: ${options[selectedIndex][1]}`}
-      onClick={() => (open ? setOpen(false) : openList())}
-      className="mt-1 flex h-11 w-full items-center justify-between rounded-lg border border-white/40 bg-surface-solid px-3 text-left text-sm font-normal focus-visible:outline-2 focus-visible:outline-white">
-      <span>{options[selectedIndex][1]}</span>
-      <svg aria-hidden viewBox="0 0 20 20" className="h-4 w-4 text-white/55" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m5 8 5 5 5-5" /></svg>
-    </button>
-    {open && <ul role="listbox" aria-label={label}
-      className="absolute left-0 right-0 z-10 mt-1 max-h-60 overflow-y-auto rounded-lg border border-white/25 bg-surface-solid p-1 shadow-lg">
-      {options.map(([optionValue, text], index) => <li key={optionValue} role="option" aria-selected={optionValue === value}
-        onMouseEnter={() => setHighlight(index)} onClick={() => choose(index)}
-        className={`flex cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm ${index === highlight ? "bg-black/[0.07]" : ""}`}>
-        <span>{text}</span>
-        {optionValue === value && <svg aria-hidden viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m4 10 4 4 8-8" /></svg>}
-      </li>)}
-    </ul>}
-  </div>;
-}
-
-function FilterMenu({ type, status, difficulty, onType, onStatus, onDifficulty, onClear }: {
-  type: Filter["type"]; status: Filter["status"]; difficulty: string;
+export function FilterMenu({ type, status, difficulty, onType, onStatus, onDifficulty, onClear, hideStatus = false }: {
+  type: Filter["type"]; status: Filter["status"]; difficulty: string; hideStatus?: boolean;
   onType: (value: Filter["type"]) => void; onStatus: (value: Filter["status"]) => void;
   onDifficulty: (value: string) => void; onClear: () => void;
 }) {
@@ -388,7 +334,7 @@ function FilterMenu({ type, status, difficulty, onType, onStatus, onDifficulty, 
       document.removeEventListener("keydown", esc);
     };
   }, [open]);
-  const active = [type, status, difficulty].filter(Boolean).length;
+  const active = [type, hideStatus ? "" : status, difficulty].filter(Boolean).length;
   return <div ref={ref} className="relative">
     <button type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)}
       className="inline-flex h-11 items-center gap-2 rounded-md border border-white/40 bg-black/[0.04] px-4 text-sm font-semibold hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white">
@@ -400,8 +346,8 @@ function FilterMenu({ type, status, difficulty, onType, onStatus, onDifficulty, 
     {open && <div role="dialog" aria-label="Filter puzzles" className="absolute right-0 z-30 mt-2 w-64 rounded-lg border border-white/25 bg-surface-solid p-4 shadow-lg">
       <Dropdown label="Puzzle type" value={type} onChange={(next) => onType(next as Filter["type"])}
         options={[["", "All types"], ["riddle", "Riddles"], ["character_puzzle", "Letter games"]]} />
-      <Dropdown className="mt-3" label="Status" value={status} onChange={(next) => onStatus(next as Filter["status"])}
-        options={[["", "Any status"], ["active", "Active"], ["retired", "Retired"]]} />
+      {!hideStatus && <Dropdown className="mt-3" label="Status" value={status} onChange={(next) => onStatus(next as Filter["status"])}
+        options={[["", "Any status"], ["active", "Active"], ["retired", "Retired"]]} />}
       <Dropdown className="mt-3" label="Difficulty" value={difficulty} onChange={onDifficulty}
         options={[["", "Any difficulty"], ...DIFFICULTIES.map((value): [string, string] => [value, value[0].toUpperCase() + value.slice(1)])]} />
       {active > 0 && <button type="button" onClick={onClear} className="mt-4 text-sm font-semibold underline">Clear filters</button>}
@@ -415,9 +361,9 @@ function StatusPill({ status }: { status: BankPuzzle["status"] }) {
   return <span className={`${pill} ${status === "active" ? "bg-[#16a34a]" : "bg-[#c00000]"}`}>{status === "active" ? "Active" : "Retired"}</span>;
 }
 
-function PuzzleTable({ puzzles, total, matching, page, pageCount, onPage, onOpen }: {
+export function PuzzleTable({ puzzles, total, matching, page, pageCount, onPage, onOpen, selectedId, hideStatus = false, footerNote, caption = "Stored puzzles. Select a row to preview it." }: {
   puzzles: BankPuzzle[] | null; total: number; matching: number; page: number; pageCount: number; onPage: (page: number) => void;
-  onOpen: (puzzle: BankPuzzle) => void;
+  onOpen: (puzzle: BankPuzzle) => void; selectedId?: string; hideStatus?: boolean; footerNote?: string; caption?: string;
 }) {
   if (puzzles === null) return <p className="text-sm text-white/60">Loading puzzles…</p>;
   if (puzzles.length === 0) {
@@ -429,33 +375,33 @@ function PuzzleTable({ puzzles, total, matching, page, pageCount, onPage, onOpen
   const th = "bg-black/[0.06] px-3 py-2.5 text-left text-sm font-semibold";
   return <div>
     <div className="overflow-x-auto rounded-xl border border-white/25 p-2">
-      <table className="w-full min-w-[34rem] border-separate border-spacing-0 text-sm">
-        <caption className="sr-only">Stored puzzles. Select a row to preview it.</caption>
+      <table className="w-full sm:min-w-[34rem] border-separate border-spacing-0 text-sm">
+        <caption className="sr-only">{caption}</caption>
         <thead><tr>
           <th scope="col" className={`${th} w-1/2 rounded-l-lg`}>Puzzle</th>
-          <th scope="col" className={`${th} hidden sm:table-cell`}>Type</th>
-          <th scope="col" className={th}>Difficulty</th>
-          <th scope="col" className={th}>Status</th>
-          <th scope="col" className={`${th} text-right`}>Used</th>
+          <th scope="col" className={`${th} max-sm:rounded-r-lg`}>Type</th>
+          <th scope="col" className={`${th} hidden sm:table-cell`}>Difficulty</th>
+          {!hideStatus && <th scope="col" className={`${th} hidden sm:table-cell`}>Status</th>}
+          <th scope="col" className={`${th} hidden text-right sm:table-cell`}>Used</th>
           <th scope="col" className={`${th} hidden rounded-r-lg text-right sm:table-cell`}>Solve rate</th>
         </tr></thead>
         <tbody>
-          {puzzles.map((puzzle) => <tr key={puzzle.id} onClick={() => onOpen(puzzle)}
-            className="group cursor-pointer">
+          {puzzles.map((puzzle) => <tr key={puzzle.id} onClick={() => onOpen(puzzle)} aria-selected={selectedId === undefined ? undefined : selectedId === puzzle.id}
+            className={`group cursor-pointer ${selectedId === puzzle.id ? "[&>td]:bg-white/20" : ""}`}>
             <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg max-w-0 px-3 py-4">
-              <button type="button" onClick={(event) => { event.stopPropagation(); onOpen(puzzle); }}
+              <button type="button" aria-pressed={selectedId === undefined ? undefined : selectedId === puzzle.id} onClick={(event) => { event.stopPropagation(); onOpen(puzzle); }}
                 className="block w-full truncate text-left focus-visible:outline-2 focus-visible:outline-white">{puzzleName(puzzle)}</button>
             </td>
-            <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg hidden px-3 py-4 sm:table-cell">{kindLabel(puzzle.type)}</td>
-            <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg px-3 py-4 font-semibold capitalize" style={{ color: difficultyColor(puzzle.difficulty) }}>{puzzle.difficulty}</td>
-            <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg px-3 py-4"><StatusPill status={puzzle.status} /></td>
-            <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg px-3 py-4 text-right tabular-nums">{puzzle.timesUsed === 0 ? "-" : `${puzzle.timesUsed}×`}</td>
+            <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg max-sm:rounded-r-lg px-3 py-4">{kindLabel(puzzle.type)}</td>
+            <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg hidden px-3 py-4 font-semibold capitalize sm:table-cell" style={{ color: difficultyColor(puzzle.difficulty) }}>{puzzle.difficulty}</td>
+            {!hideStatus && <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg hidden px-3 py-4 sm:table-cell"><StatusPill status={puzzle.status} /></td>}
+            <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg hidden px-3 py-4 text-right tabular-nums sm:table-cell">{puzzle.timesUsed === 0 ? "-" : `${puzzle.timesUsed}×`}</td>
             <td className="border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg hidden px-3 py-4 text-right tabular-nums sm:table-cell">{formatSolveRate(puzzle.stats.solveRate)}</td>
           </tr>)}
         </tbody>
       </table>
     </div>
-    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-white/65">
+    {footerNote !== undefined ? <p className="mt-3 text-sm text-white/65">{footerNote}</p> : <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-sm text-white/65">
       <p>Showing {first}-{first + puzzles.length - 1} of {matching}</p>
       <div className="flex items-center gap-2">
         <button type="button" disabled={page <= 1} onClick={() => onPage(page - 1)}
@@ -464,12 +410,8 @@ function PuzzleTable({ puzzles, total, matching, page, pageCount, onPage, onOpen
         <button type="button" disabled={page >= pageCount} onClick={() => onPage(page + 1)}
           className="rounded-md border border-white/30 px-3 py-1.5 font-semibold text-white hover:bg-white/10 disabled:opacity-40">Next</button>
       </div>
-    </div>
+    </div>}
   </div>;
-}
-
-function Stat({ label, value }: { label: string; value: string | number }) {
-  return <div><dt className="text-xs uppercase tracking-wide text-white/55">{label}</dt><dd className="text-lg font-semibold tabular-nums">{value}</dd></div>;
 }
 
 function PuzzleDetails({ puzzle, busy, onEdit, onToggleStatus, onRename, onDelete }: {
@@ -477,7 +419,7 @@ function PuzzleDetails({ puzzle, busy, onEdit, onToggleStatus, onRename, onDelet
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [nameDraft, setNameDraft] = useState(puzzle.name ?? "");
-  const renamed = nameDraft.trim() !== (puzzle.name ?? "");
+  const renamed = nameDraft.trim() !== "" && nameDraft.trim() !== (puzzle.name ?? "");
   const unused = puzzle.timesUsed === 0;
   const { stats } = puzzle;
   const fill = "rounded-md bg-black px-3.5 py-2 text-sm font-semibold text-[#ffffff] hover:opacity-85 disabled:opacity-50";
@@ -504,16 +446,6 @@ function PuzzleDetails({ puzzle, busy, onEdit, onToggleStatus, onRename, onDelet
       {unused && confirmDelete && <button type="button" disabled={busy} onClick={onDelete} className="rounded-md bg-[#a00000] px-3.5 py-2 text-sm font-semibold text-[#ffffff] disabled:opacity-50">Delete permanently</button>}
     </div>
     {!unused && <p className="mt-2 text-xs text-white/55">Scheduled puzzles can&apos;t be edited or deleted; retire one to stop it being picked.</p>}
-    <h4 className="mt-7 text-base font-semibold">Statistics</h4>
-    <dl className="mt-3 grid grid-cols-2 gap-4 rounded-xl border border-white/20 bg-black/[0.04] p-4 sm:grid-cols-4" aria-label="Puzzle statistics">
-      <Stat label="Days used" value={stats.daysUsed} />
-      <Stat label="Assigned" value={stats.assigned} />
-      <Stat label="Started" value={stats.started} />
-      <Stat label="Solved" value={stats.solved} />
-      <Stat label="Solve rate" value={formatSolveRate(stats.solveRate)} />
-      <Stat label="Median time" value={formatMedianSeconds(stats.medianSolveSeconds)} />
-      <Stat label="Avg attempts" value={stats.averageAttempts === null ? "-" : stats.averageAttempts.toFixed(1)} />
-      <Stat label="Missed games" value={stats.missed} />
-    </dl>
+    <PuzzleActivityPanel puzzleId={puzzle.id} stats={stats} used={!unused} />
   </div>;
 }

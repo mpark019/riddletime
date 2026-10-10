@@ -10,13 +10,14 @@ import {
   manualPuzzleSchema,
   presetNameSchema,
 } from "@/server/schedules/schedules";
+import { loadPuzzleActivity, type PuzzleActivity } from "./puzzle-activity";
 import { hasSeenSql, insertPuzzle, puzzleAnswers, type NewPuzzleContent } from "./puzzle-store";
 
 const MAX_FILTER_PLAYERS = 500;
 
 const puzzleContentSchema = z.discriminatedUnion("type", [manualPuzzleSchema, characterPuzzleSchema]);
 const idSchema = z.uuid();
-const nameSchema = z.string().trim().max(80);
+const nameSchema = z.string().trim().min(1).max(80);
 
 // Routes pass the body reader itself, so it runs only after the role check.
 type LazyInput = unknown | (() => Promise<unknown>);
@@ -73,6 +74,7 @@ export interface BankPuzzle {
   createdAt: string;
   timesUsed: number;
   stats: PuzzleStats;
+  activity?: PuzzleActivity;
 }
 
 const EMPTY_STATS: PuzzleStats = {
@@ -177,7 +179,7 @@ export async function createPuzzle(input: LazyInput): Promise<BankPuzzle> {
   return withTransaction(async (client) => {
     const admin = await requireAdmin(client);
     const parsed = createPuzzleInput.parse(await resolveInput(input));
-    const id = await insertPuzzle(client, admin.id, toContent(parsed.puzzle), parsed.difficulty, parsed.name || null);
+    const id = await insertPuzzle(client, admin.id, toContent(parsed.puzzle), parsed.difficulty, parsed.name);
     return loadOne(client, id);
   });
 }
@@ -215,7 +217,9 @@ export async function listPuzzles(filter: LazyInput): Promise<BankPuzzle[]> {
 export async function getPuzzle(id: unknown): Promise<BankPuzzle> {
   return withTransaction(async (client) => {
     await requireAdminRead(client);
-    return loadOne(client, idSchema.parse(id));
+    const puzzleId = idSchema.parse(id);
+    const puzzle = await loadOne(client, puzzleId);
+    return { ...puzzle, activity: await loadPuzzleActivity(client, puzzleId) };
   });
 }
 
@@ -253,7 +257,7 @@ export async function updatePuzzle(rawId: unknown, input: LazyInput): Promise<Ba
            answer_data = coalesce($4::jsonb, answer_data),
            difficulty = coalesce($5, difficulty),
            status = coalesce($6, status),
-           name = case when $7::boolean then nullif($8, '') else name end
+           name = case when $7::boolean then $8 else name end
          where id = $1`,
         [
           id,

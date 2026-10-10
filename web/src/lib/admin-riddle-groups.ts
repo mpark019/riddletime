@@ -3,6 +3,7 @@ import type { ScheduledRiddlePlayer } from "@/server/schedules/schedules";
 export interface PuzzleGroup {
   key: string;
   type: string;
+  name: string | null;
   answers: string[];
   players: ScheduledRiddlePlayer[];
 }
@@ -19,7 +20,7 @@ export function groupPlayersByPuzzle(players: readonly ScheduledRiddlePlayer[]):
     const key = `${puzzle.type}|${normalizedAnswers(puzzle.acceptedAnswers).join("|")}`;
     const group = groups.get(key);
     if (group) group.players.push(player);
-    else groups.set(key, { key, type: puzzle.type, answers: puzzle.acceptedAnswers, players: [player] });
+    else groups.set(key, { key, type: puzzle.type, name: puzzle.name, answers: puzzle.acceptedAnswers, players: [player] });
   }
   return [...groups.values()].sort((a, b) => b.players.length - a.players.length);
 }

@@ -121,7 +121,7 @@ function PuzzleGroupBar({ groups, total, activeKey, onSelect }: { groups: Return
   return <div role="tablist" aria-label="Puzzles" className="-mx-1 mt-8 flex gap-2 overflow-x-auto px-1 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
     <button type="button" role="tab" aria-selected={activeKey === null} onClick={() => onSelect(null)} className={pill(activeKey === null)}>All <span className="text-xs font-normal">{total} {total === 1 ? "player" : "players"}</span></button>
     {groups.map((group) => <button key={group.key} type="button" role="tab" aria-selected={group.key === activeKey} onClick={() => onSelect(group.key)} className={pill(group.key === activeKey)}>
-      {typeLabels[group.type] ?? "Puzzle"} · {group.answers.join(", ")}
+      {group.name ?? `${typeLabels[group.type] ?? "Puzzle"} · ${group.answers.join(", ")}`}
       <span className="text-xs font-normal">{group.players.length} {group.players.length === 1 ? "player" : "players"}</span>
     </button>)}
   </div>;

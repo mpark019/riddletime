@@ -11,37 +11,40 @@ import {
 describe("buildPuzzleRequest", () => {
   it("builds a riddle request with trimmed prompt and one answer per line", () => {
     expect(buildPuzzleRequest({
+      name: "Keys",
       kind: "riddle",
       difficulty: "hard",
       prompt: "  What has keys?  ",
       acceptedAnswers: "piano\n a piano \n\n",
       targetWord: "",
     })).toEqual({
+      name: "Keys",
       difficulty: "hard",
       puzzle: { type: "riddle", prompt: "What has keys?", accepted_answers: ["piano", "a piano"] },
     });
   });
 
-  it("includes a trimmed name only when one was entered", () => {
+  it("requires a name and trims it", () => {
     const form = { kind: "riddle" as const, difficulty: "easy", prompt: "p", acceptedAnswers: "a", targetWord: "" };
     expect(buildPuzzleRequest({ ...form, name: "  Keys riddle " })).toMatchObject({ name: "Keys riddle" });
-    expect(buildPuzzleRequest({ ...form, name: "   " })).not.toHaveProperty("name");
+    expect(() => buildPuzzleRequest({ ...form, name: "   " })).toThrow("Enter a name for the puzzle.");
+    expect(() => buildPuzzleRequest(form)).toThrow("Enter a name for the puzzle.");
     expect(() => buildPuzzleRequest({ ...form, name: "x".repeat(81) })).toThrow("The name can be at most 80 characters.");
   });
 
   it("builds a letter-game request with an uppercased target", () => {
     expect(buildPuzzleRequest({
-      kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: " crane7 ",
-    })).toEqual({ difficulty: "easy", puzzle: { type: "character_puzzle", target: "CRANE7" } });
+      name: "Crane", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: " crane7 ",
+    })).toEqual({ name: "Crane", difficulty: "easy", puzzle: { type: "character_puzzle", target: "CRANE7" } });
   });
 
   it.each([
-    [{ kind: "riddle", difficulty: "easy", prompt: "  ", acceptedAnswers: "x", targetWord: "" }, "Enter the riddle prompt."],
-    [{ kind: "riddle", difficulty: "easy", prompt: "ok", acceptedAnswers: " \n ", targetWord: "" }, "Enter at least one accepted answer."],
-    [{ kind: "riddle", difficulty: "nope", prompt: "ok", acceptedAnswers: "x", targetWord: "" }, "Choose a difficulty."],
-    [{ kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "" }, "Enter the word or code players will guess."],
-    [{ kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "no spaces" }, "The answer can only use letters A-Z and digits 0-9, with no spaces."],
-    [{ kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "A".repeat(51) }, "The answer must be at most 50 characters."],
+    [{ name: "N", kind: "riddle", difficulty: "easy", prompt: "  ", acceptedAnswers: "x", targetWord: "" }, "Enter the riddle prompt."],
+    [{ name: "N", kind: "riddle", difficulty: "easy", prompt: "ok", acceptedAnswers: " \n ", targetWord: "" }, "Enter at least one accepted answer."],
+    [{ name: "N", kind: "riddle", difficulty: "nope", prompt: "ok", acceptedAnswers: "x", targetWord: "" }, "Choose a difficulty."],
+    [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "" }, "Enter the word or code players will guess."],
+    [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "no spaces" }, "The answer can only use letters A-Z and digits 0-9, with no spaces."],
+    [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "A".repeat(51) }, "The answer must be at most 50 characters."],
   ] as const)("rejects invalid input %#", (form, message) => {
     expect(() => buildPuzzleRequest(form)).toThrow(message);
   });
@@ -112,10 +115,10 @@ describe("buildPuzzlePreview", () => {
   });
 
   it.each([
-    [{ kind: "riddle", difficulty: "easy", prompt: "   ", acceptedAnswers: "", targetWord: "" }],
-    [{ kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "" }],
-    [{ kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "bad word" }],
-    [{ kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "A".repeat(51) }],
+    [{ name: "N", kind: "riddle", difficulty: "easy", prompt: "   ", acceptedAnswers: "", targetWord: "" }],
+    [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "" }],
+    [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "bad word" }],
+    [{ name: "N", kind: "character_puzzle", difficulty: "easy", prompt: "", acceptedAnswers: "", targetWord: "A".repeat(51) }],
   ] as const)("returns nothing while the content is not valid yet %#", (form) => {
     expect(buildPuzzlePreview(form)).toBeNull();
   });

@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buildBankScheduleRequest } from "@/lib/admin-riddle-schedule";
-import { difficultyColor, isDifficulty, type Difficulty } from "@/lib/difficulty";
+import { isDifficulty, type Difficulty } from "@/lib/difficulty";
 import type { BankPuzzle } from "@/server/puzzles/puzzles";
-import { AdminPuzzleBank } from "./admin-puzzle-bank";
+import { AdminPuzzleBank, FilterMenu, PuzzleTable, puzzleMatches } from "./admin-puzzle-bank";
 import { AdminRiddleList } from "./admin-riddle-list";
 import { pruneSelection } from "@/lib/point-selection";
 import { formatUsDate } from "@/lib/calendar";
@@ -92,7 +92,6 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
   const bankQuery = (() => {
     const query = new URLSearchParams({ status: "active" });
     if (selectedPlayerIds.length > 0) query.set("exclude_seen_by", selectedPlayerIds.join(","));
-    else query.set("used", "false");
     return query.toString();
   })();
 
@@ -215,8 +214,8 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
       <div className="flex items-center justify-between gap-3">
         <h2 id="schedule-riddle-title" className="text-2xl font-semibold tracking-tight lg:text-[28px]">{tab === "day" ? "Schedule a riddle" : tab === "all" ? "All scheduled days" : "Puzzle bank"}</h2>
         <div className="inline-flex shrink-0 overflow-hidden rounded-md border border-white/80" role="tablist" aria-label="Riddle schedule sections">
-          <TabButton active={tab === "day"} onClick={() => { setTab("day"); setBankVersion((version) => version + 1); }}>Day</TabButton>
-          <TabButton active={tab === "all"} onClick={openAllDays}>All days</TabButton>
+          <TabButton active={tab === "day"} onClick={() => { setTab("day"); setBankVersion((version) => version + 1); }}>Schedule</TabButton>
+          <TabButton active={tab === "all"} onClick={openAllDays}>History</TabButton>
           <TabButton active={tab === "bank"} onClick={() => setTab("bank")}>Puzzles</TabButton>
         </div>
       </div>
@@ -320,25 +319,50 @@ function TabButton({ active, children, onClick }: { active: boolean; children: s
   return <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`h-9 px-3 text-sm font-semibold transition lg:h-11 lg:px-5 lg:text-base ${active ? "navy-surface flat-on-mobile relative isolate" : "text-white hover:bg-white/15"}`}>{active && <FloatingQuestionMarks contained compact start={4} />}{children}</button>;
 }
 
+const PICKER_INITIAL = 5;
+const PICKER_PAGE_SIZE = 20;
+
 function BankPicker({ puzzles, loadFailed, selectedId, personal, onOpenBank, onSelect }: { puzzles: BankPuzzle[] | null; loadFailed: boolean; selectedId: string; personal: boolean; onOpenBank: () => void; onSelect: (puzzle: BankPuzzle) => void }) {
+  const [search, setSearch] = useState("");
+  const [type, setType] = useState<"" | BankPuzzle["type"]>("");
+  const [difficulty, setDifficulty] = useState("");
+  const [page, setPage] = useState(1);
+
   if (loadFailed) return <p role="alert" className="mt-5 rounded-md border border-red-300/60 bg-red-950/45 px-4 py-3 text-sm text-red-100">Could not load the puzzle bank. Reload the page to try again.</p>;
   if (puzzles === null) return <p className="mt-5 text-sm text-white/60">Loading the bank…</p>;
   if (puzzles.length === 0) {
     return <p className="mt-5 rounded-md border border-dashed border-white/25 px-4 py-6 text-center text-sm text-white/55">
-      {personal ? "No active puzzles that every selected player has not already had. " : "No unused active puzzles. "}<button type="button" onClick={onOpenBank} className="font-semibold underline">Add one in the Puzzles tab</button>.
+      {personal ? "No active puzzles that every selected player has not already had. " : "No active puzzles. "}<button type="button" onClick={onOpenBank} className="font-semibold underline">Add one in the Puzzles tab</button>.
     </p>;
   }
-  return <ul className="mt-5 max-h-72 space-y-2 overflow-y-auto" role="radiogroup" aria-label="Bank puzzles">
-    {puzzles.map((puzzle) => <li key={puzzle.id}>
-      <button type="button" role="radio" aria-checked={selectedId === puzzle.id} onClick={() => onSelect(puzzle)}
-        className={`flex w-full flex-col gap-1 rounded-md border px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-white ${selectedId === puzzle.id ? "border-white bg-white/20" : "border-white/25 hover:bg-white/10"}`}>
-        <span className="flex flex-wrap gap-x-3 text-xs font-semibold uppercase tracking-wide">
-          <span>{puzzle.type === "riddle" ? "Riddle" : "Letter game"}</span>
-          <span style={{ color: difficultyColor(puzzle.difficulty) }}>{puzzle.difficulty}</span>
-          <span className="text-white/55">{puzzle.timesUsed === 0 ? "Never scheduled" : `Scheduled ${puzzle.timesUsed}×`}</span>
-        </span>
-        <span className="line-clamp-2 break-words">{puzzle.name ?? (puzzle.type === "riddle" ? puzzle.prompt : `Letter game, ${puzzle.acceptedAnswers[0]?.length ?? 0} characters`)}</span>
-      </button>
-    </li>)}
-  </ul>;
+
+  const needle = search.trim().toLowerCase();
+  const searching = needle !== "" || type !== "" || difficulty !== "";
+  const matching = puzzles.filter((puzzle) => (type === "" || puzzle.type === type) && puzzleMatches(puzzle, needle, difficulty));
+  const pageCount = Math.max(1, Math.ceil(matching.length / PICKER_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const visible = searching
+    ? matching.slice((currentPage - 1) * PICKER_PAGE_SIZE, currentPage * PICKER_PAGE_SIZE)
+    : matching.slice(0, PICKER_INITIAL);
+  const capped = !searching && matching.length > PICKER_INITIAL;
+
+  return <div className="mt-5 space-y-3">
+    <div className="flex items-stretch gap-2">
+      <label className="min-w-0 w-full max-w-md text-sm font-semibold"><span className="sr-only">Search puzzles</span>
+        <input type="search" value={search} placeholder="Search names, prompts or answers"
+          onChange={(event) => { setSearch(event.target.value); setPage(1); }}
+          onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }}
+          className="h-11 w-full rounded-md border border-white/40 bg-black/[0.04] px-3 text-white placeholder:text-white/45 focus:outline-2 focus:outline-white" />
+      </label>
+      <FilterMenu hideStatus type={type} status="active" difficulty={difficulty}
+        onType={(next) => { setType(next); setPage(1); }}
+        onStatus={() => undefined}
+        onDifficulty={(next) => { setDifficulty(next); setPage(1); }}
+        onClear={() => { setType(""); setDifficulty(""); setPage(1); }} />
+    </div>
+    <PuzzleTable puzzles={visible} total={puzzles.length} matching={matching.length}
+      page={currentPage} pageCount={pageCount} onPage={setPage} onOpen={onSelect}
+      selectedId={selectedId} hideStatus caption="Bank puzzles. Select a row to schedule it."
+      footerNote={capped ? `Showing ${PICKER_INITIAL} of ${matching.length}. Search or filter to find more.` : undefined} />
+  </div>;
 }

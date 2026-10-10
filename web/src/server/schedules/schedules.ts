@@ -563,6 +563,7 @@ export interface ScheduledRiddle {
 
 export interface AssignedPuzzle {
   type: string;
+  name: string | null;
   difficulty: string;
   prompt: string;
   acceptedAnswers: string[];
@@ -663,7 +664,7 @@ export async function getScheduleDetail(
 
     const { rows } = await client.query(
       `select p.id as user_id, p.display_name,
-              c.id as challenge_id, c.type, c.difficulty, pz.prompt, pz.answer_data,
+              c.id as challenge_id, c.type, c.difficulty, pz.name as puzzle_name, pz.prompt, pz.answer_data,
               c.max_attempts, c.time_limit_seconds,
               s.id as submission_id, s.started_at, s.submitted_at, s.correct,
               s.attempts, s.guess_history, s.time_taken_ms, s.scoring_breakdown,
@@ -692,6 +693,7 @@ export async function getScheduleDetail(
       puzzle: schedule.mode === "personal" && row.challenge_id
         ? {
           type: row.type,
+          name: row.puzzle_name ?? null,
           difficulty: row.difficulty,
           prompt: row.prompt,
           acceptedAnswers: puzzleAnswers(row.answer_data),
@@ -731,6 +733,7 @@ export interface DateAssignment {
   playerId: string | null;
   challengeId: string;
   type: string;
+  name: string | null;
   difficulty: string;
   prompt: string;
   status: "not_started" | "in_progress" | "expired" | "completed";
@@ -751,7 +754,7 @@ export async function getDateAssignments(activeDate: string): Promise<DateRoster
     await requireAdminRead(client);
     const { rows } = await client.query(
       `select d.id as schedule_id, d.mode, c.id as challenge_id, c.assigned_to, c.type,
-              c.difficulty, pz.prompt, s.id as submission_id, s.submitted_at, s.correct,
+              c.difficulty, pz.name as puzzle_name, pz.prompt, s.id as submission_id, s.submitted_at, s.correct,
               coalesce(s.scoring_breakdown @> '{"missed": true}', false) as missed,
               s.submitted_at is null
                 and riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) <= clock_timestamp() as overdue,
@@ -777,6 +780,7 @@ export async function getDateAssignments(activeDate: string): Promise<DateRoster
         playerId: row.assigned_to,
         challengeId: row.challenge_id,
         type: row.type,
+        name: row.puzzle_name ?? null,
         difficulty: row.difficulty,
         prompt: row.prompt,
         status: !row.submission_id || row.mode === "shared" ? "not_started"

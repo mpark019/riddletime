@@ -32,6 +32,7 @@ async function asAdmin() {
 }
 
 const riddle = (prompt = `Riddle ${randomUUID()}`) => ({
+  name: "Test riddle",
   difficulty: "medium",
   puzzle: { type: "riddle", prompt, accepted_answers: ["piano", "a piano"] },
 });
@@ -91,6 +92,7 @@ describe("puzzle bank service", () => {
   it("creates an active riddle with trimmed content and a letter puzzle with derived config (AC-2)", async () => {
     await asAdmin();
     const created = await createPuzzle({
+      name: "Keys",
       difficulty: "hard",
       puzzle: { type: "riddle", prompt: "  What has keys?  ", accepted_answers: [" piano "] },
     });
@@ -98,7 +100,7 @@ describe("puzzle bank service", () => {
       type: "riddle", prompt: "What has keys?", acceptedAnswers: ["piano"], difficulty: "hard", status: "active", timesUsed: 0,
     });
 
-    const letter = await createPuzzle({ difficulty: "easy", puzzle: { type: "character_puzzle", target: "crane7" } });
+    const letter = await createPuzzle({ name: "Crane", difficulty: "easy", puzzle: { type: "character_puzzle", target: "crane7" } });
     expect(letter).toMatchObject({ type: "character_puzzle", prompt: "Letter game", acceptedAnswers: ["CRANE7"] });
     const { rows } = await pool.query("select config from puzzles where id = $1", [letter.id]);
     expect(rows[0].config).toEqual({ target_length: 6, character_set: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" });
@@ -107,12 +109,14 @@ describe("puzzle bank service", () => {
   it("rejects invalid content and persists nothing (AC-2)", async () => {
     const adminId = await asAdmin();
     const bad = [
-      { difficulty: "easy", puzzle: { type: "riddle", prompt: "   ", accepted_answers: ["x"] } },
+      { difficulty: "easy", puzzle: { type: "riddle", prompt: "ok", accepted_answers: ["x"] } },
+      { name: "   ", difficulty: "easy", puzzle: { type: "riddle", prompt: "ok", accepted_answers: ["x"] } },
+      { name: "N", difficulty: "easy", puzzle: { type: "riddle", prompt: "   ", accepted_answers: ["x"] } },
       { difficulty: "easy", puzzle: { type: "riddle", prompt: "ok", accepted_answers: [] } },
       { difficulty: "easy", puzzle: { type: "riddle", prompt: "ok", accepted_answers: ["Piano", "piano!"] } },
       { difficulty: "easy", puzzle: { type: "character_puzzle", target: "has space" } },
       { difficulty: "", puzzle: { type: "riddle", prompt: "ok", accepted_answers: ["x"] } },
-      { difficulty: "easy", puzzle: { type: "riddle", prompt: "ok", accepted_answers: ["x"] }, extra: 1 },
+      { name: "N", difficulty: "easy", puzzle: { type: "riddle", prompt: "ok", accepted_answers: ["x"] }, extra: 1 },
     ];
     for (const input of bad) await expect(createPuzzle(input)).rejects.toBeInstanceOf(ZodError);
     const { rowCount } = await pool.query("select 1 from puzzles where created_by = $1", [adminId]);
@@ -195,18 +199,17 @@ describe("puzzle bank service", () => {
     expect(await updatePuzzle(puzzleId, { status: "active" })).toMatchObject({ status: "active" });
   });
 
-  it("names a puzzle on create, renames it even after it is scheduled, and clears the name", async () => {
+  it("names a puzzle on create and renames it even after it is scheduled, but never clears the name", async () => {
     const adminId = await asAdmin();
     const created = await createPuzzle({ ...riddle(), name: "  Keys riddle  " });
     expect(created.name).toBe("Keys riddle");
-    expect((await createPuzzle(riddle())).name).toBeNull();
     await expect(createPuzzle({ ...riddle(), name: "x".repeat(81) })).rejects.toBeInstanceOf(ZodError);
 
     await scheduleOnPersonalDay(adminId, created.id, [await createProfile("player")]);
     expect(await updatePuzzle(created.id, { name: "Renamed" })).toMatchObject({ name: "Renamed", prompt: created.prompt });
-    expect(await updatePuzzle(created.id, { name: "" })).toMatchObject({ name: null });
+    await expect(updatePuzzle(created.id, { name: "  " })).rejects.toBeInstanceOf(ZodError);
     await expect(updatePuzzle(created.id, { name: "Again", difficulty: "easy" })).rejects.toBeInstanceOf(ConflictError);
-    expect((await getPuzzle(created.id)).name).toBeNull();
+    expect((await getPuzzle(created.id)).name).toBe("Renamed");
   });
 
   it("will not change a puzzle's type through an edit", async () => {
@@ -308,6 +311,13 @@ describe("puzzle statistics (AC-10)", () => {
       averageAttempts: 2,
     });
     expect((await listPuzzles({})).find((p) => p.id === puzzleId)?.stats.solved).toBe(2);
+
+    const { activity } = await getPuzzle(puzzleId);
+    expect(activity?.plays).toHaveLength(6);
+    expect(activity?.plays.map((entry) => entry.outcome).sort())
+      .toEqual(["failed", "in_progress", "missed", "not_started", "solved", "solved"]);
+    expect(activity?.ruleSets).toHaveLength(1);
+    expect(activity?.ruleSets[0]).toMatchObject({ assigned: 6, solved: 2, failed: 1, missed: 1, solveRate: 2 / 3 });
   });
 
   it("reports empty statistics for a puzzle that has never been scheduled", async () => {

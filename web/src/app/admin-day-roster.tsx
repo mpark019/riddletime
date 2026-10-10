@@ -14,6 +14,9 @@ const statusLabels: Record<DateAssignment["status"], string> = {
 };
 const number = new Intl.NumberFormat();
 
+const puzzleLabel = (assignment: DateAssignment) => assignment.name
+  ?? (assignment.type === "riddle" ? assignment.prompt : "Letter game");
+
 function outcome(assignment: DateAssignment) {
   if (assignment.status !== "completed") return { label: statusLabels[assignment.status], tone: "" };
   if (assignment.correct) return { label: "Solved", tone: "text-[#00940a]" };
@@ -85,7 +88,8 @@ export function AdminDayRoster({
     <p className="mt-1 text-white/55">Manage it from the All days tab. Personal puzzles cannot be added to this day.</p>
   </div>;
 
-  const cell = "px-3 py-1.5 align-top";
+  const th = "sticky top-0 z-10 bg-surface-solid px-3 py-2.5 text-left text-sm font-semibold shadow-[inset_0_0_0_999px_rgba(0,0,0,0.06)]";
+  const cell = "border-b border-white/15 group-last:border-0 group-hover:bg-white/[0.08] first:rounded-l-lg last:rounded-r-lg px-3 py-3 align-middle";
 
   function removeControl(assignment: DateAssignment, name: string) {
     if (assignment.status !== "not_started") {
@@ -106,7 +110,8 @@ export function AdminDayRoster({
   }
 
   return <div className="flex min-h-0 flex-1 flex-col">
-    <div className="max-h-96 min-h-0 flex-1 overflow-auto rounded-lg border border-white/25 lg:max-h-none">
+    <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-white/25 p-2">
+    <div className="max-h-96 min-h-0 flex-1 overflow-auto lg:max-h-none">
         <ul className="divide-y divide-white/25 sm:hidden">{sorted.map((player) => {
           const assignment = byPlayer.get(player.userId);
           return <li key={player.userId} className={`px-3 py-2 text-sm ${assignment ? "" : "text-white/55"}`}>
@@ -117,7 +122,8 @@ export function AdminDayRoster({
             {assignment
               ? <div className="mt-1 flex items-center justify-between gap-3">
                 <span className="min-w-0 text-[13px]">
-                  <span className="font-semibold">{typeLabels[assignment.type] ?? "Puzzle"} · {assignment.difficulty}</span>
+                  <span className="block truncate font-semibold">{puzzleLabel(assignment)}</span>
+                  <span className="block text-xs text-white/60">{typeLabels[assignment.type] ?? "Puzzle"} · {assignment.difficulty}</span>
                   <span className={`block ${outcome(assignment).tone}`}>{resultText(assignment)}</span>
                 </span>
                 {removeControl(assignment, player.displayName)}
@@ -125,20 +131,21 @@ export function AdminDayRoster({
               : <p className="mt-1 text-[13px]">No riddle</p>}
           </li>;
         })}</ul>
-        <table className="hidden w-full border-collapse text-left text-[13px] sm:table">
-          <thead className="sticky top-0 bg-surface-solid text-xs uppercase tracking-wide text-white/55">
+        <table className="hidden w-full border-separate border-spacing-0 text-sm sm:table">
+          <caption className="sr-only">Players and their puzzle for this day.</caption>
+          <thead>
             <tr>
-              <th scope="col" className="px-3 py-2 font-semibold">Player</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Puzzle</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Status</th>
-              <th scope="col" className="px-3 py-2 font-semibold">Result</th>
-              <th scope="col" className="px-3 py-2 text-right font-semibold">Total</th>
-              <th scope="col" className="px-3 py-2"><span className="sr-only">Actions</span></th>
+              <th scope="col" className={`${th} rounded-l-lg`}>Player</th>
+              <th scope="col" className={th}>Puzzle</th>
+              <th scope="col" className={th}>Status</th>
+              <th scope="col" className={th}>Result</th>
+              <th scope="col" className={`${th} text-right`}>Total</th>
+              <th scope="col" className={`${th} rounded-r-lg`}><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>{sorted.map((player) => {
             const assignment = byPlayer.get(player.userId);
-            if (!assignment) return <tr key={player.userId} className="border-t border-white/25 text-white/55">
+            if (!assignment) return <tr key={player.userId} className="group text-white/55">
               <td className={`${cell} font-semibold text-inherit`}>{player.displayName}{player.name && <span className="block text-xs font-normal">{player.name}</span>}</td>
               <td className={cell}>No riddle</td>
               <td className={cell}>-</td>
@@ -147,9 +154,12 @@ export function AdminDayRoster({
               <td className={cell} />
             </tr>;
             const result = outcome(assignment);
-            return <tr key={player.userId} className="border-t border-white/25">
+            return <tr key={player.userId} className="group">
               <td className={`${cell} font-semibold`}>{player.displayName}{player.name && <span className="block text-xs font-normal text-white/60">{player.name}</span>}</td>
-              <td className={`${cell} max-w-xs`}><span className="font-semibold">{typeLabels[assignment.type] ?? "Puzzle"} · {assignment.difficulty}</span>{assignment.type === "riddle" && <span className="block truncate text-white/65" title={assignment.prompt}>{assignment.prompt}</span>}</td>
+              <td className={`${cell} max-w-xs`}>
+                <span className="block truncate font-semibold" title={puzzleLabel(assignment)}>{puzzleLabel(assignment)}</span>
+                <span className="block text-xs text-white/60">{typeLabels[assignment.type] ?? "Puzzle"} · {assignment.difficulty}</span>
+              </td>
               <td className={`${cell} ${assignment.status === "completed" ? "text-white/55" : ""}`}>{assignment.status === "completed" ? "Finished" : statusLabels[assignment.status]}</td>
               <td className={`${cell} font-semibold ${result.tone}`}>{assignment.status === "completed" ? `${result.label}${assignment.points === null ? "" : ` (${assignment.points > 0 ? "+" : ""}${assignment.points})`}` : ""}</td>
               <td className={`${cell} text-right tabular-nums`}>{number.format(player.totalPoints)}</td>
@@ -157,6 +167,7 @@ export function AdminDayRoster({
             </tr>;
           })}</tbody>
         </table>
+    </div>
     </div>
     {pendingPlayed && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4" role="presentation">
       <section role="alertdialog" aria-modal="true" aria-labelledby="delete-assignment-title" aria-describedby="delete-assignment-description" className="w-full max-w-md rounded-md border border-red-200/80 bg-surface-solid p-6 shadow-2xl">

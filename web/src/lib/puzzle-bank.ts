@@ -21,8 +21,9 @@ export function buildPuzzleRequest(form: PuzzleForm) {
   const difficulty = form.difficulty.trim();
   if (!isDifficulty(difficulty)) throw new Error("Choose a difficulty.");
   const name = (form.name ?? "").trim();
+  if (!name) throw new Error("Enter a name for the puzzle.");
   if (name.length > MAX_NAME_LENGTH) throw new Error(`The name can be at most ${MAX_NAME_LENGTH} characters.`);
-  const named = name ? { name } : {};
+  const named = { name };
 
   if (form.kind === "character_puzzle") {
     const target = form.targetWord.trim().toUpperCase();
