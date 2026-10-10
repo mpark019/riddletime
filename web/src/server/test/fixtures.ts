@@ -33,6 +33,7 @@ interface PuzzleFixture {
   answerData?: object;
   difficulty?: string;
   status?: "draft" | "active" | "retired";
+  hint?: { text: string; costPoints: number };
 }
 
 // Accepts a Pool or PoolClient so a test can create the puzzle inside its own transaction.
@@ -42,8 +43,8 @@ export async function insertPuzzle(
 ): Promise<string> {
   const type = fixture.type ?? "riddle";
   const { rows } = await db.query(
-    `insert into puzzles (type, prompt, config, answer_data, difficulty, status, created_by)
-     values ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7)
+    `insert into puzzles (type, prompt, config, answer_data, difficulty, status, created_by, hint, hint_cost_points)
+     values ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7, $8, $9)
      returning id`,
     [
       type,
@@ -53,6 +54,8 @@ export async function insertPuzzle(
       fixture.difficulty ?? "standard",
       fixture.status ?? "active",
       fixture.createdBy,
+      fixture.hint?.text ?? null,
+      fixture.hint?.costPoints ?? null,
     ],
   );
   return rows[0].id as string;

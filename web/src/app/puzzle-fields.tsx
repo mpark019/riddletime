@@ -36,6 +36,8 @@ export interface PuzzleFieldValues {
   targetWord: string;
   promptImagePath: string;
   promptImageUrl: string;
+  hint: string;
+  hintCost: string;
 }
 
 // Fire and forget: the server only removes a file that no puzzle uses.
@@ -55,7 +57,23 @@ export const emptyFieldValues: PuzzleFieldValues = {
   targetWord: "",
   promptImagePath: "",
   promptImageUrl: "",
+  hint: "",
+  hintCost: "",
 };
+
+function HintFields({ values, onChange }: { values: PuzzleFieldValues; onChange: (values: PuzzleFieldValues) => void }) {
+  return <div className="mt-5 grid gap-4 sm:grid-cols-[1fr_9rem]">
+    <label className="block text-sm font-semibold">Hint (optional)
+      <textarea maxLength={1_000} rows={2} value={values.hint} onChange={(event) => onChange({ ...values, hint: event.target.value })} placeholder="Think about a musical instrument" className={`${inputClass} resize-y`} />
+      <span className="mt-1 block text-xs font-normal text-white/55">Players can reveal it during play. Leave blank for no hint.</span>
+    </label>
+    <label className="block text-sm font-semibold">Hint cost (points)
+      <input type="number" inputMode="numeric" min={0} step={1} required={values.hint.trim() !== ""} disabled={values.hint.trim() === ""} value={values.hintCost}
+        onChange={(event) => onChange({ ...values, hintCost: event.target.value })} placeholder="10" className={inputClass} />
+      <span className="mt-1 block text-xs font-normal text-white/55">Taken off the result; a correct answer never goes below 0.</span>
+    </label>
+  </div>;
+}
 
 function PromptImageField({ values, onChange }: { values: PuzzleFieldValues; onChange: (values: PuzzleFieldValues) => void }) {
   const [busy, setBusy] = useState(false);
@@ -107,14 +125,17 @@ export function PuzzleContentFields({ kind, values, onChange }: {
   onChange: (values: PuzzleFieldValues) => void;
 }) {
   if (kind === "character_puzzle") {
-    return <label className="mt-5 block text-sm font-semibold">Answer
+    return <>
+      <label className="mt-5 block text-sm font-semibold">Answer
       <span className="mt-1 flex gap-2">
         <input type="text" required maxLength={MAX_TARGET_LENGTH} autoComplete="off" spellCheck={false} value={values.targetWord}
           onChange={(event) => onChange({ ...values, targetWord: event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })}
           placeholder="CRANE" className={`${inputClass} mt-0 font-mono uppercase tracking-widest`} />
       </span>
       <span className="mt-1 block text-xs font-normal text-white/55">Up to {MAX_TARGET_LENGTH} letters and digits, no spaces. Players see only the length.</span>
-    </label>;
+      </label>
+      <HintFields values={values} onChange={onChange} />
+    </>;
   }
   if (kind === "image_submission") {
     return <>
@@ -133,5 +154,6 @@ export function PuzzleContentFields({ kind, values, onChange }: {
       <textarea required maxLength={25_050} rows={4} value={values.acceptedAnswers} onChange={(event) => onChange({ ...values, acceptedAnswers: event.target.value })} placeholder={"piano\na piano"} className={`${inputClass} resize-y`} />
       <span className="mt-1 block text-xs font-normal text-white/55">One answer per line, up to 50. Capitalization and punctuation are ignored during grading.</span>
     </label>
+    <HintFields values={values} onChange={onChange} />
   </>;
 }

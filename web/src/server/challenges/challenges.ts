@@ -4,7 +4,7 @@ import type { PoolClient } from "pg";
 import { z } from "zod";
 import { withTransaction } from "@/lib/db";
 import { requireProfileRead, requirePlayer } from "@/server/identity/identity";
-import { BadRequestError, ForbiddenError, NotFoundError } from "@/server/http/errors";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "@/server/http/errors";
 import { isRepeatGuess, type StaffPlayerStatusKind } from "@/lib/challenge-state";
 import {
   characterConfigSchema,
@@ -231,8 +231,8 @@ async function getSharedPlayState(
 ) {
   const { rows } = await client.query(
     `select c.id as challenge_id, c.type, c.difficulty, pz.prompt,
-            c.scoring_policy, pz.config, c.time_limit_seconds, c.max_attempts,
-            s.id as submission_id, s.started_at, s.submitted_at, s.correct,
+            c.scoring_policy, pz.config, pz.hint, pz.hint_cost_points, c.time_limit_seconds, c.max_attempts,
+            s.id as submission_id, s.started_at, s.submitted_at, s.hint_used_at, s.correct,
             s.feedback, s.guess_history, s.attempts, s.time_taken_ms,
             s.image_paths, s.note, s.review_state, s.review_comment,
             s.scoring_breakdown, clock_timestamp() as server_time,
@@ -258,6 +258,7 @@ async function getSharedPlayState(
       ...(config?.success ? { targetLength: config.data.target_length } : {}),
       ...(image?.success ? { maxImages: image.data.max_images } : {}),
       ...(policy.success ? { scoringPolicy: toPublicScoringPolicy(policy.data) } : {}),
+      ...(row ? toHintView(row) : {}),
     };
   }
 
@@ -290,6 +291,7 @@ async function getSharedPlayState(
     guessHistory: guessHistory.map(withoutOffset),
     feedback: row.feedback,
     scoringPolicy,
+    ...toHintView(row),
     ...(row.type === "character_puzzle" ? { config: parseStoredCharacterConfig(row.config) } : {}),
     ...(row.type === "image_submission" ? await toImageSessionView(row) : {}),
   };
@@ -313,6 +315,14 @@ async function getSharedPlayState(
         : {}),
     },
   };
+}
+
+// The hint text leaves the server only after the player has paid for it.
+function toHintView(row: Record<string, unknown>) {
+  const costPoints = row.hint_cost_points;
+  if (typeof costPoints !== "number") return {};
+  const revealed = row.hint_used_at !== null && row.hint_used_at !== undefined;
+  return { hint: { costPoints, revealed, text: revealed ? (row.hint as string) : null } };
 }
 
 function outcomeOf(breakdown: unknown): "full" | "partial" | "none" | null {
@@ -533,7 +543,7 @@ export async function submitChallenge(
     const player = await requirePlayer(client);
 
     const { rows: challengeRows } = await client.query(
-      `select c.id as challenge_id, c.type, pz.answer_data, pz.config, c.scoring_policy,
+      `select c.id as challenge_id, c.type, pz.answer_data, pz.config, pz.hint_cost_points, c.scoring_policy,
               c.max_attempts, c.time_limit_seconds, d.active_date::text as active_date
        from challenges c
        join puzzles pz on pz.id = c.puzzle_id
@@ -550,7 +560,7 @@ export async function submitChallenge(
     }
 
     const { rows: submissionRows } = await client.query(
-      `select id, started_at, submitted_at, correct, scoring_breakdown, attempts, guess_history
+      `select id, started_at, submitted_at, hint_used_at, correct, scoring_breakdown, attempts, guess_history
        from submissions where challenge_id = $1 and user_id = $2 for update`,
       [challenge.challenge_id, player.id],
     );
@@ -609,6 +619,7 @@ export async function submitChallenge(
     );
     const elapsedMs = Number(elapsedMsRaw);
     const deadlineMs = Number(deadlineMsRaw);
+    const hintCostPoints = submission.hint_used_at ? ((challenge.hint_cost_points as number | null) ?? 0) : 0;
 
     if (elapsedMs >= deadlineMs) {
       const breakdown = computeResult(
@@ -617,6 +628,7 @@ export async function submitChallenge(
         [],
         deadlineMs,
         failurePenaltyFromStoredPolicy(challenge.scoring_policy),
+        hintCostPoints,
       );
       if (storedResponse === null) {
         await client.query(
@@ -715,6 +727,7 @@ export async function submitChallenge(
       toSpeedBonuses(scoringPolicy),
       elapsedMs,
       scoringPolicy.failure_penalty_points ?? 0,
+      hintCostPoints,
     );
 
     await client.query(
@@ -768,5 +781,41 @@ export async function submitChallenge(
       alreadyFinalized: false,
       play: await requireSavedSharedPlayState(client, dailyChallengeId, player.id),
     };
+  });
+}
+
+export async function revealHint(dailyChallengeId: string) {
+  return withTransaction(async (client) => {
+    const player = await requirePlayer(client);
+
+    const { rows: challengeRows } = await client.query(
+      `select c.id as challenge_id, pz.hint_cost_points, c.time_limit_seconds, d.active_date::text as active_date
+       from challenges c
+       join puzzles pz on pz.id = c.puzzle_id
+       join daily_challenges d on d.id = c.daily_challenge_id
+       where d.id = $1 and (c.mode = 'shared' or c.assigned_to = $2)`,
+      [dailyChallengeId, player.id],
+    );
+    const challenge = challengeRows[0];
+    if (!challenge) throw new NotFoundError("Puzzle not found for today");
+    if (challenge.hint_cost_points === null) throw new BadRequestError("This puzzle has no hint");
+
+    const { rows: submissionRows } = await client.query(
+      `select s.id, s.submitted_at, s.review_submitted_at,
+              riddle_private.session_deadline(s.started_at, $3::int, $4::date, current_setting('timezone')) <= clock_timestamp() as expired
+       from submissions s where s.challenge_id = $1 and s.user_id = $2 for update`,
+      [challenge.challenge_id, player.id, challenge.time_limit_seconds, challenge.active_date],
+    );
+    const submission = submissionRows[0];
+    if (!submission) throw new NotFoundError("Start the challenge before asking for a hint");
+    if (submission.submitted_at || submission.expired) {
+      throw new ConflictError("This challenge is finished, so a hint can no longer be revealed");
+    }
+
+    await client.query(
+      "update submissions set hint_used_at = coalesce(hint_used_at, clock_timestamp()) where id = $1",
+      [submission.id],
+    );
+    return { play: await requireSavedSharedPlayState(client, dailyChallengeId, player.id) };
   });
 }

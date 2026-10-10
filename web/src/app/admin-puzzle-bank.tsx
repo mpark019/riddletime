@@ -61,6 +61,8 @@ function formFromPuzzle(puzzle: BankPuzzle): PuzzleForm {
     targetWord: puzzle.type === "character_puzzle" ? puzzle.acceptedAnswers[0] ?? "" : "",
     promptImagePath: puzzle.promptImagePath ?? "",
     promptImageUrl: puzzle.promptImageUrl,
+    hint: puzzle.hint ?? "",
+    hintCost: puzzle.hintCostPoints === null ? "" : String(puzzle.hintCostPoints),
   };
 }
 
@@ -177,6 +179,8 @@ export function AdminPuzzleBank({ canManage = true, viewerId }: { canManage?: bo
       targetWord: form.targetWord,
       promptImagePath: form.promptImagePath ?? "",
       promptImageUrl: form.promptImageUrl ?? "",
+      hint: form.hint ?? "",
+      hintCost: form.hintCost ?? "",
     });
     setError(null);
     setNotice(null);
@@ -487,6 +491,7 @@ export function PuzzleDetails({ puzzle, busy, canManage, canDelete = canManage, 
       {puzzle.type === "image_submission"
         ? <div className="flex gap-2"><dt className={label}>Grading:</dt><dd>Graded by an admin; up to {puzzle.maxImages ?? 5} images</dd></div>
         : <div className="flex gap-2"><dt className={label}>Accepted:</dt><dd className="break-words">{puzzle.acceptedAnswers.join(", ")}</dd></div>}
+      {puzzle.hint !== null && <div className="flex gap-2"><dt className={label}>Hint:</dt><dd className="break-words">{puzzle.hint} ({puzzle.hintCostPoints} pts)</dd></div>}
       <div className="flex gap-2"><dt className={label}>Created by:</dt><dd className="break-words">{puzzle.createdByName ?? "Unknown"}</dd></div>
     </dl>
     <div className="mt-4 flex flex-wrap gap-2">

@@ -10,6 +10,7 @@ export interface NewPuzzleContent {
   prompt: string;
   config: object;
   answerData: object;
+  hint?: { text: string; costPoints: number };
 }
 
 export interface PuzzleSource {
@@ -43,12 +44,12 @@ export async function insertPuzzle(
   status: PuzzleStatus,
 ): Promise<string> {
   const { rows } = await client.query(
-    `insert into puzzles (type, name, prompt, config, answer_data, difficulty, status, created_by)
-     values ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)
+    `insert into puzzles (type, name, prompt, config, answer_data, difficulty, status, created_by, hint, hint_cost_points)
+     values ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10)
      returning id`,
     [
       content.type, name, content.prompt, JSON.stringify(content.config), JSON.stringify(content.answerData),
-      difficulty, status, adminId,
+      difficulty, status, adminId, content.hint?.text ?? null, content.hint?.costPoints ?? null,
     ],
   );
   return rows[0].id as string;

@@ -11,6 +11,8 @@ function puzzle(status: BankPuzzle["status"], name: string): BankPuzzle {
     name,
     prompt: "What has keys?",
     acceptedAnswers: ["piano"],
+    hint: null,
+    hintCostPoints: null,
     maxImages: null,
     promptImageUrl: null,
     promptImagePath: null,

@@ -115,10 +115,29 @@ const characterPresetSchema = z.object({
   types: z.object({ character_puzzle: characterSettingsSchema }).strict(),
 }).strict();
 
+const hintFields = {
+  hint: z.string().trim().min(1).max(1_000).optional(),
+  hint_cost_points: z.number().int().nonnegative().max(MAX_DATABASE_INTEGER).optional(),
+};
+
+function requireHintAndCost(
+  puzzle: { hint?: string; hint_cost_points?: number },
+  context: z.RefinementCtx,
+) {
+  if ((puzzle.hint === undefined) !== (puzzle.hint_cost_points === undefined)) {
+    context.addIssue({
+      code: "custom",
+      path: [puzzle.hint === undefined ? "hint" : "hint_cost_points"],
+      message: "A hint needs both its text and its cost",
+    });
+  }
+}
+
 export const characterPuzzleSchema = z.object({
   type: z.literal("character_puzzle"),
   target: characterTargetSchema,
-}).strict();
+  ...hintFields,
+}).strict().superRefine(requireHintAndCost);
 
 export const imagePuzzleSchema = z.object({
   type: z.literal("image_submission"),
@@ -135,7 +154,9 @@ export const manualPuzzleSchema = z.object({
   accepted_answers: z.array(z.string().trim().min(1).max(500))
     .min(1)
     .max(MAX_ACCEPTED_ANSWERS),
+  ...hintFields,
 }).strict().superRefine((puzzle, context) => {
+  requireHintAndCost(puzzle, context);
   const seen = new Set<string>();
   for (const [index, answer] of puzzle.accepted_answers.entries()) {
     const normalized = normalizeAnswer(answer);
