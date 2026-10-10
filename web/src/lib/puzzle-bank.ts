@@ -2,7 +2,8 @@ import { CHARACTER_SET, MAX_TARGET_LENGTH } from "@/server/challenges/character-
 import { DIFFICULTY_RULES, isDifficulty } from "./difficulty";
 import type { StaffRiddlePreview } from "./challenge-state";
 
-export type BankPuzzleKind = "riddle" | "character_puzzle";
+export type BankPuzzleKind = "riddle" | "character_puzzle" | "image_submission";
+import { MAX_IMAGES } from "@/server/challenges/image-puzzle";
 
 export interface PuzzleForm {
   name?: string;
@@ -11,6 +12,8 @@ export interface PuzzleForm {
   prompt: string;
   acceptedAnswers: string;
   targetWord: string;
+  promptImagePath?: string;
+  promptImageUrl?: string | null;
 }
 
 export const MAX_NAME_LENGTH = 80;
@@ -33,6 +36,21 @@ export function buildPuzzleRequest(form: PuzzleForm) {
       throw new Error(`The answer must be at most ${MAX_TARGET_LENGTH} characters.`);
     }
     return { ...named, difficulty, puzzle: { type: "character_puzzle" as const, target } };
+  }
+
+  if (form.kind === "image_submission") {
+    const prompt = form.prompt.trim();
+    const promptImagePath = (form.promptImagePath ?? "").trim();
+    if (!prompt && !promptImagePath) throw new Error("Enter prompt text, upload a prompt image, or both.");
+    return {
+      ...named,
+      difficulty,
+      puzzle: {
+        type: "image_submission" as const,
+        prompt,
+        ...(promptImagePath ? { prompt_image_path: promptImagePath } : {}),
+      },
+    };
   }
 
   const prompt = form.prompt.trim();
@@ -105,6 +123,7 @@ export function buildPuzzlePreview(form: PuzzleForm, rules?: PreviewRules): Staf
   const resolved: PreviewRules = rules ?? {
     timeLimitSeconds: defaults ? Number(defaults.timeLimitSeconds) : SAMPLE_TIME_LIMIT_SECONDS,
     maxAttempts: form.kind === "character_puzzle" ? SAMPLE_LETTER_TRIES
+      : form.kind === "image_submission" ? 1
       : defaults ? Number(defaults.maxAttempts) : SAMPLE_RIDDLE_TRIES,
     scoringPolicy: {
       base_points: defaults ? Number(defaults.basePoints) : SAMPLE_BASE_POINTS,
@@ -127,6 +146,17 @@ export function buildPuzzlePreview(form: PuzzleForm, rules?: PreviewRules): Staf
       type: "character_puzzle",
       prompt: "Letter game",
       config: { target_length: target.length, character_set: CHARACTER_SET },
+    };
+  }
+  if (form.kind === "image_submission") {
+    const promptImageUrl = form.promptImageUrl ?? null;
+    if (!form.prompt.trim() && !promptImageUrl && !(form.promptImagePath ?? "").trim()) return null;
+    return {
+      ...base,
+      type: "image_submission",
+      prompt: form.prompt.trim(),
+      maxImages: MAX_IMAGES,
+      promptImageUrl,
     };
   }
   const prompt = form.prompt.trim();

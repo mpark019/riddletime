@@ -27,7 +27,7 @@ export async function createAuthUser(email?: string): Promise<string> {
 
 interface PuzzleFixture {
   createdBy: string;
-  type?: "riddle" | "character_puzzle";
+  type?: "riddle" | "character_puzzle" | "image_submission";
   prompt?: string;
   config?: object;
   answerData?: object;
@@ -47,9 +47,9 @@ export async function insertPuzzle(
      returning id`,
     [
       type,
-      fixture.prompt ?? (type === "riddle" ? "What has keys but no locks?" : "Letter game"),
-      JSON.stringify(fixture.config ?? (type === "riddle" ? {} : { target_length: 4, character_set: "ABCD" })),
-      JSON.stringify(fixture.answerData ?? (type === "riddle" ? { accepted: ["piano"] } : { target: "ABCD" })),
+      fixture.prompt ?? (type === "riddle" ? "What has keys but no locks?" : type === "image_submission" ? "Draw a house" : "Letter game"),
+      JSON.stringify(fixture.config ?? (type === "riddle" ? {} : type === "image_submission" ? { max_images: 2 } : { target_length: 4, character_set: "ABCD" })),
+      JSON.stringify(fixture.answerData ?? (type === "riddle" ? { accepted: ["piano"] } : type === "image_submission" ? {} : { target: "ABCD" })),
       fixture.difficulty ?? "standard",
       fixture.status ?? "active",
       fixture.createdBy,

@@ -412,7 +412,7 @@ describe("puzzle bank for spectators", () => {
     expect((await getPuzzle(draft)).status).toBe("draft");
   });
 
-  it("refuses to delete a puzzle in any status (AC-6)", async () => {
+  it("refuses to delete another account's puzzle in any status (AC-6)", async () => {
     const adminId = await createProfile("admin");
     const ids = await Promise.all((["draft", "active", "retired"] as const)
       .map((status) => insertPuzzle(pool, { createdBy: adminId, status })));
@@ -422,6 +422,16 @@ describe("puzzle bank for spectators", () => {
       await expect(deletePuzzle(id)).rejects.toBeInstanceOf(ForbiddenError);
       expect((await getPuzzle(id)).id).toBe(id);
     }
+  });
+
+  it("lets a spectator delete their own unscheduled draft only", async () => {
+    const spectatorId = await asSpectator();
+    const own = await insertPuzzle(pool, { createdBy: spectatorId, status: "draft" });
+    const promoted = await insertPuzzle(pool, { createdBy: spectatorId, status: "active" });
+
+    await expect(deletePuzzle(promoted)).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(deletePuzzle(own)).resolves.toEqual({ id: own });
+    await expect(getPuzzle(own)).rejects.toBeInstanceOf(NotFoundError);
   });
 
   it("reaches the same decisions through the routes (AC-2, AC-5, AC-6)", async () => {

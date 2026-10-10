@@ -146,3 +146,35 @@ describe("summarizeTimeline", () => {
     expect(summary).toEqual({ awayCount: 1, awayMs: 1_000 });
   });
 });
+
+describe("buildTimeline image events", () => {
+  it("orders image changes with tab absences and puts the submit time last", () => {
+    const timeline = buildTimeline({
+      startedAtMs: START,
+      endMs: at(60_000),
+      events: [
+        { kind: "image_added", atMs: at(10_000) },
+        { kind: "away", atMs: at(12_000) },
+        { kind: "back", atMs: at(20_000) },
+        { kind: "image_removed", atMs: at(25_000) },
+        { kind: "image_added", atMs: at(30_000) },
+      ],
+      guesses: [],
+      submittedAtMs: at(45_000),
+    });
+    expect(timeline).toEqual([
+      { kind: "image_added", offsetMs: 10_000 },
+      { kind: "away", offsetMs: 12_000, durationMs: 8_000, returned: true },
+      { kind: "image_removed", offsetMs: 25_000 },
+      { kind: "image_added", offsetMs: 30_000 },
+      { kind: "submitted", offsetMs: 45_000 },
+    ]);
+  });
+
+  it("omits the submit entry when nothing was submitted and clamps it to the session", () => {
+    const base = { startedAtMs: START, endMs: at(5_000), events: [], guesses: [] };
+    expect(buildTimeline({ ...base, submittedAtMs: null })).toEqual([]);
+    expect(buildTimeline({ ...base, submittedAtMs: at(9_000) })).toEqual([{ kind: "submitted", offsetMs: 5_000 }]);
+  });
+});
+

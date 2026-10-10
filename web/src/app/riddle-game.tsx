@@ -11,6 +11,15 @@ import { FloatingQuestionMarks } from "./floating-question-marks";
 import { PrimaryButton } from "./primary-button";
 import { useSessionActivity } from "./use-session-activity";
 import {
+  ImageDraftPanel,
+  ImageGallery,
+  ImageNote,
+  ImagePreviewControls,
+  ImagePrompt,
+  PromptImage,
+} from "./image-submission-panel";
+import { imageResultHeading, resultVariant, type ResultVariant } from "./image-submission-helpers";
+import {
   attemptsUrgency,
   estimateServerClockOffset,
   countdownUrgency,
@@ -436,6 +445,10 @@ export function RiddleGame({
     return <CompletedRiddle play={play} />;
   }
 
+  if (play.status === "pending_review") {
+    return <PendingReview play={play} />;
+  }
+
   const secondsRemaining = remainingSeconds(
     play.deadline,
     loaded.serverClockOffsetMs,
@@ -445,7 +458,8 @@ export function RiddleGame({
   const urgency = countdownUrgency(secondsRemaining, play.timeLimitSeconds);
   const repeatGuess = response.trim() !== "" && isRepeatGuess(play.guessHistory, response);
   const characterConfig = play.type === "character_puzzle" ? play.config : undefined;
-  const speedTiers = play.timeLimitSeconds === null || play.deadline === null
+  const isImage = play.type === "image_submission";
+  const speedTiers = isImage ? [] : play.timeLimitSeconds === null || play.deadline === null
     ? speedTierStatusesAtElapsed(
       play.scoringPolicy.speed_bonuses,
       clientNow + loaded.serverClockOffsetMs - Date.parse(play.startedAt),
@@ -465,13 +479,16 @@ export function RiddleGame({
       difficulty={play.difficulty}
       time={play.timeLimitSeconds === null ? formatTimeLimit(null) : formatCountdown(secondsRemaining)}
       urgency={urgency}
-      tries={`${play.attemptsRemaining}/${play.maxAttempts}`}
+      tries={isImage ? undefined : `${play.attemptsRemaining}/${play.maxAttempts}`}
       triesUrgency={attemptsUrgency(play.attemptsRemaining, play.maxAttempts)}
+      variant={isImage ? "image" : "answer"}
     />
 
     {speedTiers.length > 0 && <SpeedTiers tiers={speedTiers} basePoints={play.scoringPolicy.base_points} />}
 
-    {characterConfig
+    {isImage
+      ? <ImagePrompt prompt={play.prompt} url={play.promptImageUrl} />
+      : characterConfig
       ? <div className="mt-8 border-t border-white/25 pt-6">
         <p className="mb-5 text-center text-sm font-semibold uppercase tracking-wide text-white/55">Letter game</p>
         <div>
@@ -490,12 +507,19 @@ export function RiddleGame({
       </div>
       : <p className="mt-8 border-y border-white/25 py-8 whitespace-pre-line text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{play.prompt}</p>}
 
-    {!characterConfig && play.guessHistory.length > 0 && <div className="mt-6">
+    {!isImage && !characterConfig && play.guessHistory.length > 0 && <div className="mt-6">
       <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Previous guesses</h4>
       <ul className="mt-2 divide-y divide-white/20 border-y border-white/25">
         {play.guessHistory.map((guess, index) => <li key={`${guess.response}-${index}`} className="flex items-center justify-between gap-4 py-3"><span>{guess.response}</span><span className={`text-sm font-semibold ${guess.correct ? "text-emerald-700" : "text-red-700"}`}>{guess.correct ? "Correct" : "Incorrect"}</span></li>)}
       </ul>
     </div>}
+
+    {isImage && secondsRemaining > 0 && <ImageDraftPanel
+      scheduleId={loaded.data.schedule.id}
+      play={play}
+      locked={refreshRequired}
+      onPlay={applyAuthoritativePlay}
+    />}
 
     {refreshRequired
       ? <div className="mt-7 rounded-md border border-amber-700/50 bg-amber-50 p-4"><p className="text-amber-900">Do not submit again until the saved result has been checked.</p><PrimaryButton type="button" disabled={busy} onClick={() => void refreshSavedGame()} className="mt-4 px-5 py-2.5">{busy ? "Refreshing…" : "Refresh saved game"}</PrimaryButton></div>
@@ -512,7 +536,7 @@ export function RiddleGame({
             <PrimaryButton type="button" disabled={busy} onClick={() => void tryAgain(play.submissionId)} className="mt-4 px-5 py-2.5">{busy ? "Trying…" : "Try again"}</PrimaryButton>
           </div>
           : <p role="status" className="mt-7 text-lg font-semibold">Time’s up. Saving your result…</p>
-        : characterConfig ? null
+        : characterConfig || isImage ? null
         : <form onSubmit={submit} className="mt-7">
           <label htmlFor="riddle-response" className="text-sm font-semibold text-white/70">Your answer</label>
           <div className="mt-2 flex flex-col gap-3 sm:flex-row">
@@ -541,7 +565,8 @@ export function NotStartedRiddle({
   readOnly?: boolean;
 }) {
   const isLetterGame = play.type === "character_puzzle";
-  const gameLabel = play.type === undefined ? null : isLetterGame ? "Letter game" : "Riddle";
+  const isImage = play.type === "image_submission";
+  const gameLabel = play.type === undefined ? null : isLetterGame ? "Letter game" : isImage ? "Image submission" : "Riddle";
   const wide = isLetterGame && (play.targetLength ?? 0) > LONG_LETTER_GAME_LENGTH;
   return <RiddleFrame>
     <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">Daily challenge{gameLabel && ` · ${gameLabel}`}</p>
@@ -550,10 +575,11 @@ export function NotStartedRiddle({
     {wide && <p role="note" className="mt-4 max-w-xl rounded-md border border-amber-700/50 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
       This letter game has {play.targetLength} letters. The board is wide, so play on a laptop or desktop if feasible.
     </p>}
-    {play.scoringPolicy && <div className="mt-6"><RiddleStakes policy={play.scoringPolicy} /></div>}
+    {isImage && <p className="mt-3 max-w-xl text-white/70">Upload{play.maxImages ? ` up to ${play.maxImages} ${play.maxImages === 1 ? "image" : "images"}` : " images"} and an optional note. An admin grades it after you submit.</p>}
+    {play.scoringPolicy && <div className="mt-6"><RiddleStakes policy={play.scoringPolicy} variant={isImage ? "image" : "answer"} /></div>}
     {error && <div className="mt-5"><ErrorMessage message={error} /></div>}
     {readOnly ? null : play.available
-      ? <PrimaryButton type="button" disabled={busy} onClick={onStart} className="mt-7 px-6 py-3">{busy ? "Starting…" : isLetterGame ? "Start letter game" : "Start riddle"}</PrimaryButton>
+      ? <PrimaryButton type="button" disabled={busy} onClick={onStart} className="mt-7 px-6 py-3">{busy ? "Starting…" : isLetterGame ? "Start letter game" : isImage ? "Start image puzzle" : "Start riddle"}</PrimaryButton>
       : <p className="mt-6 rounded-md border border-white/25 bg-black/[0.04] px-4 py-3 text-white/70">Today’s puzzle has not been published yet.</p>}
   </RiddleFrame>;
 }
@@ -562,8 +588,10 @@ const staffStatusLabels: Record<StaffPlayerStatusKind, { label: string; tone: st
   no_riddle: { label: "No riddle today", tone: "text-white/60" },
   not_started: { label: "Not started", tone: "" },
   in_progress: { label: "In progress", tone: "" },
+  pending_review: { label: "Awaiting review", tone: "" },
   expired: { label: "Time expired", tone: "text-[#f00000]" },
   solved: { label: "Solved", tone: "text-[#00940a]" },
+  partial: { label: "Partial", tone: "text-[#b45f00]" },
   failed: { label: "Failed", tone: "text-[#f00000]" },
 };
 
@@ -618,25 +646,30 @@ function StaffPlayView({ player, play }: { player: StaffPlayerStatus; play: Play
   const label = <p className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-white/55 sm:text-sm sm:tracking-[0.2em]">View only · what {player.displayName} sees</p>;
   if (play.status === "completed") return <>{label}<CompletedRiddle play={play} /></>;
   if (play.status === "not_started") return <>{label}<NotStartedRiddle play={play} busy={false} error={null} onStart={noop} readOnly /></>;
+  if (play.status === "pending_review") return <>{label}<PendingReview play={play} /></>;
   const remaining = play.deadline === null
     ? Infinity
     : Math.max(0, Math.round((Date.parse(play.deadline) - Date.parse(play.serverTime)) / 1000));
   const characterConfig = play.type === "character_puzzle" ? play.config : undefined;
+  const isImage = play.type === "image_submission";
   return <>
     {label}
     <PlayHeader
       policy={play.scoringPolicy}
       difficulty={play.difficulty}
       time={Number.isFinite(remaining) ? formatCountdown(remaining) : formatTimeLimit(null)}
-      tries={`${play.attemptsRemaining}/${play.maxAttempts}`}
+      tries={isImage ? undefined : `${play.attemptsRemaining}/${play.maxAttempts}`}
+      variant={isImage ? "image" : "answer"}
     />
-    {characterConfig
+    {isImage
+      ? <><ImagePrompt prompt={play.prompt} url={play.promptImageUrl} /><ImageGallery images={play.images ?? []} /><ImageNote note={play.note} /></>
+      : characterConfig
       ? <div className="mt-8 border-t border-white/25 pt-6">
         <p className="mb-5 text-center text-sm font-semibold uppercase tracking-wide text-white/55">Letter game</p>
         <CharacterBoard guesses={play.guessHistory} current="" length={characterConfig.target_length} rows={play.maxAttempts} />
       </div>
       : <p className="mt-8 border-y border-white/25 py-8 whitespace-pre-line text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{play.prompt}</p>}
-    {!characterConfig && play.guessHistory.length > 0 && <div className="mt-6">
+    {!isImage && !characterConfig && play.guessHistory.length > 0 && <div className="mt-6">
       <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Previous guesses</h4>
       <ul className="mt-2 divide-y divide-white/20 border-y border-white/25">
         {play.guessHistory.map((guess, index) => <li key={`${guess.response}-${index}`} className="flex items-center justify-between gap-4 py-3"><span>{guess.response}</span><span className={`text-sm font-semibold ${guess.correct ? "text-emerald-700" : "text-red-700"}`}>{guess.correct ? "Correct" : "Incorrect"}</span></li>)}
@@ -655,7 +688,7 @@ function StaffPlayerStatusCard({ player }: { player: StaffPlayerStatus }) {
     <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/55 sm:text-sm">{player.displayName}{player.name && ` · ${player.name}`}</p>
     <p className={`mt-2 text-3xl font-bold sm:text-4xl ${tone}`} aria-live="polite">{label}</p>
     {puzzle && <div className="mt-6 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-4">
-      <StaffFact label="Puzzle" value={`${puzzle.type === "character_puzzle" ? "Letter game" : "Riddle"} · ${puzzle.difficulty}`} />
+      <StaffFact label="Puzzle" value={`${puzzle.type === "character_puzzle" ? "Letter game" : puzzle.type === "image_submission" ? "Image submission" : "Riddle"} · ${puzzle.difficulty}`} />
       <StaffFact label="Tries" value={started ? `${player.attempts}/${puzzle.maxAttempts}` : `${puzzle.maxAttempts} allowed`} />
       <StaffFact label="Time" value={player.timeTakenMs !== null ? formatCountdown(Math.round(player.timeTakenMs / 1000)) : puzzle.timeLimitSeconds === null ? formatTimeLimit(null) : `${formatCountdown(puzzle.timeLimitSeconds)} limit`} />
       {finished && <StaffFact label="Points" value={player.points === null ? "-" : `${player.points > 0 ? "+" : ""}${player.points}`} />}
@@ -681,7 +714,8 @@ export function StaffRiddleSandbox({ preview }: { preview: StaffRiddlePreview })
 
 function StaffRiddleBody({ preview }: { preview: StaffRiddlePreview }) {
   const { config } = preview;
-  const speedTiers = preview.timeLimitSeconds === null
+  const isImage = preview.type === "image_submission";
+  const speedTiers = isImage ? [] : preview.timeLimitSeconds === null
     ? speedTierStatusesAtElapsed(preview.speedBonuses, 0)
     : speedTierStatuses(
       preview.speedBonuses,
@@ -696,12 +730,15 @@ function StaffRiddleBody({ preview }: { preview: StaffRiddlePreview }) {
       policy={preview.scoringPolicy}
       difficulty={preview.difficulty}
       time={formatTimeLimit(preview.timeLimitSeconds)}
-      tries={`${preview.maxAttempts}/${preview.maxAttempts}`}
+      tries={isImage ? undefined : `${preview.maxAttempts}/${preview.maxAttempts}`}
+      variant={isImage ? "image" : "answer"}
     />
 
     {speedTiers.length > 0 && <SpeedTiers tiers={speedTiers} basePoints={preview.scoringPolicy.base_points} />}
 
-    {config
+    {isImage
+      ? <><ImagePrompt prompt={preview.prompt} url={preview.promptImageUrl} /><ImagePreviewControls maxImages={preview.maxImages} /></>
+      : config
       ? <div className="mt-8 border-t border-white/25 pt-6">
         <p className="mb-5 text-center text-sm font-semibold uppercase tracking-wide text-white/55">Letter game</p>
         <CharacterBoard guesses={[]} current="" length={config.target_length} rows={preview.maxAttempts} />
@@ -730,33 +767,50 @@ function StaffRiddleBody({ preview }: { preview: StaffRiddlePreview }) {
 
 function noop() {}
 
-function PlayHeader({ policy, pressure, difficulty, time, urgency = 0, tries, triesUrgency = 0 }: {
+function PlayHeader({ policy, pressure, difficulty, time, urgency = 0, tries, triesUrgency = 0, variant = "answer" }: {
   policy: ScoringPolicy;
   pressure?: number;
   difficulty: string;
   time: string;
   urgency?: number;
-  tries: string;
+  tries?: string;
   triesUrgency?: number;
+  variant?: StakesVariant;
 }) {
   return <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
-    <RiddleStakes policy={policy} pressure={pressure} />
+    <RiddleStakes policy={policy} pressure={pressure} variant={variant} />
     <div className="w-full sm:ml-auto sm:w-auto">
       <p style={{ color: difficultyColor(difficulty) }} className="mb-2 text-2xl font-extrabold uppercase tracking-[0.2em] text-white/55 sm:text-center">{difficulty}</p>
-      <div className="grid grid-cols-2 gap-3 sm:flex sm:text-right">
+      <div className="grid grid-cols-2 gap-3 sm:flex sm:justify-center">
         <Stat label="Time" value={time} live urgency={urgency} />
-        <Stat label="Tries left" value={tries} urgency={triesUrgency} pulse={false} />
+        {tries !== undefined && <Stat label="Tries left" value={tries} urgency={triesUrgency} pulse={false} />}
       </div>
     </div>
   </div>;
 }
 
 function resultSummary(play: Extract<PlayerChallengeState, { status: "completed" }>) {
+  if (play.type === "image_submission") {
+    return {
+      heading: imageResultHeading(play.result.outcome, play.result.correct),
+      detail: `${play.images?.length ?? 0} ${play.images?.length === 1 ? "image" : "images"} · ${formatCountdown(Math.round(play.result.timeTakenMs / 1000))}`,
+    };
+  }
   const heading = play.result.correct ? "Solved" : play.attempts >= play.maxAttempts ? "Out of tries" : "Time ran out";
   return {
     heading,
     detail: `${play.attempts} of ${play.maxAttempts} ${play.maxAttempts === 1 ? "try" : "tries"} used · ${formatCountdown(Math.round(play.result.timeTakenMs / 1000))}`,
   };
+}
+
+function PendingReview({ play }: { play: Extract<PlayerChallengeState, { status: "pending_review" }> }) {
+  return <RiddleFrame>
+    <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">{`Submitted · ${play.difficulty}`}</p>
+    <h3 className="mt-3 text-3xl font-semibold">Awaiting review</h3>
+    <ImagePrompt prompt={play.prompt} url={play.promptImageUrl} />
+    <ImageGallery images={play.images ?? []} title="Submitted images" />
+    <ImageNote note={play.note} />
+  </RiddleFrame>;
 }
 
 export function CompletedRiddle({ play }: { play: Extract<PlayerChallengeState, { status: "completed" }> }) {
@@ -768,18 +822,30 @@ export function CompletedRiddle({ play }: { play: Extract<PlayerChallengeState, 
       <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">{`Results · ${play.difficulty} · ${formatTimeLimit(play.timeLimitSeconds)}`}</p>
       <h3 className="mt-3 text-3xl font-semibold">{summary.heading}</h3>
       <p className="mt-3 text-white/70">{summary.detail}</p>
-      <ResultStamp success={play.result.correct} />
+      <ResultStamp variant={play.type === "image_submission" ? resultVariant(play.result.correct, play.result.outcome) : play.result.correct ? "success" : "fail"} />
     </div>
     <div className="mt-8 flex flex-wrap items-end gap-x-14 gap-y-4">
-      <ResultStat label="Base points" value={breakdown.base_points} />
-      <ResultStat label="Speed bonus" value={breakdown.speed_bonus_points ?? 0} />
+      <ResultStat
+        label={play.type === "image_submission" ? "Points awarded" : "Base points"}
+        value={breakdown.base_points}
+        outOf={play.type === "image_submission" && play.scoringPolicy.base_points > 0 ? play.scoringPolicy.base_points : undefined} />
+      {play.type !== "image_submission" && <ResultStat label="Speed bonus" value={breakdown.speed_bonus_points ?? 0} />}
       {penaltyPoints > 0 && <ResultStat label="Penalty" value={-penaltyPoints} />}
-      <ResultStat label="Total points" value={breakdown.total_points} />
+      {play.type !== "image_submission" && <ResultStat label="Total points" value={breakdown.total_points} />}
     </div>
     <div className="mt-7">
-      <p className="text-sm font-semibold uppercase tracking-wide text-white/55">{play.type === "character_puzzle" ? "Letter game" : "Riddle"}</p>
-      {play.type !== "character_puzzle" && <p className="mt-2 whitespace-pre-line text-xl font-medium">{play.prompt}</p>}
+      <p className="text-sm font-semibold uppercase tracking-wide text-white/55">{play.type === "character_puzzle" ? "Letter game" : play.type === "image_submission" ? "Image submission" : "Riddle"}</p>
+      {play.type !== "character_puzzle" && play.prompt.trim() !== "" && <p className="mt-2 whitespace-pre-line text-xl font-medium">{play.prompt}</p>}
+      {play.type === "image_submission" && <PromptImage url={play.promptImageUrl} />}
     </div>
+    {play.type === "image_submission" && <>
+      <ImageGallery images={play.images ?? []} />
+      <ImageNote note={play.note} />
+      {play.result.reviewComment && <div className="mt-6 rounded-md border border-white/25 bg-black/[0.04] p-4">
+        <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Reviewer comment</h4>
+        <p className="mt-2 whitespace-pre-line">{play.result.reviewComment}</p>
+      </div>}
+    </>}
     {play.guessHistory.length > 0 && <div className="mt-6">
       <p className="text-sm font-semibold uppercase tracking-wide text-white/55">Your answers</p>
       {play.type === "character_puzzle"
@@ -804,7 +870,7 @@ function Stat({ label, value, live = false, urgency = 0, pulse = urgency === 1 }
         borderColor: `color-mix(in srgb, #ff4d4d ${percent}%, transparent)`,
       }
     : undefined;
-  return <div style={style} className={`min-w-24 rounded-md border border-white/25 bg-black/[0.04] px-3 py-2 ${pulse ? "animate-pulse" : ""}`}><p className="text-xs font-semibold uppercase tracking-wide opacity-60">{label}</p><p className="mt-1 text-xl font-bold tabular-nums" aria-live={live && urgency < 1 ? "polite" : undefined}>{value}</p></div>;
+  return <div style={style} className={`min-w-24 rounded-md border border-white/25 bg-black/[0.04] px-3 py-2 text-center ${pulse ? "animate-pulse" : ""}`}><p className="text-xs font-semibold uppercase tracking-wide opacity-60">{label}</p><p className="mt-1 text-xl font-bold tabular-nums" aria-live={live && urgency < 1 ? "polite" : undefined}>{value}</p></div>;
 }
 
 function SpeedTiers({ tiers, basePoints }: { tiers: ReturnType<typeof speedTierStatuses>; basePoints: number }) {
@@ -841,13 +907,15 @@ function stakeStyle(scale: number, shake: number): CSSProperties {
 }
 
 // pressure runs 0 to 1: the reward shrinks, the penalty swells over the page and shakes; the amounts never change.
-export function RiddleStakes({ policy, pressure = 0 }: { policy: ScoringPolicy; pressure?: number }) {
+type StakesVariant = "answer" | "image";
+
+export function RiddleStakes({ policy, pressure = 0, variant = "answer" }: { policy: ScoringPolicy; pressure?: number; variant?: StakesVariant }) {
   const scales = stakeScales(pressure);
   const shake = shakeLevel(pressure);
   const penalty = policy.failure_penalty_points ?? 0;
   const cells = [
-    { label: "Correct answer", value: `+${policy.base_points}`, note: "Points for solving it", tone: "positive" as const, style: stakeStyle(scales.reward, 0), scale: 1, className: "origin-bottom-left" },
-    ...(penalty > 0 ? [{ label: "If you fail", value: `-${penalty}`, note: "Out of tries or time", tone: "negative" as const, style: stakeStyle(scales.penalty, shake), scale: scales.penalty, className: `relative z-10 origin-top-left ${shake > 0 ? "stake-shake" : ""}` }] : []),
+    { label: variant === "image" ? "Full credit" : "Correct answer", value: `+${policy.base_points}`, note: variant === "image" ? "If an admin grades it full" : "Points for solving it", tone: "positive" as const, style: stakeStyle(scales.reward, 0), scale: 1, className: "origin-bottom-left" },
+    ...(penalty > 0 ? [{ label: "If you fail", value: `-${penalty}`, note: variant === "image" ? "No credit or nothing submitted" : "Out of tries or time", tone: "negative" as const, style: stakeStyle(scales.penalty, shake), scale: scales.penalty, className: `relative z-10 origin-top-left ${shake > 0 ? "stake-shake" : ""}` }] : []),
   ];
   return <div className="grid grid-cols-2 items-end gap-x-4 gap-y-4 sm:flex sm:flex-wrap sm:gap-x-14">
     {cells.map((cell) => <div key={cell.label} data-tone={cell.tone}>
@@ -860,16 +928,23 @@ export function RiddleStakes({ policy, pressure = 0 }: { policy: ScoringPolicy; 
 
 const toneClasses = { positive: "text-[#00940a]", negative: "text-[#f00000]", zero: "text-white" } as const;
 
-function ResultStat({ label, value }: { label: string; value: number }) {
+function ResultStat({ label, value, outOf }: { label: string; value: number; outOf?: number }) {
   const tone = value > 0 ? "positive" : value < 0 ? "negative" : "zero";
-  return <div data-tone={tone}><p className="text-xs font-semibold uppercase tracking-wide text-white/55">{label}</p><p className={`mt-1 text-3xl font-bold tabular-nums ${toneClasses[tone]}`}>{value}</p></div>;
+  return <div data-tone={tone}><p className="text-xs font-semibold uppercase tracking-wide text-white/55">{label}</p><p className={`mt-1 text-3xl font-bold tabular-nums ${toneClasses[tone]}`}>{value}{outOf !== undefined && <span className="ml-1 text-xl font-semibold text-white/55"> / {outOf}</span>}</p></div>;
 }
 
-function ResultStamp({ success }: { success: boolean }) {
+const stampStyles: Record<ResultVariant, { label: string; color: string; text: string }> = {
+  success: { label: "Success", color: "#00940a", text: "SUCCESS" },
+  partial: { label: "Partial", color: "#b45f00", text: "PARTIAL" },
+  fail: { label: "Fail", color: "#f00000", text: "FAIL" },
+};
+
+function ResultStamp({ variant }: { variant: ResultVariant }) {
+  const stamp = stampStyles[variant];
   return <div
     role="img"
-    aria-label={success ? "Success" : "Fail"}
-    style={{ color: success ? "#00940a" : "#f00000" }}
+    aria-label={stamp.label}
+    style={{ color: stamp.color }}
     className="result-stamp pointer-events-none mt-6 w-fit select-none lg:absolute lg:-top-8 lg:right-2 lg:mt-0"
   >
     <svg width="0" height="0" aria-hidden="true" focusable="false" className="absolute">
@@ -880,7 +955,7 @@ function ResultStamp({ success }: { success: boolean }) {
       </filter>
     </svg>
     <div style={{ filter: "url(#stamp-grunge)" }} className="rounded-xl border-[10px] border-current p-1.5">
-      <div className="rounded-md border-4 border-current px-6 py-1 text-5xl font-black uppercase leading-tight tracking-[0.12em] sm:text-6xl lg:text-7xl">{success ? "SUCCESS" : "FAIL"}</div>
+      <div className="rounded-md border-4 border-current px-6 py-1 text-5xl font-black uppercase leading-tight tracking-[0.12em] sm:text-6xl lg:text-7xl">{stamp.text}</div>
     </div>
   </div>;
 }

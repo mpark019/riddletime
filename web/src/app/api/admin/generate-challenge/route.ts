@@ -1,10 +1,13 @@
 import { apiError, ok } from "@/server/http/api-response";
 import {
   assignPersonalCharacterPuzzle,
+  assignPersonalImageSubmission,
   assignPersonalRiddle,
   createManualSharedRiddle,
   createSharedCharacterPuzzle,
+  createSharedImageSubmission,
   isCharacterScheduleRequest,
+  isImageScheduleRequest,
   isPersonalScheduleRequest,
 } from "@/server/schedules/schedules";
 
@@ -12,9 +15,11 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     if (isPersonalScheduleRequest(body)) {
-      const result = isCharacterScheduleRequest(body)
-        ? await assignPersonalCharacterPuzzle(body)
-        : await assignPersonalRiddle(body);
+      const result = isImageScheduleRequest(body)
+        ? await assignPersonalImageSubmission(body)
+        : isCharacterScheduleRequest(body)
+          ? await assignPersonalCharacterPuzzle(body)
+          : await assignPersonalRiddle(body);
       return ok(
         {
           schedule_id: result.scheduleId,
@@ -27,9 +32,11 @@ export async function POST(request: Request) {
         { status: 201 },
       );
     }
-    const result = isCharacterScheduleRequest(body)
-      ? await createSharedCharacterPuzzle(body)
-      : await createManualSharedRiddle(body);
+    const result = isImageScheduleRequest(body)
+      ? await createSharedImageSubmission(body)
+      : isCharacterScheduleRequest(body)
+        ? await createSharedCharacterPuzzle(body)
+        : await createManualSharedRiddle(body);
     return ok(
       {
         schedule_id: result.scheduleId,

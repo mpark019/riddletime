@@ -3,20 +3,29 @@ import type { PoolClient } from "pg";
 import { z } from "zod";
 import { withTransaction } from "@/lib/db";
 import { CHARACTER_SET, type CharacterConfig } from "@/server/challenges/character-puzzle";
-import { requireAdmin, requirePuzzleBank, requirePuzzleBankRead } from "@/server/identity/identity";
+import { requirePuzzleBank, requirePuzzleBankRead } from "@/server/identity/identity";
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "@/server/http/errors";
 import {
   characterPuzzleSchema,
+  imagePuzzleSchema,
   manualPuzzleSchema,
   presetNameSchema,
 } from "@/server/schedules/schedules";
+import { imageConfigSchema, MAX_IMAGES } from "@/server/challenges/image-puzzle";
+import { readImageFile } from "@/server/storage/image-file";
+import {
+  newPromptImagePath,
+  removePuzzleImages,
+  signPuzzleImages,
+  uploadPuzzleImage,
+} from "@/server/storage/puzzle-images";
 import type { LastUsage } from "@/lib/last-usage";
 import { loadPuzzleActivity, type PuzzleActivity } from "./puzzle-activity";
 import { hasSeenSql, insertPuzzle, puzzleAnswers, type NewPuzzleContent } from "./puzzle-store";
 
 const MAX_FILTER_PLAYERS = 500;
 
-const puzzleContentSchema = z.discriminatedUnion("type", [manualPuzzleSchema, characterPuzzleSchema]);
+const puzzleContentSchema = z.discriminatedUnion("type", [manualPuzzleSchema, characterPuzzleSchema, imagePuzzleSchema]);
 const idSchema = z.uuid();
 const nameSchema = z.string().trim().min(1).max(80);
 const statusSchema = z.enum(["draft", "active", "retired"]);
@@ -48,7 +57,7 @@ export const updatePuzzleInput = z.object({
 );
 
 export const listPuzzlesInput = z.object({
-  type: z.enum(["riddle", "character_puzzle"]).optional(),
+  type: z.enum(["riddle", "character_puzzle", "image_submission"]).optional(),
   status: statusSchema.optional(),
   used: z.enum(["true", "false"]).optional(),
   exclude_seen_by: z.array(z.uuid()).max(MAX_FILTER_PLAYERS).optional(),
@@ -68,13 +77,17 @@ export interface PuzzleStats {
 
 export interface BankPuzzle {
   id: string;
-  type: "riddle" | "character_puzzle";
+  type: "riddle" | "character_puzzle" | "image_submission";
   name: string | null;
   prompt: string;
   acceptedAnswers: string[];
+  maxImages: number | null;
+  promptImageUrl: string | null;
+  promptImagePath: string | null;
   difficulty: string;
   status: "draft" | "active" | "retired";
   createdAt: string;
+  createdBy: string | null;
   createdByName: string | null;
   timesUsed: number;
   stats: PuzzleStats;
@@ -96,6 +109,17 @@ function toContent(puzzle: PuzzleContentInput): NewPuzzleContent {
       answerData: { accepted: puzzle.accepted_answers },
     };
   }
+  if (puzzle.type === "image_submission") {
+    return {
+      type: "image_submission",
+      prompt: puzzle.prompt,
+      config: {
+        max_images: MAX_IMAGES,
+        ...(puzzle.prompt_image_path ? { prompt_image_path: puzzle.prompt_image_path } : {}),
+      },
+      answerData: {},
+    };
+  }
   const config: CharacterConfig = { target_length: puzzle.target.length, character_set: CHARACTER_SET };
   return { type: "character_puzzle", prompt: "Letter game", config, answerData: { target: puzzle.target } };
 }
@@ -106,7 +130,8 @@ async function loadStats(client: PoolClient, puzzleIds: string[]): Promise<Map<s
   const { rows } = await client.query(
     `with plays as (
        select c.puzzle_id, s.submitted_at, s.correct, s.attempts, s.time_taken_ms,
-              coalesce(s.scoring_breakdown @> '{"missed": true}', false) as missed
+              coalesce(s.scoring_breakdown @> '{"missed": true}', false) as missed,
+              coalesce(s.scoring_breakdown @> '{"outcome": "partial"}', false) as partial
        from submissions s join challenges c on c.id = s.challenge_id
        where c.puzzle_id = any($1::uuid[])
      ),
@@ -126,10 +151,10 @@ async function loadStats(client: PoolClient, puzzleIds: string[]): Promise<Map<s
        select puzzle_id,
               count(*) filter (where not missed)::int as started,
               count(*) filter (where not missed and submitted_at is not null)::int as finished,
-              count(*) filter (where not missed and submitted_at is not null and correct)::int as solved,
+              count(*) filter (where not missed and not partial and submitted_at is not null and correct)::int as solved,
               count(*) filter (where missed)::int as missed,
               percentile_cont(0.5) within group (order by time_taken_ms)
-                filter (where not missed and submitted_at is not null and correct) as median_ms,
+                filter (where not missed and not partial and submitted_at is not null and correct) as median_ms,
               avg(attempts) filter (where not missed and submitted_at is not null) as avg_attempts
        from plays group by puzzle_id
      )
@@ -182,16 +207,32 @@ async function loadLastUsage(client: PoolClient, puzzleIds: string[]): Promise<M
   }));
 }
 
-function toBankPuzzle(row: Record<string, unknown>, stats: PuzzleStats | undefined, lastUsage: LastUsage | undefined): BankPuzzle {
+function imageConfigOf(row: Record<string, unknown>) {
+  if (row.type !== "image_submission") return null;
+  const parsed = imageConfigSchema.safeParse(row.config);
+  return parsed.success ? parsed.data : null;
+}
+
+function toBankPuzzle(
+  row: Record<string, unknown>,
+  stats: PuzzleStats | undefined,
+  lastUsage: LastUsage | undefined,
+  imageUrls: Map<string, string>,
+): BankPuzzle {
+  const image = imageConfigOf(row);
   return {
     id: row.id as string,
     type: row.type as BankPuzzle["type"],
     name: (row.name as string | null) ?? null,
     prompt: row.prompt as string,
     acceptedAnswers: puzzleAnswers(row.answer_data as { accepted?: unknown; target?: unknown }),
+    maxImages: image?.max_images ?? null,
+    promptImagePath: image?.prompt_image_path ?? null,
+    promptImageUrl: image?.prompt_image_path ? (imageUrls.get(image.prompt_image_path) ?? null) : null,
     difficulty: row.difficulty as string,
     status: row.status as BankPuzzle["status"],
     createdAt: new Date(row.created_at as string).toISOString(),
+    createdBy: (row.created_by as string | null) ?? null,
     createdByName: (row.created_by_name as string | null) ?? null,
     timesUsed: row.times_used as number,
     stats: stats ?? EMPTY_STATS,
@@ -199,7 +240,15 @@ function toBankPuzzle(row: Record<string, unknown>, stats: PuzzleStats | undefin
   };
 }
 
-const PUZZLE_COLUMNS = `pz.id, pz.type, pz.name, pz.prompt, pz.answer_data, pz.difficulty, pz.status, pz.created_at,
+async function signPromptImages(rows: Array<Record<string, unknown>>) {
+  const paths = rows.flatMap((row) => {
+    const path = imageConfigOf(row)?.prompt_image_path;
+    return path ? [path] : [];
+  });
+  return signPuzzleImages(paths);
+}
+
+const PUZZLE_COLUMNS = `pz.id, pz.type, pz.name, pz.prompt, pz.config, pz.answer_data, pz.difficulty, pz.status, pz.created_at, pz.created_by,
   (select coalesce(p.display_name, p.name) from profiles p where p.id = pz.created_by) as created_by_name,
   (select count(*)::int from challenges c where c.puzzle_id = pz.id) as times_used`;
 
@@ -208,11 +257,46 @@ async function loadOne(client: PoolClient, id: string): Promise<BankPuzzle> {
   if (!rows[0]) throw new NotFoundError("Puzzle not found");
   const stats = await loadStats(client, [id]);
   const lastUsage = await loadLastUsage(client, [id]);
-  return toBankPuzzle(rows[0], stats.get(id), lastUsage.get(id));
+  return toBankPuzzle(rows[0], stats.get(id), lastUsage.get(id), await signPromptImages(rows));
 }
 
 const FROZEN_MESSAGE = "This puzzle has been scheduled, so its content can no longer change. Retire it instead.";
 const ACTIVE_MESSAGE = "An active puzzle's content cannot change. Move it to draft first.";
+
+// A prompt image path embeds its uploader, so an account can only attach files it uploaded itself.
+async function requireOwnPromptImage(
+  client: PoolClient,
+  puzzle: PuzzleContentInput,
+  accountId: string,
+  existingPath: string | null,
+) {
+  if (puzzle.type !== "image_submission" || !puzzle.prompt_image_path) return;
+  if (puzzle.prompt_image_path === existingPath) return;
+  if (puzzle.prompt_image_path.split("/")[1] !== accountId) {
+    throw new BadRequestError("Upload the prompt image from your own account");
+  }
+  const { rows } = await client.query(
+    "select 1 from puzzles where config->>'prompt_image_path' = $1 limit 1",
+    [puzzle.prompt_image_path],
+  );
+  if (rows[0]) throw new BadRequestError("That prompt image is already used by another puzzle");
+}
+
+// A shared object is kept until its last referencing puzzle is gone.
+async function removeUnreferencedPromptImage(path: string) {
+  const { rows } = await withTransaction((client) =>
+    client.query("select 1 from puzzles where config->>'prompt_image_path' = $1 limit 1", [path]));
+  if (!rows[0]) await removePuzzleImages([path]);
+}
+
+export async function uploadPromptImage(rawFile: unknown): Promise<{ path: string; url: string | null }> {
+  const uploader = await withTransaction((client) => requirePuzzleBankRead(client));
+  const image = await readImageFile(rawFile, "Prompt image");
+  const path = newPromptImagePath(uploader.id, image.extension);
+  await uploadPuzzleImage(path, image);
+  const urls = await signPuzzleImages([path]);
+  return { path, url: urls.get(path) ?? null };
+}
 
 export async function createPuzzle(input: LazyInput): Promise<BankPuzzle> {
   return withTransaction(async (client) => {
@@ -221,6 +305,7 @@ export async function createPuzzle(input: LazyInput): Promise<BankPuzzle> {
     if (author.role === "spectator" && parsed.status !== "draft") {
       throw new ForbiddenError("Spectators can only create drafts");
     }
+    await requireOwnPromptImage(client, parsed.puzzle, author.id, null);
     const id = await insertPuzzle(client, author.id, toContent(parsed.puzzle), parsed.difficulty, parsed.name ?? null, parsed.status);
     return loadOne(client, id);
   });
@@ -254,7 +339,8 @@ export async function listPuzzles(filter: LazyInput): Promise<BankPuzzle[]> {
     const ids = rows.map((row) => row.id as string);
     const stats = await loadStats(client, ids);
     const lastUsage = await loadLastUsage(client, ids);
-    return rows.map((row) => toBankPuzzle(row, stats.get(row.id as string), lastUsage.get(row.id as string)));
+    const imageUrls = await signPromptImages(rows);
+    return rows.map((row) => toBankPuzzle(row, stats.get(row.id as string), lastUsage.get(row.id as string), imageUrls));
   });
 }
 
@@ -277,13 +363,16 @@ function frozenConflict(error: unknown): never {
 }
 
 export async function updatePuzzle(rawId: unknown, input: LazyInput): Promise<BankPuzzle> {
+  let replacedImagePath: string | null = null;
   try {
-    return await withTransaction(async (client) => {
+    const updated = await withTransaction(async (client) => {
       const editor = await requirePuzzleBank(client);
       const id = idSchema.parse(rawId);
       const parsed = updatePuzzleInput.parse(await resolveInput(input));
-      const { rows } = await client.query("select type, status from puzzles where id = $1 for update", [id]);
+      const { rows } = await client.query("select type, status, config from puzzles where id = $1 for update", [id]);
       if (!rows[0]) throw new NotFoundError("Puzzle not found");
+      const previousImagePath = imageConfigOf(rows[0])?.prompt_image_path ?? null;
+      if (parsed.puzzle) await requireOwnPromptImage(client, parsed.puzzle, editor.id, previousImagePath);
       if (editor.role === "spectator") {
         if (parsed.status !== undefined) throw new ForbiddenError("Spectators cannot change a puzzle's status");
         if (rows[0].status !== "draft") throw new ForbiddenError("Spectators can only edit drafts");
@@ -300,6 +389,12 @@ export async function updatePuzzle(rawId: unknown, input: LazyInput): Promise<Ba
       }
 
       const content = parsed.puzzle ? toContent(parsed.puzzle) : null;
+      const nextImagePath = content && "prompt_image_path" in content.config
+        ? (content.config as { prompt_image_path: string }).prompt_image_path
+        : null;
+      if (content && previousImagePath && previousImagePath !== nextImagePath) {
+        replacedImagePath = previousImagePath;
+      }
       await client.query(
         `update puzzles set
            prompt = coalesce($2, prompt),
@@ -322,6 +417,8 @@ export async function updatePuzzle(rawId: unknown, input: LazyInput): Promise<Ba
       );
       return loadOne(client, id);
     });
+    if (replacedImagePath) await removeUnreferencedPromptImage(replacedImagePath);
+    return updated;
   } catch (error) {
     return frozenConflict(error);
   }
@@ -329,14 +426,19 @@ export async function updatePuzzle(rawId: unknown, input: LazyInput): Promise<Ba
 
 export async function deletePuzzle(rawId: unknown): Promise<{ id: string }> {
   try {
-    return await withTransaction(async (client) => {
-      await requireAdmin(client);
+    const deleted = await withTransaction(async (client) => {
+      const actor = await requirePuzzleBank(client);
       const id = idSchema.parse(rawId);
-      const { rows } = await client.query("select 1 from puzzles where id = $1 for update", [id]);
+      const { rows } = await client.query("select config, status, created_by from puzzles where id = $1 for update", [id]);
       if (!rows[0]) throw new NotFoundError("Puzzle not found");
+      if (actor.role === "spectator" && (rows[0].status !== "draft" || rows[0].created_by !== actor.id)) {
+        throw new ForbiddenError("Spectators can only delete their own drafts");
+      }
       await client.query("delete from puzzles where id = $1", [id]);
-      return { id };
+      return { id, imagePath: (rows[0].config as { prompt_image_path?: unknown })?.prompt_image_path };
     });
+    if (typeof deleted.imagePath === "string") await removeUnreferencedPromptImage(deleted.imagePath);
+    return { id: deleted.id };
   } catch (error) {
     return frozenConflict(error);
   }

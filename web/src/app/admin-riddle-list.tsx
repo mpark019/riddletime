@@ -82,6 +82,7 @@ function riddleTypeLabel(riddle: ScheduledRiddle): string {
   const type = riddle.type;
   if (type === "riddle") return "Riddle";
   if (type === "character_puzzle") return "Letter game";
+  if (type === "image_submission") return "Image submission";
   return "No puzzle";
 }
 

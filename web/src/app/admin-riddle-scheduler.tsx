@@ -24,8 +24,13 @@ interface SpeedBonusRow {
   points: string;
 }
 
-type PuzzleKind = "riddle" | "character_puzzle";
+type PuzzleKind = "riddle" | "character_puzzle" | "image_submission";
 const LETTER_GAME_ATTEMPTS = "6";
+
+function attemptsFor(kind: PuzzleKind, riddleDefault: string) {
+  if (kind === "character_puzzle") return LETTER_GAME_ATTEMPTS;
+  return kind === "image_submission" ? "1" : riddleDefault;
+}
 
 const MAX_SPEED_BONUSES = 20;
 const card = "rounded-xl border border-white/25 bg-black/[0.04] p-4";
@@ -137,9 +142,9 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
       setTimeLimitSeconds(rules.timeLimitSeconds);
       setBasePoints(rules.basePoints);
       setFailurePenaltyPoints(rules.failurePenaltyPoints);
-      setMaxAttempts(puzzle.type === "character_puzzle" ? LETTER_GAME_ATTEMPTS : rules.maxAttempts);
+      setMaxAttempts(attemptsFor(puzzle.type, rules.maxAttempts));
     } else if (puzzle.type !== puzzleKind) {
-      setMaxAttempts(puzzle.type === "character_puzzle" ? LETTER_GAME_ATTEMPTS : "1");
+      setMaxAttempts(attemptsFor(puzzle.type, "1"));
     }
     setError(null);
     setNotice(null);
@@ -232,7 +237,7 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
     }
   }
 
-  const puzzleLabel = puzzleKind === "character_puzzle" ? "letter game" : "riddle";
+  const puzzleLabel = puzzleKind === "character_puzzle" ? "letter game" : puzzleKind === "image_submission" ? "image puzzle" : "riddle";
 
   function openAllDays() {
     setTab("all");
@@ -305,11 +310,13 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
             </label>
             <label className="mt-2 flex items-center gap-2 text-sm font-normal">
               <input type="checkbox" checked={noTimeLimit} onChange={(event) => setNoTimeLimit(event.target.checked)} className="h-4 w-4" />
-              No time limit
+              No time limit (EOD)
             </label>
           </div>
           <label className="text-sm font-semibold">Maximum attempts
-            <input type="number" min="1" step="1" required value={maxAttempts} onChange={(event) => setMaxAttempts(event.target.value)} className={inputClass} />
+            <input type="number" min="1" step="1" required value={puzzleKind === "image_submission" ? "1" : maxAttempts}
+              disabled={puzzleKind === "image_submission"} onChange={(event) => setMaxAttempts(event.target.value)} className={`${inputClass} disabled:opacity-40`} />
+            {puzzleKind === "image_submission" && <span className="mt-1 block text-xs font-normal text-white/55">An image puzzle is one submission, graded by an admin.</span>}
           </label>
           <label className="text-sm font-semibold">Base points
             <input type="number" min="0" step="1" required value={basePoints} onChange={(event) => setBasePoints(event.target.value)} className={inputClass} />

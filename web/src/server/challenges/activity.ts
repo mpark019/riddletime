@@ -17,7 +17,7 @@ export async function recordActivity(
     // The row lock serializes this with submit, the expiry sweep, and concurrent activity requests.
     const { rows } = await client.query(
       `select s.id,
-              s.submitted_at is not null as finalized,
+              (s.submitted_at is not null or s.review_submitted_at is not null) as finalized,
               coalesce(riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) <= clock_timestamp(), false) as expired
        from daily_challenges d
        join challenges c on c.daily_challenge_id = d.id and (c.mode = 'shared' or c.assigned_to = $2)

@@ -2,7 +2,7 @@ import "server-only";
 import type { PoolClient } from "pg";
 import { BadRequestError, ConflictError } from "@/server/http/errors";
 
-export type PuzzleType = "riddle" | "character_puzzle";
+export type PuzzleType = "riddle" | "character_puzzle" | "image_submission";
 export type PuzzleStatus = "draft" | "active" | "retired";
 
 export interface NewPuzzleContent {

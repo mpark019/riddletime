@@ -39,7 +39,7 @@ function formatOffset(ms: number): string {
 
 const TIMELINE_COLUMNS = "grid-cols-[3.5rem_1fr_5.5rem] gap-x-4 md:gap-x-8";
 
-function TimelineList({ timeline }: { timeline: TimelineEntry[] }) {
+function TimelineList({ timeline, imagePuzzle = false }: { timeline: TimelineEntry[]; imagePuzzle?: boolean }) {
   const visible = timeline.filter((entry) => entry.kind !== "away" || entry.durationMs >= MIN_VISIBLE_AWAY_MS);
   const { awayCount, awayMs } = summarizeTimeline(timeline);
   const hasGuess = visible.some((entry) => entry.kind === "guess");
@@ -47,7 +47,7 @@ function TimelineList({ timeline }: { timeline: TimelineEntry[] }) {
     {awayCount > 0 && <p className="mb-3 text-sm font-semibold text-white/75">
       Left tab {awayCount} {awayCount === 1 ? "time" : "times"}, {formatOffset(awayMs)} away
     </p>}
-    {!hasGuess && <p className="mb-3 text-sm text-white/55">No answers submitted.</p>}
+    {!hasGuess && !imagePuzzle && <p className="mb-3 text-sm text-white/55">No answers submitted.</p>}
     {visible.length > 0 && <div className="space-y-1">
       <div className={`grid ${TIMELINE_COLUMNS} px-3 pb-1 text-xs font-medium uppercase tracking-wide text-white/55`}>
         <span>Time</span>
@@ -59,8 +59,11 @@ function TimelineList({ timeline }: { timeline: TimelineEntry[] }) {
           <span className="tabular-nums text-white/55">{entry.offsetMs === null ? "--:--" : formatOffset(entry.offsetMs)}</span>
           <span className="min-w-0 break-words">
             {entry.kind === "typing" && "started typing"}
-            {entry.kind === "copy" && <span className="text-[#f0a000]">copied the riddle text</span>}
-            {entry.kind === "paste" && <span className="text-[#f0a000]">pasted into the answer box</span>}
+            {entry.kind === "copy" && <span className="text-[#f0a000]">{imagePuzzle ? "copied the prompt text" : "copied the riddle text"}</span>}
+            {entry.kind === "paste" && <span className="text-[#f0a000]">{imagePuzzle ? "pasted into the note" : "pasted into the answer box"}</span>}
+            {entry.kind === "image_added" && "added an image"}
+            {entry.kind === "image_removed" && "removed an image"}
+            {entry.kind === "submitted" && <span className="font-medium">submitted for review</span>}
             {entry.kind === "away" && <span className="text-[#f0a000]">
               left tab for {formatOffset(entry.durationMs)}{entry.returned ? "" : " (did not return)"}
             </span>}
@@ -119,7 +122,7 @@ function BackButton({ onBack }: { onBack: () => void }) {
   return <button type="button" onClick={onBack} className="rounded-md border border-white/25 px-3 py-1.5 text-sm font-semibold hover:bg-white/10">← All riddles</button>;
 }
 
-const typeLabels: Record<string, string> = { riddle: "Riddle", character_puzzle: "Letter game" };
+const typeLabels: Record<string, string> = { riddle: "Riddle", character_puzzle: "Letter game", image_submission: "Image submission" };
 
 const toneClasses = { positive: "text-[#00940a]", negative: "text-[#f00000]", zero: "text-white" } as const;
 
@@ -155,7 +158,7 @@ export function RiddleDashboard({
     <h3 className={`${groups.length > 0 ? "mt-4" : "mt-8"} text-xl font-semibold`}>Played <span className="text-white/55">({played.length})</span></h3>
     {played.length === 0
       ? <p className="mt-3 rounded-md border border-dashed border-white/25 px-4 py-5 text-center text-sm text-white/55">Nobody has played this riddle yet.</p>
-      : <PlayersTable players={played} maxAttempts={detail.schedule.maxAttempts} timeFormat={timeFormat} />}
+      : <PlayersTable players={played} maxAttempts={detail.schedule.maxAttempts} timeFormat={timeFormat} imagePuzzle={detail.schedule.type === "image_submission"} />}
     <h3 className="mt-8 text-xl font-semibold">Did not play <span className="text-white/55">({notPlayed.length})</span></h3>
     {notPlayed.length === 0
       ? <p className="mt-3 text-sm text-white/55">Every player has played.</p>
@@ -241,6 +244,7 @@ function RulesBlock({ riddle }: { riddle: ScheduledRiddle }) {
 const outcomeLabels: Record<ScheduledRiddlePlayer["status"], string> = {
   completed: "",
   in_progress: "In progress",
+  pending_review: "Awaiting review",
   expired: "Expired",
   not_started: "",
   not_assigned: "",
@@ -248,6 +252,7 @@ const outcomeLabels: Record<ScheduledRiddlePlayer["status"], string> = {
 
 function outcomeOf(player: ScheduledRiddlePlayer) {
   if (player.status !== "completed") return { label: outcomeLabels[player.status], tone: "zero" as const };
+  if (player.outcome === "partial") return { label: "Partial", tone: "zero" as const };
   if (player.correct) return { label: "Solved", tone: "positive" as const };
   return { label: player.missed ? "DNF" : "Failed", tone: "negative" as const };
 }
@@ -267,7 +272,7 @@ function Chevron({ open }: { open: boolean }) {
   </svg>;
 }
 
-function PlayersTable({ players, maxAttempts, timeFormat }: { players: ScheduledRiddlePlayer[]; maxAttempts: number | null; timeFormat: Intl.DateTimeFormat }) {
+function PlayersTable({ players, maxAttempts, timeFormat, imagePuzzle = false }: { players: ScheduledRiddlePlayer[]; maxAttempts: number | null; timeFormat: Intl.DateTimeFormat; imagePuzzle?: boolean }) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const th = "px-3 py-2.5 text-left";
   const optional = "hidden sm:table-cell";
@@ -293,6 +298,7 @@ function PlayersTable({ players, maxAttempts, timeFormat }: { players: Scheduled
         maxAttempts={maxAttempts}
         optional={optional}
         timeFormat={timeFormat}
+        imagePuzzle={imagePuzzle}
         open={expanded.has(player.userId)}
         onToggle={() => setExpanded((current) => toggleMember(current, player.userId))}
       />)}
@@ -300,8 +306,9 @@ function PlayersTable({ players, maxAttempts, timeFormat }: { players: Scheduled
   </div>;
 }
 
-function PlayerRow({ player, maxAttempts, optional, timeFormat, open, onToggle }: {
+function PlayerRow({ player, maxAttempts, optional, timeFormat, imagePuzzle, open, onToggle }: {
   player: ScheduledRiddlePlayer;
+  imagePuzzle: boolean;
   maxAttempts: number | null;
   optional: string;
   timeFormat: Intl.DateTimeFormat;
@@ -342,11 +349,14 @@ function PlayerRow({ player, maxAttempts, optional, timeFormat, open, onToggle }
           <span className="font-semibold">{typeLabels[player.puzzle.type] ?? "Puzzle"} · {player.puzzle.difficulty}:</span> {player.puzzle.prompt}
           {player.puzzle.acceptedAnswers.length > 0 && <> (answers: {player.puzzle.acceptedAnswers.join(", ")})</>}
         </p>}
+        {player.reviewComment && <p className="mb-2 break-words text-sm text-white/75">
+          <span className="font-semibold">Reviewer comment:</span> {player.reviewComment}
+        </p>}
         <p className="mb-3 text-xs text-white/55">
           {player.startedAt && `Started ${timeFormat.format(new Date(player.startedAt))}`}
           {player.submittedAt && ` · Finished ${timeFormat.format(new Date(player.submittedAt))}`}
         </p>
-        <TimelineList timeline={player.timeline} />
+        <TimelineList timeline={player.timeline} imagePuzzle={imagePuzzle || player.puzzle?.type === "image_submission"} />
       </td>
     </tr>
   </tbody>;

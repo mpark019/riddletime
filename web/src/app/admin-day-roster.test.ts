@@ -14,7 +14,7 @@ const players = [
 function assignment(overrides: Partial<DateAssignment>): DateAssignment {
   return {
     playerId: "a", challengeId: "c1", type: "riddle", name: null, difficulty: "easy", prompt: "What has keys?",
-    status: "not_started", correct: null, points: null, missed: false, ...overrides,
+    status: "not_started", correct: null, points: null, missed: false, partial: false, ...overrides,
   };
 }
 
@@ -53,6 +53,16 @@ describe("AdminDayRoster (AC-8)", () => {
 
     expect(html).toContain('text-[#f00000]">DNF (-25)<');
     expect(html).not.toContain("Failed (");
+  });
+
+  it("labels a partially graded image submission Partial, not Solved", () => {
+    const html = render({
+      scheduleId: "s", mode: "personal",
+      assignments: [assignment({ playerId: "a", status: "completed", correct: true, points: 2, partial: true })],
+    });
+
+    expect(html).toContain("Partial (+2)");
+    expect(html).not.toContain("Solved (");
   });
 
   it("offers a scoped Delete on every assigned player, played or not (AC-10)", () => {

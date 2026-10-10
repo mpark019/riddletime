@@ -26,13 +26,26 @@ export interface ScoringBreakdown {
   penalty_points?: number;
   total_points: number;
   bonus_under_ms: number | null;
+  outcome?: ReviewOutcome;
+}
+
+export type PuzzleKind = "riddle" | "character_puzzle" | "image_submission";
+export type ReviewOutcome = "full" | "partial" | "none";
+
+export interface SubmissionImage {
+  id: string;
+  url: string;
 }
 
 export interface ActiveRiddle {
   submissionId: string;
   challengeId: string;
-  type: "riddle" | "character_puzzle";
+  type: PuzzleKind;
   config?: CharacterConfig;
+  maxImages?: number;
+  promptImageUrl?: string | null;
+  images?: SubmissionImage[];
+  note?: string | null;
   difficulty: string;
   prompt: string;
   startedAt: string;
@@ -52,24 +65,30 @@ export type PlayerChallengeState =
       status: "not_started";
       available: boolean;
       difficulty: string | null;
-      type?: "riddle" | "character_puzzle";
+      type?: PuzzleKind;
       targetLength?: number;
+      maxImages?: number;
       scoringPolicy?: PublicScoringPolicy;
     }
   | ({ status: "in_progress" } & ActiveRiddle)
+  | ({ status: "pending_review" } & ActiveRiddle)
   | ({
       status: "completed";
       result: {
         correct: boolean;
         timeTakenMs: number;
         scoringBreakdown: ScoringBreakdown;
+        outcome?: ReviewOutcome | null;
+        reviewComment?: string | null;
       };
     } & ActiveRiddle);
 
 export type PublicScoringPolicy = Pick<ScoringPolicy, "base_points" | "failure_penalty_points">;
 
 export interface StaffRiddlePreview {
-  type: "riddle" | "character_puzzle";
+  type: PuzzleKind;
+  maxImages?: number;
+  promptImageUrl?: string | null;
   difficulty: string;
   prompt: string;
   timeLimitSeconds: number | null;
@@ -79,14 +98,15 @@ export interface StaffRiddlePreview {
   config?: CharacterConfig;
 }
 
-export type StaffPlayerStatusKind = "no_riddle" | "not_started" | "in_progress" | "expired" | "solved" | "failed";
+export type StaffPlayerStatusKind =
+  | "no_riddle" | "not_started" | "in_progress" | "pending_review" | "expired" | "solved" | "partial" | "failed";
 
 export interface StaffPlayerStatus {
   userId: string;
   displayName: string;
   name: string | null;
   puzzle: {
-    type: "riddle" | "character_puzzle";
+    type: PuzzleKind;
     difficulty: string;
     maxAttempts: number;
     timeLimitSeconds: number | null;
@@ -369,7 +389,8 @@ export function formatCountdown(totalSeconds: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
-export const NO_TIME_LIMIT_LABEL = "No limit";
+// An untimed puzzle ends with its day.
+export const NO_TIME_LIMIT_LABEL = "EOD";
 
 export function formatTimeLimit(seconds: number | null): string {
   return seconds === null ? NO_TIME_LIMIT_LABEL : formatCountdown(seconds);

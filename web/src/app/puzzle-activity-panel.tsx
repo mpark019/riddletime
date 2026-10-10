@@ -8,8 +8,10 @@ import { rulesKey, type PlayOutcome, type PuzzleActivity, type PuzzleRules } fro
 const outcomeLabels: Record<PlayOutcome, { label: string; tone: string }> = {
   solved: { label: "Solved", tone: "text-[#00940a]" },
   failed: { label: "Failed", tone: "text-[#f00000]" },
+  partial: { label: "Partial", tone: "text-[#b45f00]" },
   missed: { label: "Missed", tone: "text-[#f00000]" },
   in_progress: { label: "In progress", tone: "" },
+  pending_review: { label: "Awaiting review", tone: "text-[#b45f00]" },
   expired: { label: "Expired", tone: "text-white/60" },
   not_started: { label: "Not started", tone: "text-white/60" },
   did_not_play: { label: "Did not play", tone: "text-white/60" },
@@ -17,7 +19,7 @@ const outcomeLabels: Record<PlayOutcome, { label: string; tone: string }> = {
 
 export function rulesLabel(rules: PuzzleRules): string {
   const tries = `${rules.maxAttempts} ${rules.maxAttempts === 1 ? "try" : "tries"}`;
-  const time = rules.timeLimitSeconds === null ? "no time limit" : `${rules.timeLimitSeconds}s`;
+  const time = rules.timeLimitSeconds === null ? "EOD" : `${rules.timeLimitSeconds}s`;
   const penalty = rules.failurePenaltyPoints ? ` / -${rules.failurePenaltyPoints}` : "";
   const points = rules.basePoints === null ? "" : `, ${rules.basePoints} pts${penalty}`;
   const bonuses = rules.speedBonuses.map((tier) => `+${tier.points} under ${tier.underMs / 1000}s`).join(", ");

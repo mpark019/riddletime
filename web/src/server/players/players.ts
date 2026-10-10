@@ -5,6 +5,8 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { compareByName } from "@/lib/account-order";
 import { parsePlayerUsername, parsePlayerUsernameDisplay, playerUsernameEmail } from "@/lib/player-username";
 import { requireAdmin } from "@/server/identity/identity";
+import { loadSessionImagePaths } from "@/server/challenges/session-images";
+import { removePuzzleImages } from "@/server/storage/puzzle-images";
 import { ConflictError, NotFoundError } from "@/server/http/errors";
 
 export const managedAccountRole = z.enum(["spectator", "player", "admin"]);
@@ -119,12 +121,14 @@ export async function updateMemberAccount(id: string, rawInput: unknown) {
 }
 
 export async function deleteMemberAccount(id: string) {
-  const avatarUrl = await withTransaction(async (client) => {
+  const { avatarUrl, imagePaths } = await withTransaction(async (client) => {
     const actor = await requireAdmin(client);
+    const imagePaths = await loadSessionImagePaths(client, { userId: id });
     const { rows } = await client.query("select riddle_private.delete_member_data($1, $2) as avatar_url", [id, actor.id]);
     if (!rows[0]) throw new NotFoundError("Account not found");
-    return rows[0].avatar_url as string | null;
+    return { avatarUrl: rows[0].avatar_url as string | null, imagePaths };
   });
+  await removePuzzleImages(imagePaths);
   const { error } = await createSupabaseAdminClient().auth.admin.deleteUser(id);
   if (error) throw new Error(`Supabase player deletion failed: ${error.message}`);
   return { id, avatarUrl };
