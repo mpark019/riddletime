@@ -390,7 +390,7 @@ export function formatCountdown(totalSeconds: number): string {
 }
 
 // An untimed puzzle ends with its day.
-export const NO_TIME_LIMIT_LABEL = "EOD";
+export const NO_TIME_LIMIT_LABEL = "By EOD";
 
 export function formatTimeLimit(seconds: number | null): string {
   return seconds === null ? NO_TIME_LIMIT_LABEL : formatCountdown(seconds);
