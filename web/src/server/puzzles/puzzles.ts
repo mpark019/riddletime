@@ -14,6 +14,7 @@ import {
 import { imageConfigSchema, MAX_IMAGES } from "@/server/challenges/image-puzzle";
 import { readImageFile } from "@/server/storage/image-file";
 import {
+  isPromptImagePath,
   newPromptImagePath,
   removePuzzleImages,
   signPuzzleImages,
@@ -296,6 +297,26 @@ export async function uploadPromptImage(rawFile: unknown): Promise<{ path: strin
   await uploadPuzzleImage(path, image);
   const urls = await signPuzzleImages([path]);
   return { path, url: urls.get(path) ?? null };
+}
+
+// Removes an upload that never became part of a puzzle. A path any puzzle uses, or one uploaded by
+// someone else, is left alone, so a saved prompt can never be deleted through this.
+export async function discardPromptImage(rawPath: unknown): Promise<{ removed: boolean }> {
+  const path = await withTransaction(async (client) => {
+    const actor = await requirePuzzleBank(client);
+    const candidate = z.string().max(300).parse(rawPath);
+    if (!isPromptImagePath(candidate) || candidate.split("/")[1] !== actor.id) {
+      throw new BadRequestError("Not one of your prompt image uploads");
+    }
+    const { rows } = await client.query(
+      "select 1 from puzzles where config->>'prompt_image_path' = $1 limit 1",
+      [candidate],
+    );
+    return rows[0] ? null : candidate;
+  });
+  if (path === null) return { removed: false };
+  await removePuzzleImages([path]);
+  return { removed: true };
 }
 
 export async function createPuzzle(input: LazyInput): Promise<BankPuzzle> {

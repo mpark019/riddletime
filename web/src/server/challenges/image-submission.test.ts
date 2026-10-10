@@ -35,7 +35,7 @@ const { getChallengeSession, getStaffPlayerStatuses, submitChallenge } = await i
 const { deleteSchedule, getScheduleDetail } = await import("@/server/schedules/schedules");
 const { getLeaderboard } = await import("@/server/points/points");
 const { createSharedImageSubmission } = await import("@/server/schedules/schedules");
-const { createPuzzle } = await import("@/server/puzzles/puzzles");
+const { createPuzzle, deletePuzzle, discardPromptImage } = await import("@/server/puzzles/puzzles");
 const { withTransaction } = await import("@/lib/db");
 
 beforeEach(() => {
@@ -694,3 +694,65 @@ describe("admin timeline", () => {
     expect(rowCount).toBe(0);
   });
 });
+
+describe("discarding an unsaved prompt image", () => {
+  it("removes the caller's unattached upload", async () => {
+    const adminId = await createProfile("admin");
+    await asUser(adminId);
+    const path = `prompts/${adminId}/${randomUUID()}.png`;
+    await expect(discardPromptImage(path)).resolves.toEqual({ removed: true });
+    expect(mocks.remove).toHaveBeenCalledWith([path]);
+  });
+
+  it("never removes a prompt image that a saved puzzle uses", async () => {
+    const adminId = await createProfile("admin");
+    await asUser(adminId);
+    const path = `prompts/${adminId}/${randomUUID()}.png`;
+    await createPuzzle({ difficulty: "easy", puzzle: { type: "image_submission", prompt_image_path: path } });
+    mocks.remove.mockClear();
+
+    await expect(discardPromptImage(path)).resolves.toEqual({ removed: false });
+    expect(mocks.remove).not.toHaveBeenCalled();
+  });
+
+  it("refuses another account's path, a malformed path, and non-staff callers", async () => {
+    const adminId = await createProfile("admin");
+    await asUser(adminId);
+    await expect(discardPromptImage(`prompts/${randomUUID()}/${randomUUID()}.png`)).rejects.toMatchObject({ status: 400 });
+    await expect(discardPromptImage("submissions/a/b/c.png")).rejects.toMatchObject({ status: 400 });
+    await expect(discardPromptImage("../../etc/passwd")).rejects.toMatchObject({ status: 400 });
+
+    await asUser(await createProfile("player"));
+    await expect(discardPromptImage(`prompts/${adminId}/${randomUUID()}.png`)).rejects.toMatchObject({ status: 403 });
+    expect(mocks.remove).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleting a puzzle", () => {
+  it("removes its prompt image from storage", async () => {
+    const adminId = await createProfile("admin");
+    await asUser(adminId);
+    const path = `prompts/${adminId}/${randomUUID()}.png`;
+    const puzzle = await createPuzzle({ difficulty: "easy", puzzle: { type: "image_submission", prompt: "Draw", prompt_image_path: path } });
+    mocks.remove.mockClear();
+
+    await deletePuzzle(puzzle.id);
+    expect(mocks.remove).toHaveBeenCalledWith([path]);
+  });
+
+  it("keeps a prompt image that another puzzle still references", async () => {
+    const adminId = await createProfile("admin");
+    await asUser(adminId);
+    const path = `prompts/${adminId}/${randomUUID()}.png`;
+    const first = await createPuzzle({ difficulty: "easy", puzzle: { type: "image_submission", prompt_image_path: path } });
+    // A second reference can only exist through direct data, since the API rejects reused paths.
+    const second = await insertPuzzle(pool, { createdBy: adminId, type: "image_submission", prompt: "Other", config: { max_images: 5, prompt_image_path: path } });
+    mocks.remove.mockClear();
+
+    await deletePuzzle(first.id);
+    expect(mocks.remove).not.toHaveBeenCalled();
+    await deletePuzzle(second);
+    expect(mocks.remove).toHaveBeenCalledWith([path]);
+  });
+});
+

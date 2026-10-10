@@ -11,7 +11,7 @@ import {
 } from "@/lib/puzzle-bank";
 import type { BankPuzzle } from "@/server/puzzles/puzzles";
 import { PrimaryButton } from "./primary-button";
-import { DifficultyPicker, PuzzleContentFields, emptyFieldValues, inputClass, type PuzzleFieldValues } from "./puzzle-fields";
+import { DifficultyPicker, PuzzleContentFields, discardPromptImage, emptyFieldValues, inputClass, type PuzzleFieldValues } from "./puzzle-fields";
 import { PuzzlePreview } from "./puzzle-preview";
 import { PuzzleActivityPanel } from "./puzzle-activity-panel";
 import { Dropdown } from "./puzzle-dropdown";
@@ -82,6 +82,7 @@ export function AdminPuzzleBank({ canManage = true, viewerId }: { canManage?: bo
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const promptPathRef = useRef("");
 
   const load = useCallback(async (current: Filter) => {
     const query = new URLSearchParams();
@@ -107,9 +108,17 @@ export function AdminPuzzleBank({ canManage = true, viewerId }: { canManage?: bo
   }, [filter, load]);
 
   useEffect(() => {
+    promptPathRef.current = values.promptImagePath;
+  }, [values.promptImagePath]);
+
+  useEffect(() => {
     if (drawer === "closed") return;
     closeRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setDrawer("closed"); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (drawer === "form") discardPromptImage(promptPathRef.current);
+      setDrawer("closed");
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [drawer]);
@@ -127,6 +136,7 @@ export function AdminPuzzleBank({ canManage = true, viewerId }: { canManage?: bo
 
   function changeKind(next: BankPuzzleKind) {
     if (next === kind) return;
+    discardPromptImage(values.promptImagePath);
     setKind(next);
     setValues(emptyValues);
     setError(null);
@@ -173,7 +183,14 @@ export function AdminPuzzleBank({ canManage = true, viewerId }: { canManage?: bo
     setDrawer("form");
   }
 
+  // An upload that was never saved is removed; the server skips any file a puzzle uses.
+  function closeDrawer() {
+    if (drawer === "form") discardPromptImage(values.promptImagePath);
+    setDrawer("closed");
+  }
+
   function cancelForm() {
+    discardPromptImage(values.promptImagePath);
     if (editing && selected) {
       setEditingId("");
       setName("");
@@ -284,13 +301,13 @@ export function AdminPuzzleBank({ canManage = true, viewerId }: { canManage?: bo
       page={currentPage} pageCount={pageCount} onPage={setPage} onOpen={openPuzzle} />
 
     {drawer !== "closed" && <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/55" aria-hidden onClick={() => setDrawer("closed")} />
+      <div className="absolute inset-0 bg-black/55" aria-hidden onClick={closeDrawer} />
       <div className="relative w-full max-w-4xl overflow-hidden rounded-2xl bg-surface-solid shadow-2xl">
       <div role="dialog" aria-modal="true" aria-labelledby="puzzle-modal-title"
         className="max-h-[calc(100vh-2rem)] overflow-y-auto p-5 text-white [scrollbar-width:thin] sm:p-7">
         <div className="flex items-start justify-between gap-4">
           <h3 id="puzzle-modal-title" className="break-words text-xl font-semibold">{drawerTitle}</h3>
-          <button ref={closeRef} type="button" onClick={() => setDrawer("closed")} aria-label="Close"
+          <button ref={closeRef} type="button" onClick={closeDrawer} aria-label="Close"
             className="-mr-1 -mt-1 rounded-md px-2 py-1 text-2xl leading-none text-white/60 hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-white">×</button>
         </div>
         <div aria-live="polite" className="mt-3 space-y-2 empty:hidden">

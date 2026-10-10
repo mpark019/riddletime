@@ -37,6 +37,17 @@ export interface PuzzleFieldValues {
   promptImageUrl: string;
 }
 
+// Fire and forget: the server only removes a file that no puzzle uses.
+export function discardPromptImage(path: string) {
+  if (!path) return;
+  void fetch("/api/admin/puzzles/prompt-image", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+    keepalive: true,
+  }).catch(() => undefined);
+}
+
 export const emptyFieldValues: PuzzleFieldValues = {
   prompt: "",
   acceptedAnswers: "",
@@ -62,6 +73,7 @@ function PromptImageField({ values, onChange }: { values: PuzzleFieldValues; onC
         setError(result.error ?? "Could not upload the image.");
         return;
       }
+      discardPromptImage(values.promptImagePath);
       onChange({ ...values, promptImagePath: result.path, promptImageUrl: result.url ?? "" });
     } catch {
       setError("Could not upload the image.");
@@ -79,7 +91,7 @@ function PromptImageField({ values, onChange }: { values: PuzzleFieldValues; onC
       <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" aria-labelledby="prompt-image-label" disabled={busy}
         onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }}
         className="text-sm font-normal file:mr-3 file:rounded-md file:border file:border-white/50 file:bg-transparent file:px-3 file:py-1.5 file:font-semibold file:text-white" />
-      {values.promptImagePath && <button type="button" onClick={() => onChange({ ...values, promptImagePath: "", promptImageUrl: "" })}
+      {values.promptImagePath && <button type="button" onClick={() => { discardPromptImage(values.promptImagePath); onChange({ ...values, promptImagePath: "", promptImageUrl: "" }); }}
         className="rounded-md border border-white/50 px-3 py-1.5 text-sm font-semibold hover:bg-white/10">Remove image</button>}
       {busy && <span className="text-xs font-normal text-white/60">Uploading…</span>}
     </div>

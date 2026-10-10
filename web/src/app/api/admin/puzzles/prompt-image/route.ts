@@ -1,4 +1,4 @@
-import { uploadPromptImage } from "@/server/puzzles/puzzles";
+import { discardPromptImage, uploadPromptImage } from "@/server/puzzles/puzzles";
 import { ok, apiError } from "@/server/http/api-response";
 import { requireUser } from "@/server/identity/identity";
 import { BadRequestError } from "@/server/http/errors";
@@ -23,6 +23,16 @@ export async function POST(request: Request) {
       status: 201,
       headers: { "Cache-Control": "private, no-store" },
     });
+  } catch (err) {
+    return apiError(err);
+  }
+}
+
+// The body is read after the service checks the caller's role.
+export async function DELETE(request: Request) {
+  try {
+    const body = await request.json().catch(() => ({})) as { path?: unknown };
+    return ok(await discardPromptImage(body.path), { headers: { "Cache-Control": "private, no-store" } });
   } catch (err) {
     return apiError(err);
   }
