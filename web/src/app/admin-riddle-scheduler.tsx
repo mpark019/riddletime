@@ -6,6 +6,7 @@ import { DIFFICULTY_RULES, isDifficulty, type Difficulty } from "@/lib/difficult
 import type { BankPuzzle } from "@/server/puzzles/puzzles";
 import { AdminPuzzleBank, FilterMenu, PuzzleTable, puzzleMatches } from "./admin-puzzle-bank";
 import { AdminRiddleList } from "./admin-riddle-list";
+import { describeLastUsage, rulesFromLastUsage, type LastUsage } from "@/lib/last-usage";
 import { pruneSelection } from "@/lib/point-selection";
 import { formatUsDate } from "@/lib/calendar";
 import type { DateRoster } from "@/server/schedules/schedules";
@@ -164,6 +165,16 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
     }
   }
 
+  function applyLastUsage(usage: LastUsage) {
+    const rules = rulesFromLastUsage(usage);
+    setTimeLimitSeconds(rules.noTimeLimit ? timeLimitSeconds : rules.timeLimitSeconds);
+    setNoTimeLimit(rules.noTimeLimit);
+    setMaxAttempts(rules.maxAttempts);
+    setBasePoints(rules.basePoints);
+    setFailurePenaltyPoints(rules.failurePenaltyPoints);
+    setSpeedBonuses(rules.speedBonuses.map((tier) => ({ ...tier, id: nextSpeedBonusId.current++ })));
+  }
+
   function addSpeedBonus() {
     if (speedBonuses.length >= MAX_SPEED_BONUSES) return;
     const id = nextSpeedBonusId.current++;
@@ -282,6 +293,10 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
       <section className="app-header relative isolate overflow-hidden rounded-xl p-4 lg:sticky lg:top-28">
         <FloatingQuestionMarks contained compact start={12} />
         <h3 className={cardTitle}>Rules and scoring</h3>
+        {selectedPuzzle?.lastUsage && <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-white/25 px-3 py-2">
+          <p className="min-w-0 text-sm text-white/75">Last used {formatUsDate(selectedPuzzle.lastUsage.activeDate)}: {describeLastUsage(selectedPuzzle.lastUsage)}</p>
+          <button type="button" onClick={() => applyLastUsage(selectedPuzzle.lastUsage as LastUsage)} className="shrink-0 rounded-md border border-white/60 px-3 py-1.5 text-sm font-semibold hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-white">Use these</button>
+        </div>}
         <div className="mt-5 grid grid-cols-2 gap-4">
           <div>
             <label className="text-sm font-semibold">Time limit

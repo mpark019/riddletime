@@ -8,7 +8,7 @@ export function PuzzlePreview({ form, rules }: { form: PuzzleForm; rules?: Previ
   const preview = buildPuzzlePreview(form, rules);
   return <section aria-label="Player preview">
     <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-white/55">
-      Player view. Nothing is saved or scored{rules ? "" : "; time, tries and points are samples and are set when you schedule"}.
+      Player view. Nothing is saved or scored{rules ? "" : "; time, tries and points are the defaults for this difficulty and can be changed when you schedule"}.
     </p>
     {preview
       ? <StaffRiddleSandbox preview={preview} />

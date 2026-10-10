@@ -1,5 +1,5 @@
 import { CHARACTER_SET, MAX_TARGET_LENGTH } from "@/server/challenges/character-puzzle";
-import { isDifficulty } from "./difficulty";
+import { DIFFICULTY_RULES, isDifficulty } from "./difficulty";
 import type { StaffRiddlePreview } from "./challenge-state";
 
 export type BankPuzzleKind = "riddle" | "character_puzzle";
@@ -101,10 +101,15 @@ export function previewRulesFromForm(form: RulesFormValues): PreviewRules {
 }
 
 export function buildPuzzlePreview(form: PuzzleForm, rules?: PreviewRules): StaffRiddlePreview | null {
+  const defaults = isDifficulty(form.difficulty) ? DIFFICULTY_RULES[form.difficulty] : null;
   const resolved: PreviewRules = rules ?? {
-    timeLimitSeconds: SAMPLE_TIME_LIMIT_SECONDS,
-    maxAttempts: form.kind === "character_puzzle" ? SAMPLE_LETTER_TRIES : SAMPLE_RIDDLE_TRIES,
-    scoringPolicy: { base_points: SAMPLE_BASE_POINTS, failure_penalty_points: SAMPLE_FAILURE_PENALTY },
+    timeLimitSeconds: defaults ? Number(defaults.timeLimitSeconds) : SAMPLE_TIME_LIMIT_SECONDS,
+    maxAttempts: form.kind === "character_puzzle" ? SAMPLE_LETTER_TRIES
+      : defaults ? Number(defaults.maxAttempts) : SAMPLE_RIDDLE_TRIES,
+    scoringPolicy: {
+      base_points: defaults ? Number(defaults.basePoints) : SAMPLE_BASE_POINTS,
+      failure_penalty_points: defaults ? Number(defaults.failurePenaltyPoints) : SAMPLE_FAILURE_PENALTY,
+    },
     speedBonuses: [],
   };
   const base = {

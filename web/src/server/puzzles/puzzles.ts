@@ -10,6 +10,7 @@ import {
   manualPuzzleSchema,
   presetNameSchema,
 } from "@/server/schedules/schedules";
+import type { LastUsage } from "@/lib/last-usage";
 import { loadPuzzleActivity, type PuzzleActivity } from "./puzzle-activity";
 import { hasSeenSql, insertPuzzle, puzzleAnswers, type NewPuzzleContent } from "./puzzle-store";
 
@@ -77,6 +78,7 @@ export interface BankPuzzle {
   createdByName: string | null;
   timesUsed: number;
   stats: PuzzleStats;
+  lastUsage: LastUsage | null;
   activity?: PuzzleActivity;
 }
 
@@ -151,7 +153,36 @@ async function loadStats(client: PoolClient, puzzleIds: string[]): Promise<Map<s
   }]));
 }
 
-function toBankPuzzle(row: Record<string, unknown>, stats: PuzzleStats | undefined): BankPuzzle {
+interface StoredScoringPolicy {
+  base_points: number;
+  failure_penalty_points?: number;
+  speed_bonuses?: Array<{ under_ms: number; points: number }>;
+}
+
+async function loadLastUsage(client: PoolClient, puzzleIds: string[]): Promise<Map<string, LastUsage>> {
+  if (puzzleIds.length === 0) return new Map();
+  const { rows } = await client.query(
+    `select distinct on (c.puzzle_id)
+            c.puzzle_id, d.active_date::text as active_date, c.time_limit_seconds, c.max_attempts, c.scoring_policy
+     from challenges c join daily_challenges d on d.id = c.daily_challenge_id
+     where c.puzzle_id = any($1::uuid[])
+     order by c.puzzle_id, d.active_date desc, c.created_at desc`,
+    [puzzleIds],
+  );
+  return new Map(rows.map((row) => {
+    const policy = row.scoring_policy as StoredScoringPolicy;
+    return [row.puzzle_id as string, {
+      activeDate: row.active_date as string,
+      timeLimitSeconds: row.time_limit_seconds === null ? null : Number(row.time_limit_seconds),
+      maxAttempts: Number(row.max_attempts),
+      basePoints: policy.base_points,
+      failurePenaltyPoints: policy.failure_penalty_points ?? 0,
+      speedBonuses: (policy.speed_bonuses ?? []).map((tier) => ({ underMs: tier.under_ms, points: tier.points })),
+    }];
+  }));
+}
+
+function toBankPuzzle(row: Record<string, unknown>, stats: PuzzleStats | undefined, lastUsage: LastUsage | undefined): BankPuzzle {
   return {
     id: row.id as string,
     type: row.type as BankPuzzle["type"],
@@ -164,6 +195,7 @@ function toBankPuzzle(row: Record<string, unknown>, stats: PuzzleStats | undefin
     createdByName: (row.created_by_name as string | null) ?? null,
     timesUsed: row.times_used as number,
     stats: stats ?? EMPTY_STATS,
+    lastUsage: lastUsage ?? null,
   };
 }
 
@@ -175,7 +207,8 @@ async function loadOne(client: PoolClient, id: string): Promise<BankPuzzle> {
   const { rows } = await client.query(`select ${PUZZLE_COLUMNS} from puzzles pz where pz.id = $1`, [id]);
   if (!rows[0]) throw new NotFoundError("Puzzle not found");
   const stats = await loadStats(client, [id]);
-  return toBankPuzzle(rows[0], stats.get(id));
+  const lastUsage = await loadLastUsage(client, [id]);
+  return toBankPuzzle(rows[0], stats.get(id), lastUsage.get(id));
 }
 
 const FROZEN_MESSAGE = "This puzzle has been scheduled, so its content can no longer change. Retire it instead.";
@@ -218,8 +251,10 @@ export async function listPuzzles(filter: LazyInput): Promise<BankPuzzle[]> {
        order by pz.created_at desc, pz.id`,
       values,
     );
-    const stats = await loadStats(client, rows.map((row) => row.id as string));
-    return rows.map((row) => toBankPuzzle(row, stats.get(row.id as string)));
+    const ids = rows.map((row) => row.id as string);
+    const stats = await loadStats(client, ids);
+    const lastUsage = await loadLastUsage(client, ids);
+    return rows.map((row) => toBankPuzzle(row, stats.get(row.id as string), lastUsage.get(row.id as string)));
   });
 }
 

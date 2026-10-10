@@ -20,6 +20,7 @@ function puzzle(status: BankPuzzle["status"], name: string): BankPuzzle {
       daysUsed: 0, assigned: 0, started: 0, finished: 0, solved: 0, missed: 0,
       solveRate: null, medianSolveSeconds: null, averageAttempts: null,
     },
+    lastUsage: null,
   };
 }
 

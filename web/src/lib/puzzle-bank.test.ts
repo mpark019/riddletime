@@ -65,17 +65,39 @@ describe("statistics formatting", () => {
 });
 
 describe("buildPuzzlePreview", () => {
-  it("shows a riddle exactly as typed, with sample rules", () => {
+  it("shows a riddle exactly as typed, with the difficulty's default rules", () => {
     expect(buildPuzzlePreview({
       kind: "riddle", difficulty: "hard", prompt: "  What has keys?  ", acceptedAnswers: "piano", targetWord: "",
     })).toEqual({
       type: "riddle",
       difficulty: "hard",
       prompt: "What has keys?",
-      timeLimitSeconds: 120,
-      maxAttempts: 1,
-      scoringPolicy: { base_points: 100, failure_penalty_points: 20 },
+      timeLimitSeconds: 180,
+      maxAttempts: 3,
+      scoringPolicy: { base_points: 10, failure_penalty_points: 25 },
       speedBonuses: [],
+    });
+  });
+
+  it.each([
+    ["easy", 240, 3, 5, 10],
+    ["medium", 240, 3, 10, 15],
+    ["extreme", 120, 2, 5, 25],
+  ] as const)("follows the %s defaults for a riddle", (difficulty, time, tries, points, penalty) => {
+    expect(buildPuzzlePreview({ kind: "riddle", difficulty, prompt: "Q?", acceptedAnswers: "a", targetWord: "" })).toMatchObject({
+      timeLimitSeconds: time,
+      maxAttempts: tries,
+      scoringPolicy: { base_points: points, failure_penalty_points: penalty },
+    });
+  });
+
+  it("keeps six tries for a letter game but takes time and points from the difficulty", () => {
+    expect(buildPuzzlePreview({
+      kind: "character_puzzle", difficulty: "extreme", prompt: "", acceptedAnswers: "", targetWord: "crane",
+    })).toMatchObject({
+      timeLimitSeconds: 120,
+      maxAttempts: 6,
+      scoringPolicy: { base_points: 5, failure_penalty_points: 25 },
     });
   });
 
