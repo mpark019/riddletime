@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 
-export type PlayOutcome = "solved" | "failed" | "missed" | "in_progress" | "expired" | "not_started" | "did_not_play";
+export type PlayOutcome = "solved" | "failed" | "partial" | "missed" | "in_progress" | "pending_review" | "expired" | "not_started" | "did_not_play";
 
 export interface PuzzleRules {
   maxAttempts: number;
@@ -69,7 +69,7 @@ export function summarizeRuleSets(plays: readonly PuzzlePlay[]): RuleSetStats[] 
   return [...groups.values()].map((group) => {
     const finished = group.filter((play) => play.outcome === "solved" || play.outcome === "failed");
     const solved = group.filter((play) => play.outcome === "solved");
-    const started = group.filter((play) => ["solved", "failed", "in_progress", "expired"].includes(play.outcome));
+    const started = group.filter((play) => ["solved", "failed", "partial", "in_progress", "pending_review", "expired"].includes(play.outcome));
     const attempts = finished.flatMap((play) => play.attempts === null ? [] : [play.attempts]);
     const times = solved.flatMap((play) => play.timeTakenMs === null ? [] : [play.timeTakenMs / 1000]);
     return {
@@ -95,7 +95,9 @@ export async function loadPuzzleActivity(client: PoolClient, puzzleId: string): 
             p.id as player_id, p.display_name,
             s.id as submission_id, s.submitted_at, s.correct, s.attempts, s.time_taken_ms,
             coalesce(s.scoring_breakdown @> '{"missed": true}', false) as missed,
-            s.submitted_at is null
+            coalesce(s.scoring_breakdown @> '{"outcome": "partial"}', false) as partial,
+            s.review_state,
+            s.submitted_at is null and s.review_submitted_at is null
               and riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) <= clock_timestamp() as overdue,
             (select sum(pt.amount)::int from point_transactions pt
               where pt.submission_id = s.id and pt.kind = 'challenge_result') as points
@@ -116,7 +118,8 @@ export async function loadPuzzleActivity(client: PoolClient, puzzleId: string): 
     let outcome: PlayOutcome;
     if (!row.submission_id) outcome = row.day_over ? "did_not_play" : "not_started";
     else if (row.missed) outcome = "missed";
-    else if (finished) outcome = row.correct ? "solved" : "failed";
+    else if (finished) outcome = row.partial ? "partial" : row.correct ? "solved" : "failed";
+    else if (row.review_state === "pending_review") outcome = "pending_review";
     else outcome = row.overdue ? "expired" : "in_progress";
     return {
       playerId: row.player_id,

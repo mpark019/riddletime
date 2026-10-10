@@ -81,11 +81,11 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
        ),
        riddle_results as (
          select s.user_id,
-                count(*) filter (where s.correct)::bigint as correct_riddles,
+                count(*) filter (where s.correct and coalesce(s.scoring_breakdown->>'outcome', '') <> 'partial')::bigint as correct_riddles,
                 count(*) filter (where not s.correct)::bigint as incorrect_riddles
          from submissions s
          join challenges c on c.id = s.challenge_id
-         where c.type = 'riddle' and s.submitted_at is not null
+         where c.type in ('riddle', 'image_submission') and s.submitted_at is not null
          group by s.user_id
        )
        select p.id as user_id, p.display_name, p.name, p.avatar_url,

@@ -38,6 +38,8 @@ function player(overrides: Partial<ScheduledRiddlePlayer>): ScheduledRiddlePlaye
     points: null,
     breakdown: null,
     missed: false,
+    outcome: null,
+    reviewComment: null,
     ...overrides,
   };
 }

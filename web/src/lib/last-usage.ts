@@ -19,7 +19,7 @@ export function rulesFromLastUsage(usage: LastUsage) {
 }
 
 function formatLimit(seconds: number | null): string {
-  if (seconds === null) return "no time limit";
+  if (seconds === null) return "EOD";
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
   if (minutes === 0) return `${rest}s`;

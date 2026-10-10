@@ -77,7 +77,7 @@ function targeting(playerIds: string[] | undefined) {
 }
 
 export interface BankScheduleForm extends ScheduleRulesForm {
-  kind: "riddle" | "character_puzzle";
+  kind: "riddle" | "character_puzzle" | "image_submission";
   puzzleId: string;
 }
 
@@ -89,17 +89,19 @@ export function buildBankScheduleRequest(form: BankScheduleForm) {
   return {
     active_date: rules.activeDate,
     ...targeting(form.playerIds),
-    allowed_types: [form.kind] as ["riddle" | "character_puzzle"],
+    allowed_types: [form.kind] as ["riddle" | "character_puzzle" | "image_submission"],
     difficulty_selection: "fixed" as const,
     difficulty_presets: {
       [rules.difficulty]: {
         types: {
           [form.kind]: {
             time_limit_seconds: rules.timeLimitSeconds,
-            max_attempts: rules.maxAttempts,
+            max_attempts: form.kind === "image_submission" ? 1 : rules.maxAttempts,
             generation_settings: {},
             config: {},
-            scoring_policy: rules.scoringPolicy,
+            scoring_policy: form.kind === "image_submission"
+              ? { ...rules.scoringPolicy, speed_bonuses: [] }
+              : rules.scoringPolicy,
           },
         },
       },

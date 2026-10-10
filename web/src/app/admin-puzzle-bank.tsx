@@ -11,7 +11,7 @@ import {
 } from "@/lib/puzzle-bank";
 import type { BankPuzzle } from "@/server/puzzles/puzzles";
 import { PrimaryButton } from "./primary-button";
-import { DifficultyPicker, PuzzleContentFields, inputClass, type PuzzleFieldValues } from "./puzzle-fields";
+import { DifficultyPicker, PuzzleContentFields, discardPromptImage, emptyFieldValues, inputClass, type PuzzleFieldValues } from "./puzzle-fields";
 import { PuzzlePreview } from "./puzzle-preview";
 import { PuzzleActivityPanel } from "./puzzle-activity-panel";
 import { Dropdown } from "./puzzle-dropdown";
@@ -33,9 +33,11 @@ const STATUS_MOVES: Record<BankPuzzle["status"], Array<[BankPuzzle["status"], st
   active: [["draft", "Move to draft"], ["retired", "Retire"]],
   retired: [["active", "Restore"], ["draft", "Move to draft"]],
 };
-const emptyValues: PuzzleFieldValues = { prompt: "", acceptedAnswers: "", targetWord: "" };
-const puzzleName = (puzzle: BankPuzzle) => puzzle.name ?? `${puzzle.acceptedAnswers[0] ?? "No answer"} | ${kindLabel(puzzle.type)}`;
-const kindLabel = (type: BankPuzzleKind) => type === "riddle" ? "Riddle" : "Letter game";
+const emptyValues: PuzzleFieldValues = emptyFieldValues;
+const puzzleName = (puzzle: BankPuzzle) => puzzle.name
+  ?? `${(puzzle.type === "image_submission" ? puzzle.prompt.slice(0, 40) : puzzle.acceptedAnswers[0]) || "No answer"} | ${kindLabel(puzzle.type)}`;
+const KIND_LABELS: Record<BankPuzzleKind, string> = { riddle: "Riddle", character_puzzle: "Letter game", image_submission: "Image" };
+const kindLabel = (type: BankPuzzleKind) => KIND_LABELS[type];
 
 export function puzzleMatches(puzzle: BankPuzzle, needle: string, difficulty: string) {
   return (difficulty === "" || puzzle.difficulty === difficulty) && (needle === ""
@@ -54,13 +56,15 @@ function formFromPuzzle(puzzle: BankPuzzle): PuzzleForm {
     name: puzzle.name ?? "",
     kind: puzzle.type,
     difficulty: puzzle.difficulty,
-    prompt: puzzle.type === "riddle" ? puzzle.prompt : "",
+    prompt: puzzle.type === "character_puzzle" ? "" : puzzle.prompt,
     acceptedAnswers: puzzle.type === "riddle" ? puzzle.acceptedAnswers.join("\n") : "",
     targetWord: puzzle.type === "character_puzzle" ? puzzle.acceptedAnswers[0] ?? "" : "",
+    promptImagePath: puzzle.promptImagePath ?? "",
+    promptImageUrl: puzzle.promptImageUrl,
   };
 }
 
-export function AdminPuzzleBank({ canManage = true }: { canManage?: boolean }) {
+export function AdminPuzzleBank({ canManage = true, viewerId }: { canManage?: boolean; viewerId?: string }) {
   const [puzzles, setPuzzles] = useState<BankPuzzle[] | null>(null);
   const [filter, setFilter] = useState<Filter>({ type: "", status: "", used: "" });
   const [search, setSearch] = useState("");
@@ -78,6 +82,7 @@ export function AdminPuzzleBank({ canManage = true }: { canManage?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const promptPathRef = useRef("");
 
   const load = useCallback(async (current: Filter) => {
     const query = new URLSearchParams();
@@ -103,9 +108,17 @@ export function AdminPuzzleBank({ canManage = true }: { canManage?: boolean }) {
   }, [filter, load]);
 
   useEffect(() => {
+    promptPathRef.current = values.promptImagePath;
+  }, [values.promptImagePath]);
+
+  useEffect(() => {
     if (drawer === "closed") return;
     closeRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setDrawer("closed"); };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (drawer === "form") discardPromptImage(promptPathRef.current);
+      setDrawer("closed");
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [drawer]);
@@ -123,6 +136,7 @@ export function AdminPuzzleBank({ canManage = true }: { canManage?: boolean }) {
 
   function changeKind(next: BankPuzzleKind) {
     if (next === kind) return;
+    discardPromptImage(values.promptImagePath);
     setKind(next);
     setValues(emptyValues);
     setError(null);
@@ -157,13 +171,26 @@ export function AdminPuzzleBank({ canManage = true }: { canManage?: boolean }) {
     setDifficultyTouched(false);
     const form = formFromPuzzle(puzzle);
     setName(puzzle.name ?? "");
-    setValues({ prompt: form.prompt, acceptedAnswers: form.acceptedAnswers, targetWord: form.targetWord });
+    setValues({
+      prompt: form.prompt,
+      acceptedAnswers: form.acceptedAnswers,
+      targetWord: form.targetWord,
+      promptImagePath: form.promptImagePath ?? "",
+      promptImageUrl: form.promptImageUrl ?? "",
+    });
     setError(null);
     setNotice(null);
     setDrawer("form");
   }
 
+  // An upload that was never saved is removed; the server skips any file a puzzle uses.
+  function closeDrawer() {
+    if (drawer === "form") discardPromptImage(values.promptImagePath);
+    setDrawer("closed");
+  }
+
   function cancelForm() {
+    discardPromptImage(values.promptImagePath);
     if (editing && selected) {
       setEditingId("");
       setName("");
@@ -274,13 +301,13 @@ export function AdminPuzzleBank({ canManage = true }: { canManage?: boolean }) {
       page={currentPage} pageCount={pageCount} onPage={setPage} onOpen={openPuzzle} />
 
     {drawer !== "closed" && <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/55" aria-hidden onClick={() => setDrawer("closed")} />
+      <div className="absolute inset-0 bg-black/55" aria-hidden onClick={closeDrawer} />
       <div className="relative w-full max-w-4xl overflow-hidden rounded-2xl bg-surface-solid shadow-2xl">
       <div role="dialog" aria-modal="true" aria-labelledby="puzzle-modal-title"
         className="max-h-[calc(100vh-2rem)] overflow-y-auto p-5 text-white [scrollbar-width:thin] sm:p-7">
         <div className="flex items-start justify-between gap-4">
           <h3 id="puzzle-modal-title" className="break-words text-xl font-semibold">{drawerTitle}</h3>
-          <button ref={closeRef} type="button" onClick={() => setDrawer("closed")} aria-label="Close"
+          <button ref={closeRef} type="button" onClick={closeDrawer} aria-label="Close"
             className="-mr-1 -mt-1 rounded-md px-2 py-1 text-2xl leading-none text-white/60 hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-white">×</button>
         </div>
         <div aria-live="polite" className="mt-3 space-y-2 empty:hidden">
@@ -289,6 +316,7 @@ export function AdminPuzzleBank({ canManage = true }: { canManage?: boolean }) {
         </div>
         {drawer === "view" && selected && <>
           <PuzzleDetails key={selected.id} puzzle={selected} busy={busy} canManage={canManage}
+            canDelete={canManage || (selected.status === "draft" && viewerId !== undefined && selected.createdBy === viewerId)}
             onEdit={() => startEdit(selected)}
             onStatus={(status) => changeStatus(selected, status)}
             onRename={(next) => void mutate(selected, "PATCH", { name: next }, next ? "Name saved." : "Name cleared.")}
@@ -300,8 +328,8 @@ export function AdminPuzzleBank({ canManage = true }: { canManage?: boolean }) {
           <form onSubmit={(event) => void save(event)} className="mt-4" aria-labelledby="puzzle-modal-title">
             <div className="text-sm font-semibold">
               <span id="puzzle-type-label">Puzzle type</span>
-              <div className="mt-1 grid grid-cols-2 gap-2" role="radiogroup" aria-labelledby="puzzle-type-label">
-                {(["riddle", "character_puzzle"] as const).map((option) => {
+              <div className="mt-1 grid grid-cols-3 gap-2" role="radiogroup" aria-labelledby="puzzle-type-label">
+                {(["riddle", "character_puzzle", "image_submission"] as const).map((option) => {
                   const active = kind === option;
                   return <button key={option} type="button" role="radio" aria-checked={active}
                     disabled={editing} onClick={() => changeKind(option)}
@@ -311,7 +339,7 @@ export function AdminPuzzleBank({ canManage = true }: { canManage?: boolean }) {
             </div>
             <label className="mt-4 block text-sm font-semibold">Name
               <input value={name} required maxLength={MAX_NAME_LENGTH} onChange={(event) => setName(event.target.value)}
-                placeholder="Shown in the bank and when scheduling" className={inputClass} />
+                placeholder="puzzle name" className={inputClass} />
             </label>
             <div className="mt-4">
               <DifficultyPicker label="Difficulty" value={difficulty} onChange={(value) => { setDifficulty(value); setDifficultyTouched(true); }} />
@@ -361,7 +389,7 @@ export function FilterMenu({ type, status, difficulty, onType, onStatus, onDiffi
     </button>
     {open && <div role="dialog" aria-label="Filter puzzles" className="absolute right-0 z-30 mt-2 w-64 rounded-lg border border-white/25 bg-surface-solid p-4 shadow-lg">
       <Dropdown label="Puzzle type" value={type} onChange={(next) => onType(next as Filter["type"])}
-        options={[["", "All types"], ["riddle", "Riddles"], ["character_puzzle", "Letter games"]]} />
+        options={[["", "All types"], ["riddle", "Riddles"], ["character_puzzle", "Letter games"], ["image_submission", "Image submissions"]]} />
       {!hideStatus && <Dropdown className="mt-3" label="Status" value={status} onChange={(next) => onStatus(next as Filter["status"])}
         options={[["", "Any status"], ["draft", "Draft"], ["active", "Active"], ["retired", "Retired"]]} />}
       <Dropdown className="mt-3" label="Difficulty" value={difficulty} onChange={onDifficulty}
@@ -430,8 +458,8 @@ export function PuzzleTable({ puzzles, total, matching, page, pageCount, onPage,
   </div>;
 }
 
-export function PuzzleDetails({ puzzle, busy, canManage, onEdit, onStatus, onRename, onDelete }: {
-  puzzle: BankPuzzle; busy: boolean; canManage: boolean; onEdit: () => void; onStatus: (status: BankPuzzle["status"]) => void; onRename: (name: string) => void; onDelete: () => void;
+export function PuzzleDetails({ puzzle, busy, canManage, canDelete = canManage, onEdit, onStatus, onRename, onDelete }: {
+  puzzle: BankPuzzle; busy: boolean; canManage: boolean; canDelete?: boolean; onEdit: () => void; onStatus: (status: BankPuzzle["status"]) => void; onRename: (name: string) => void; onDelete: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [nameDraft, setNameDraft] = useState(puzzle.name ?? "");
@@ -456,14 +484,16 @@ export function PuzzleDetails({ puzzle, busy, canManage, onEdit, onStatus, onRen
       <div className="flex gap-2"><dt className={label}>Type:</dt><dd>{kindLabel(puzzle.type)}</dd></div>
       <div className="flex gap-2"><dt className={label}>Difficulty:</dt><dd className="font-semibold capitalize" style={{ color: difficultyColor(puzzle.difficulty) }}>{puzzle.difficulty}</dd></div>
       <div className="flex items-center gap-2"><dt className={label}>Status:</dt><dd><StatusPill status={puzzle.status} /></dd></div>
-      <div className="flex gap-2"><dt className={label}>Accepted:</dt><dd className="break-words">{puzzle.acceptedAnswers.join(", ")}</dd></div>
+      {puzzle.type === "image_submission"
+        ? <div className="flex gap-2"><dt className={label}>Grading:</dt><dd>Graded by an admin; up to {puzzle.maxImages ?? 5} images</dd></div>
+        : <div className="flex gap-2"><dt className={label}>Accepted:</dt><dd className="break-words">{puzzle.acceptedAnswers.join(", ")}</dd></div>}
       <div className="flex gap-2"><dt className={label}>Created by:</dt><dd className="break-words">{puzzle.createdByName ?? "Unknown"}</dd></div>
     </dl>
     <div className="mt-4 flex flex-wrap gap-2">
       {editable && <button type="button" disabled={busy} onClick={onEdit} className={fill}>Edit</button>}
       {canManage && STATUS_MOVES[puzzle.status].map(([status, action]) => <button key={status} type="button" disabled={busy} onClick={() => onStatus(status)} className={fill}>{action}</button>)}
-      {canManage && unused && !confirmDelete && <button type="button" disabled={busy} onClick={() => setConfirmDelete(true)} className="rounded-md bg-[#e00000] px-3.5 py-2 text-sm font-semibold text-[#ffffff] hover:opacity-85 disabled:opacity-50">Delete</button>}
-      {canManage && unused && confirmDelete && <button type="button" disabled={busy} onClick={onDelete} className="rounded-md bg-[#a00000] px-3.5 py-2 text-sm font-semibold text-[#ffffff] disabled:opacity-50">Delete permanently</button>}
+      {canDelete && unused && !confirmDelete && <button type="button" disabled={busy} onClick={() => setConfirmDelete(true)} className="rounded-md bg-[#e00000] px-3.5 py-2 text-sm font-semibold text-[#ffffff] hover:opacity-85 disabled:opacity-50">Delete</button>}
+      {canDelete && unused && confirmDelete && <button type="button" disabled={busy} onClick={onDelete} className="rounded-md bg-[#a00000] px-3.5 py-2 text-sm font-semibold text-[#ffffff] disabled:opacity-50">Delete permanently</button>}
     </div>
     {!unused && <p className="mt-2 text-xs text-white/55">Scheduled puzzles can&apos;t be edited or deleted; retire one to stop it being picked.</p>}
     {canManage && unused && puzzle.status === "active" && <p className="mt-2 text-xs text-white/55">Active puzzles can&apos;t be edited; move it to draft first.</p>}

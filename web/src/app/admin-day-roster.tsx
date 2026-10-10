@@ -5,20 +5,22 @@ import { compareByName } from "@/lib/account-order";
 import type { LeaderboardEntry } from "@/server/points/points";
 import type { DateAssignment, DateRoster } from "@/server/schedules/schedules";
 
-const typeLabels: Record<string, string> = { riddle: "Riddle", character_puzzle: "Letter game" };
+const typeLabels: Record<string, string> = { riddle: "Riddle", character_puzzle: "Letter game", image_submission: "Image submission" };
 const statusLabels: Record<DateAssignment["status"], string> = {
   not_started: "Not started",
   in_progress: "In progress",
+  pending_review: "Awaiting review",
   expired: "Expired",
   completed: "",
 };
 const number = new Intl.NumberFormat();
 
 const puzzleLabel = (assignment: DateAssignment) => assignment.name
-  ?? (assignment.type === "riddle" ? assignment.prompt : "Letter game");
+  ?? (assignment.type === "riddle" ? assignment.prompt : assignment.type === "image_submission" ? (assignment.prompt || "Image submission") : "Letter game");
 
 function outcome(assignment: DateAssignment) {
   if (assignment.status !== "completed") return { label: statusLabels[assignment.status], tone: "" };
+  if (assignment.partial) return { label: "Partial", tone: "text-[#b45f00]" };
   if (assignment.correct) return { label: "Solved", tone: "text-[#00940a]" };
   return { label: assignment.missed ? "DNF" : "Failed", tone: "text-[#f00000]" };
 }
@@ -38,8 +40,8 @@ export function summarizeRoster(players: LeaderboardEntry[], roster: DateRoster 
   return {
     assigned: mine.length,
     notStarted: count("not_started"),
-    inProgress: count("in_progress") + count("expired"),
-    solved: mine.filter((entry) => entry.correct === true).length,
+    inProgress: count("in_progress") + count("pending_review") + count("expired"),
+    solved: mine.filter((entry) => entry.correct === true && !entry.partial).length,
     failed: mine.filter((entry) => entry.correct === false).length,
     noPuzzle: players.length - mine.length,
   };

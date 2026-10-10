@@ -15,6 +15,8 @@ import {
   type CharacterFeedback,
 } from "./character-puzzle";
 import { gradeRiddle } from "./grading";
+import { imageConfigSchema, type ImageConfig } from "./image-puzzle";
+import { signPuzzleImages, submissionImageId } from "@/server/storage/puzzle-images";
 import { computeResult, type SpeedBonus } from "./scoring";
 
 const riddleAnswerDataSchema = z.object({
@@ -127,13 +129,15 @@ function toPublicScoringPolicy(policy: ScoringPolicy) {
   };
 }
 
-function toStaffPreview(row: Record<string, unknown> | undefined) {
+async function toStaffPreview(row: Record<string, unknown> | undefined) {
   const policy = scoringPolicySchema.safeParse(row?.scoring_policy);
   if (!row || !policy.success) return null;
   const config = row.type === "character_puzzle" ? characterConfigSchema.safeParse(row.config) : null;
   if (config && !config.success) return null;
+  const image = row.type === "image_submission" ? imageConfigSchema.safeParse(row.config) : null;
+  if (image && !image.success) return null;
   return {
-    type: row.type as "riddle" | "character_puzzle",
+    type: row.type as "riddle" | "character_puzzle" | "image_submission",
     difficulty: row.difficulty as string,
     prompt: row.prompt as string,
     timeLimitSeconds: row.time_limit_seconds as number | null,
@@ -141,6 +145,15 @@ function toStaffPreview(row: Record<string, unknown> | undefined) {
     scoringPolicy: toPublicScoringPolicy(policy.data),
     ...(policy.data.speed_bonuses ? { speedBonuses: policy.data.speed_bonuses } : {}),
     ...(config?.success ? { config: config.data } : {}),
+    ...(image?.success ? await toImagePuzzleView(image.data) : {}),
+  };
+}
+
+async function toImagePuzzleView(config: ImageConfig) {
+  const urls = config.prompt_image_path ? await signPuzzleImages([config.prompt_image_path]) : new Map<string, string>();
+  return {
+    maxImages: config.max_images,
+    promptImageUrl: config.prompt_image_path ? (urls.get(config.prompt_image_path) ?? null) : null,
   };
 }
 
@@ -160,7 +173,8 @@ export async function getStaffPlayerStatuses(client: PoolClient, dailyChallengeI
     `select p.id as user_id, p.display_name, p.name,
             c.id as challenge_id, c.type, c.difficulty, c.max_attempts, c.time_limit_seconds,
             s.id as submission_id, s.submitted_at, s.correct, s.attempts, s.time_taken_ms,
-            s.submitted_at is null
+            s.scoring_breakdown, s.review_state,
+            s.submitted_at is null and s.review_submitted_at is null
               and riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) <= clock_timestamp() as overdue,
             (select sum(pt.amount)::int from point_transactions pt
               where pt.submission_id = s.id and pt.kind = 'challenge_result') as points
@@ -184,7 +198,7 @@ export async function getStaffPlayerStatuses(client: PoolClient, dailyChallengeI
     play: plays.get(row.user_id) ?? null,
     puzzle: row.challenge_id
       ? {
-        type: row.type as "riddle" | "character_puzzle",
+        type: row.type as "riddle" | "character_puzzle" | "image_submission",
         difficulty: row.difficulty as string,
         maxAttempts: row.max_attempts as number,
         timeLimitSeconds: row.time_limit_seconds as number | null,
@@ -192,7 +206,8 @@ export async function getStaffPlayerStatuses(client: PoolClient, dailyChallengeI
       : null,
     status: (!row.challenge_id ? "no_riddle"
       : !row.submission_id ? "not_started"
-      : row.submitted_at ? (row.correct ? "solved" : "failed")
+      : row.submitted_at ? (outcomeOf(row.scoring_breakdown) === "partial" ? "partial" : row.correct ? "solved" : "failed")
+      : row.review_state === "pending_review" ? "pending_review"
       : row.overdue ? "expired" : "in_progress") as StaffPlayerStatusKind,
     attempts: (row.attempts as number | null) ?? 0,
     timeTakenMs: row.time_taken_ms === null || row.time_taken_ms === undefined ? null : Number(row.time_taken_ms),
@@ -219,6 +234,7 @@ async function getSharedPlayState(
             c.scoring_policy, pz.config, c.time_limit_seconds, c.max_attempts,
             s.id as submission_id, s.started_at, s.submitted_at, s.correct,
             s.feedback, s.guess_history, s.attempts, s.time_taken_ms,
+            s.image_paths, s.note, s.review_state, s.review_comment,
             s.scoring_breakdown, clock_timestamp() as server_time,
             riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) as deadline
      from challenges c
@@ -233,12 +249,14 @@ async function getSharedPlayState(
   if (!row?.submission_id) {
     const policy = scoringPolicySchema.safeParse(row?.scoring_policy);
     const config = row?.type === "character_puzzle" ? characterConfigSchema.safeParse(row.config) : null;
+    const image = row?.type === "image_submission" ? imageConfigSchema.safeParse(row.config) : null;
     return {
       status: "not_started" as const,
       available: Boolean(row?.challenge_id),
       difficulty: (row?.difficulty as string | undefined) ?? null,
-      ...(row?.type ? { type: row.type as "riddle" | "character_puzzle" } : {}),
+      ...(row?.type ? { type: row.type as "riddle" | "character_puzzle" | "image_submission" } : {}),
       ...(config?.success ? { targetLength: config.data.target_length } : {}),
+      ...(image?.success ? { maxImages: image.data.max_images } : {}),
       ...(policy.success ? { scoringPolicy: toPublicScoringPolicy(policy.data) } : {}),
     };
   }
@@ -273,10 +291,14 @@ async function getSharedPlayState(
     feedback: row.feedback,
     scoringPolicy,
     ...(row.type === "character_puzzle" ? { config: parseStoredCharacterConfig(row.config) } : {}),
+    ...(row.type === "image_submission" ? await toImageSessionView(row) : {}),
   };
 
   if (!row.submitted_at) {
-    return { status: "in_progress" as const, ...restored };
+    return {
+      status: row.review_state === "pending_review" ? "pending_review" as const : "in_progress" as const,
+      ...restored,
+    };
   }
 
   return {
@@ -286,11 +308,43 @@ async function getSharedPlayState(
       correct: row.correct,
       timeTakenMs: Number(row.time_taken_ms),
       scoringBreakdown: row.scoring_breakdown,
+      ...(row.type === "image_submission"
+        ? { outcome: outcomeOf(row.scoring_breakdown), reviewComment: (row.review_comment as string | null) ?? null }
+        : {}),
     },
   };
 }
 
-async function requireSavedSharedPlayState(
+function outcomeOf(breakdown: unknown): "full" | "partial" | "none" | null {
+  const outcome = (breakdown as { outcome?: unknown } | null)?.outcome;
+  return outcome === "full" || outcome === "partial" || outcome === "none" ? outcome : null;
+}
+
+// Images are signed only after Start, so a prompt image never reaches a player who has not begun.
+async function toImageSessionView(row: Record<string, unknown>) {
+  let config: ImageConfig;
+  try {
+    config = imageConfigSchema.parse(row.config);
+  } catch (err) {
+    console.error("Malformed stored session data:", err);
+    throw new Error("Stored session data is malformed");
+  }
+  const paths = (row.image_paths as string[] | null) ?? [];
+  const urls = await signPuzzleImages(
+    config.prompt_image_path ? [config.prompt_image_path, ...paths] : paths,
+  );
+  return {
+    maxImages: config.max_images,
+    promptImageUrl: config.prompt_image_path ? (urls.get(config.prompt_image_path) ?? null) : null,
+    images: paths.flatMap((path) => {
+      const url = urls.get(path);
+      return url ? [{ id: submissionImageId(path), url }] : [];
+    }),
+    note: (row.note as string | null) ?? null,
+  };
+}
+
+export async function requireSavedSharedPlayState(
   client: PoolClient,
   dailyChallengeId: string,
   playerId: string,
@@ -326,7 +380,7 @@ async function findUnresolvedSharedGame(client: PoolClient, playerId: string) {
      from submissions s
      join challenges c on c.id = s.challenge_id
      join daily_challenges d on d.id = c.daily_challenge_id
-     where s.user_id = $1 and s.submitted_at is null
+     where s.user_id = $1 and s.submitted_at is null and s.review_submitted_at is null
      order by s.started_at desc
      limit 1`,
     [playerId],
@@ -452,6 +506,24 @@ export async function startChallenge(dailyChallengeId: string) {
   });
 }
 
+// Expiry for an image session is shared with the sweep: a draft with images goes to review, an empty one is penalized.
+async function resolveImageSessionAtDeadline(client: PoolClient, dailyChallengeId: string, playerId: string) {
+  const { rows } = await client.query(
+    "select riddle_private.finalize_expired_sessions($1) as finalized",
+    [playerId],
+  );
+  const play = await requireSavedSharedPlayState(client, dailyChallengeId, playerId);
+  const finalized = rows[0].finalized > 0 && play.status === "completed";
+  return {
+    submissionId: "submissionId" in play ? play.submissionId : null,
+    correct: play.status === "completed" ? Boolean(play.result.correct) : false,
+    scoringBreakdown: play.status === "completed" ? (play.result.scoringBreakdown as unknown) : null,
+    finalized,
+    alreadyFinalized: false,
+    play,
+  };
+}
+
 export async function submitChallenge(
   dailyChallengeId: string,
   response: string | null,
@@ -471,6 +543,11 @@ export async function submitChallenge(
     );
     const challenge = challengeRows[0];
     if (!challenge) throw new NotFoundError("Puzzle not found for today");
+
+    if (challenge.type === "image_submission") {
+      if (response !== null) throw new BadRequestError("Submit this puzzle's images for review instead");
+      return resolveImageSessionAtDeadline(client, dailyChallengeId, player.id);
+    }
 
     const { rows: submissionRows } = await client.query(
       `select id, started_at, submitted_at, correct, scoring_breakdown, attempts, guess_history

@@ -10,6 +10,8 @@ import {
   type TimelineGuess,
 } from "@/server/challenges/activity-timeline";
 import { normalizeAnswer } from "@/server/challenges/grading";
+import { isPromptImagePath, removePuzzleImages } from "@/server/storage/puzzle-images";
+import { loadSessionImagePaths } from "@/server/challenges/session-images";
 import { requireAdmin, requireAdminRead } from "@/server/identity/identity";
 import { BadRequestError, ConflictError, NotFoundError } from "@/server/http/errors";
 import {
@@ -91,8 +93,22 @@ const characterSettingsSchema = z.object({
   config: z.object({}).strict().default({}),
 }).strict().superRefine(refineSettings);
 
+// An image puzzle is one submission, graded later, so it always has exactly one "try".
+const imageSettingsSchema = z.object({
+  ...baseSettingsShape,
+  scoring_policy: scoringPolicySchema.extend({
+    speed_bonuses: z.array(speedBonusSchema).max(0, "Image puzzles have no speed bonuses").default([]),
+  }),
+  max_attempts: z.literal(1).default(1),
+  config: z.object({}).strict().default({}),
+}).strict().superRefine(refineSettings);
+
 const presetSchema = z.object({
   types: z.object({ riddle: riddleSettingsSchema }).strict(),
+}).strict();
+
+const imagePresetSchema = z.object({
+  types: z.object({ image_submission: imageSettingsSchema }).strict(),
 }).strict();
 
 const characterPresetSchema = z.object({
@@ -103,6 +119,15 @@ export const characterPuzzleSchema = z.object({
   type: z.literal("character_puzzle"),
   target: characterTargetSchema,
 }).strict();
+
+export const imagePuzzleSchema = z.object({
+  type: z.literal("image_submission"),
+  prompt: z.string().trim().max(10_000).default(""),
+  prompt_image_path: z.string().refine(isPromptImagePath, "Upload the prompt image first").optional(),
+}).strict().refine((puzzle) => puzzle.prompt.length > 0 || puzzle.prompt_image_path !== undefined, {
+  message: "Provide prompt text, a prompt image, or both",
+  path: ["prompt"],
+});
 
 export const manualPuzzleSchema = z.object({
   type: z.literal("riddle"),
@@ -175,6 +200,16 @@ export const createSharedCharacterPuzzleInput = z.object({
   puzzle_id: z.uuid(),
 }).strict().superRefine(refineSelectedPreset);
 
+export const createSharedImageSubmissionInput = z.object({
+  active_date: z.iso.date(),
+  mode: z.literal("shared"),
+  allowed_types: z.tuple([z.literal("image_submission")]),
+  difficulty_selection: z.literal("fixed"),
+  difficulty_presets: z.record(presetNameSchema, imagePresetSchema),
+  selected_difficulty: presetNameSchema,
+  puzzle_id: z.uuid(),
+}).strict().superRefine(refineSelectedPreset);
+
 const MAX_ASSIGNED_PLAYERS = 500;
 
 const assignedPlayersShape = {
@@ -204,6 +239,16 @@ export const assignPersonalCharacterInput = z.object({
   allowed_types: z.tuple([z.literal("character_puzzle")]),
   difficulty_selection: z.literal("fixed"),
   difficulty_presets: z.record(presetNameSchema, characterPresetSchema),
+  selected_difficulty: presetNameSchema,
+  puzzle_id: z.uuid(),
+}).strict().superRefine(refineSelectedPreset).superRefine(refineDistinctPlayers);
+
+export const assignPersonalImageInput = z.object({
+  active_date: z.iso.date(),
+  ...assignedPlayersShape,
+  allowed_types: z.tuple([z.literal("image_submission")]),
+  difficulty_selection: z.literal("fixed"),
+  difficulty_presets: z.record(presetNameSchema, imagePresetSchema),
   selected_difficulty: presetNameSchema,
   puzzle_id: z.uuid(),
 }).strict().superRefine(refineSelectedPreset).superRefine(refineDistinctPlayers);
@@ -346,6 +391,30 @@ export async function createSharedCharacterPuzzle(input: unknown) {
   }));
 }
 
+export async function createSharedImageSubmission(input: unknown) {
+  return withDuplicateDateGuard(() => withTransaction(async (client) => {
+    const admin = await requireAdmin(client);
+    const parsed = createSharedImageSubmissionInput.parse(input);
+    const settings = parsed.difficulty_presets[parsed.selected_difficulty].types.image_submission;
+    return insertSharedSchedule(
+      client,
+      admin.id,
+      {
+        activeDate: parsed.active_date,
+        allowedType: "image_submission",
+        presets: parsed.difficulty_presets,
+        difficulty: parsed.selected_difficulty,
+      },
+      {
+        source: { puzzleId: parsed.puzzle_id, type: "image_submission" },
+        maxAttempts: settings.max_attempts,
+        timeLimitSeconds: settings.time_limit_seconds,
+        scoringPolicy: settings.scoring_policy,
+      },
+    );
+  }));
+}
+
 const NATIVE_SHARED_MESSAGE = "That date already has a riddle for everyone";
 const ALREADY_ASSIGNED_MESSAGE = "Every selected player already has a riddle for that date";
 
@@ -366,7 +435,7 @@ async function lockOrCreatePersonalSchedule(
     `insert into daily_challenges
        (active_date, mode, allowed_types, difficulty_selection,
         difficulty_presets, selected_difficulty, created_by)
-     values ($1::date, 'personal', array['riddle', 'character_puzzle']::text[],
+     values ($1::date, 'personal', array['riddle', 'character_puzzle', 'image_submission']::text[],
              'random_player', $2::jsonb, null, $3)
      returning id`,
     [schedule.activeDate, JSON.stringify(schedule.presets), adminId],
@@ -485,6 +554,30 @@ export async function assignPersonalCharacterPuzzle(input: unknown) {
   }));
 }
 
+export async function assignPersonalImageSubmission(input: unknown) {
+  return withDuplicateDateGuard(() => withTransaction(async (client) => {
+    const admin = await requireAdmin(client);
+    const parsed = assignPersonalImageInput.parse(input);
+    const settings = parsed.difficulty_presets[parsed.selected_difficulty].types.image_submission;
+    return assignPersonalPuzzles(
+      client,
+      admin.id,
+      {
+        activeDate: parsed.active_date,
+        playerIds: parsed.player_ids,
+        presets: parsed.difficulty_presets,
+        difficulty: parsed.selected_difficulty,
+      },
+      {
+        source: { puzzleId: parsed.puzzle_id, type: "image_submission" },
+        maxAttempts: settings.max_attempts,
+        timeLimitSeconds: settings.time_limit_seconds,
+        scoringPolicy: settings.scoring_policy,
+      },
+    );
+  }));
+}
+
 export function isPersonalScheduleRequest(input: unknown): boolean {
   return (input as { mode?: unknown } | null)?.mode === "personal";
 }
@@ -492,6 +585,11 @@ export function isPersonalScheduleRequest(input: unknown): boolean {
 export function isCharacterScheduleRequest(input: unknown): boolean {
   const allowed = (input as { allowed_types?: unknown } | null)?.allowed_types;
   return Array.isArray(allowed) && allowed.includes("character_puzzle");
+}
+
+export function isImageScheduleRequest(input: unknown): boolean {
+  const allowed = (input as { allowed_types?: unknown } | null)?.allowed_types;
+  return Array.isArray(allowed) && allowed.includes("image_submission");
 }
 
 export interface ScheduledRiddle {
@@ -524,7 +622,7 @@ export interface AssignedPuzzle {
 export interface ScheduledRiddlePlayer {
   userId: string;
   displayName: string;
-  status: "not_assigned" | "not_started" | "in_progress" | "expired" | "completed";
+  status: "not_assigned" | "not_started" | "in_progress" | "pending_review" | "expired" | "completed";
   puzzle: AssignedPuzzle | null;
   correct: boolean | null;
   attempts: number;
@@ -536,6 +634,8 @@ export interface ScheduledRiddlePlayer {
   points: number | null;
   breakdown: { basePoints: number; speedBonusPoints: number; penaltyPoints: number } | null;
   missed: boolean;
+  outcome: "full" | "partial" | "none" | null;
+  reviewComment: string | null;
 }
 
 async function selectSchedules(client: PoolClient, scheduleId: string | null): Promise<ScheduledRiddle[]> {
@@ -650,11 +750,13 @@ export async function getScheduleDetail(
               c.id as challenge_id, c.type, c.difficulty, pz.name as puzzle_name, pz.prompt, pz.answer_data,
               c.max_attempts, c.time_limit_seconds,
               s.id as submission_id, s.started_at, s.submitted_at, s.correct,
-              s.attempts, s.guess_history, s.time_taken_ms, s.scoring_breakdown,
+              s.attempts, s.guess_history, s.time_taken_ms, s.scoring_breakdown, s.review_comment, s.review_submitted_at,
               coalesce(s.scoring_breakdown @> '{"missed": true}', false) as missed,
-              s.submitted_at is null
+              coalesce(s.scoring_breakdown @> '{"outcome": "partial"}', false) as partial,
+              s.review_state,
+              s.submitted_at is null and s.review_submitted_at is null
                 and riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) <= clock_timestamp() as overdue,
-              coalesce(s.submitted_at, least(
+              coalesce(s.submitted_at, s.review_submitted_at, least(
                 riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')),
                 clock_timestamp())) as session_end,
               (select sum(pt.amount)::int from point_transactions pt
@@ -674,6 +776,7 @@ export async function getScheduleDetail(
       displayName: row.display_name,
       status: !row.submission_id ? (!row.challenge_id && schedule.mode === "personal" ? "not_assigned" : "not_started")
         : row.submitted_at ? "completed"
+        : row.review_state === "pending_review" ? "pending_review"
         : row.overdue ? "expired" : "in_progress",
       correct: row.correct,
       attempts: row.attempts ?? 0,
@@ -695,6 +798,7 @@ export async function getScheduleDetail(
           endMs: new Date(row.session_end ?? row.started_at).getTime(),
           events: activity.get(row.submission_id) ?? [],
           guesses: toTimelineGuesses(row.guess_history),
+          submittedAtMs: row.review_submitted_at ? new Date(row.review_submitted_at).getTime() : null,
         })
         : [],
       startedAt: row.started_at ? new Date(row.started_at).toISOString() : null,
@@ -703,25 +807,30 @@ export async function getScheduleDetail(
       points: row.points ?? null,
       breakdown: toBreakdown(row.scoring_breakdown),
       missed: row.missed,
+      outcome: ["full", "partial", "none"].includes(row.scoring_breakdown?.outcome) ? row.scoring_breakdown.outcome : null,
+      reviewComment: row.review_comment ?? null,
     }));
     return { schedule, players };
   });
 }
 
 export async function deleteSchedule(id: string): Promise<{ id: string; removedResults: number }> {
-  return withTransaction(async (client) => {
+  const { result, imagePaths } = await withTransaction(async (client) => {
     const admin = await requireAdmin(client);
+    const imagePaths = await loadSessionImagePaths(client, { scheduleId: id });
     try {
       const { rows } = await client.query(
         "select riddle_private.delete_schedule($1, $2) as removed_results",
         [id, admin.id],
       );
-      return { id, removedResults: rows[0].removed_results };
+      return { result: { id, removedResults: rows[0].removed_results as number }, imagePaths };
     } catch (error) {
       if ((error as { code?: unknown }).code === "P0002") throw new NotFoundError("Riddle not found");
       throw error;
     }
   });
+  await removePuzzleImages(imagePaths);
+  return result;
 }
 
 export interface DateAssignment {
@@ -731,10 +840,11 @@ export interface DateAssignment {
   name: string | null;
   difficulty: string;
   prompt: string;
-  status: "not_started" | "in_progress" | "expired" | "completed";
+  status: "not_started" | "in_progress" | "pending_review" | "expired" | "completed";
   correct: boolean | null;
   points: number | null;
   missed: boolean;
+  partial: boolean;
 }
 
 export interface DateRoster {
@@ -751,7 +861,8 @@ export async function getDateAssignments(activeDate: string): Promise<DateRoster
       `select d.id as schedule_id, d.mode, c.id as challenge_id, c.assigned_to, c.type,
               c.difficulty, pz.name as puzzle_name, pz.prompt, s.id as submission_id, s.submitted_at, s.correct,
               coalesce(s.scoring_breakdown @> '{"missed": true}', false) as missed,
-              s.submitted_at is null
+              s.review_state,
+              s.submitted_at is null and s.review_submitted_at is null
                 and riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) <= clock_timestamp() as overdue,
               (select sum(pt.amount)::int from point_transactions pt
                 where pt.submission_id = s.id and pt.kind = 'challenge_result') as points
@@ -780,10 +891,12 @@ export async function getDateAssignments(activeDate: string): Promise<DateRoster
         prompt: row.prompt,
         status: !row.submission_id || row.mode === "shared" ? "not_started"
           : row.submitted_at ? "completed"
+          : row.review_state === "pending_review" ? "pending_review"
           : row.overdue ? "expired" : "in_progress",
         correct: row.mode === "shared" ? null : row.correct,
         points: row.mode === "shared" ? null : row.points,
         missed: row.mode !== "shared" && row.missed,
+        partial: row.mode !== "shared" && row.partial,
       }];
     });
     return { scheduleId: rows[0].schedule_id, mode: rows[0].mode, assignments };
@@ -793,17 +906,21 @@ export async function getDateAssignments(activeDate: string): Promise<DateRoster
 export async function removeAssignment(
   challengeId: string,
 ): Promise<{ challengeId: string; removedResults: number; scheduleRemoved: boolean }> {
-  return withTransaction(async (client) => {
+  const { result, imagePaths } = await withTransaction(async (client) => {
     const admin = await requireAdmin(client);
+    const imagePaths = await loadSessionImagePaths(client, { challengeId });
     try {
       const { rows } = await client.query(
         "select riddle_private.delete_assignment($1, $2) as outcome",
         [challengeId, admin.id],
       );
       return {
-        challengeId,
-        removedResults: rows[0].outcome.removed_results,
-        scheduleRemoved: rows[0].outcome.schedule_removed,
+        result: {
+          challengeId,
+          removedResults: rows[0].outcome.removed_results as number,
+          scheduleRemoved: rows[0].outcome.schedule_removed as boolean,
+        },
+        imagePaths,
       };
     } catch (error) {
       const code = (error as { code?: unknown }).code;
@@ -812,4 +929,6 @@ export async function removeAssignment(
       throw error;
     }
   });
+  await removePuzzleImages(imagePaths);
+  return result;
 }

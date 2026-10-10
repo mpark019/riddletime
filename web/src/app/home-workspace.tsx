@@ -14,6 +14,7 @@ import { PointsDesk, Scoreboard } from "./scoreboard";
 import { RiddleGame } from "./riddle-game";
 import { AdminRiddleScheduler } from "./admin-riddle-scheduler";
 import { AdminPuzzleBank } from "./admin-puzzle-bank";
+import { AdminReviewQueue } from "./admin-review-queue";
 
 type WorkspaceView = "home" | "riddle" | "manage" | "points" | "settings";
 type SettingsTab = "general" | "invitations" | "users";
@@ -70,8 +71,11 @@ export function HomeWorkspace({
       <main className={`flex-1 sm:pb-0 ${view === "points" ? "pb-[calc(3.5rem+env(safe-area-inset-bottom))] max-sm:flex max-sm:min-h-0 max-sm:flex-col max-sm:overflow-y-auto" : "pb-[calc(5rem+env(safe-area-inset-bottom))]"}`}>
         {view === "home" && <Scoreboard initialEntries={leaderboard} />}
         {view === "riddle" && <RiddleGame playerId={profile.id} role={profile.role} onCompleted={refreshRealtimeData} />}
-        {view === "manage" && profile.role === "admin" && <AdminRiddleScheduler appTimezone={appDateContext.timezone} today={appDateContext.today} players={leaderboard} onChanged={refreshRealtimeData} />}
-        {view === "manage" && profile.role === "spectator" && <SpectatorBank />}
+        {view === "manage" && profile.role === "admin" && <>
+          <AdminReviewQueue onGraded={refreshRealtimeData} />
+          <AdminRiddleScheduler appTimezone={appDateContext.timezone} today={appDateContext.today} players={leaderboard} onChanged={refreshRealtimeData} />
+        </>}
+        {view === "manage" && profile.role === "spectator" && <SpectatorBank viewerId={profile.id} />}
         {view === "points" && canManagePoints && <PointsDesk players={leaderboard} canViewAudit={profile.role === "admin"} onChanged={async () => refreshRealtimeData()} refreshVersion={realtimeRefreshVersion} />}
         {view === "settings" && <SettingsPage profile={profile} isAdmin={profile.role === "admin"} tab={settingsTab} onTabChange={setSettingsTab} />}
       </main>
@@ -79,14 +83,14 @@ export function HomeWorkspace({
   );
 }
 
-function SpectatorBank() {
+function SpectatorBank({ viewerId }: { viewerId: string }) {
   return <section className="mx-auto w-[calc(100%-2rem)] max-w-[1280px] py-5 lg:py-8" aria-labelledby="puzzle-bank-title">
     <header className="flex flex-col gap-2 pb-6 lg:pb-8">
       <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">Spectator</p>
       <h2 id="puzzle-bank-title" className="text-2xl font-semibold tracking-tight lg:text-[28px]">Puzzle bank</h2>
-      <p className="text-sm text-white/65">Add puzzles as drafts and edit drafts. An admin publishes them.</p>
+      <p className="text-sm text-white/65">Add puzzles as drafts, and edit or delete your own drafts. An admin publishes them.</p>
     </header>
-    <AdminPuzzleBank canManage={false} />
+    <AdminPuzzleBank canManage={false} viewerId={viewerId} />
   </section>;
 }
 

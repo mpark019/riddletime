@@ -34,7 +34,7 @@ describe("describeLastUsage", () => {
 
   it("handles no limit, one try and no speed tiers", () => {
     expect(describeLastUsage({ ...usage, timeLimitSeconds: null, maxAttempts: 1, speedBonuses: [] }))
-      .toBe("no time limit, 1 try, +10 / -15");
+      .toBe("EOD, 1 try, +10 / -15");
   });
 
   it("shows seconds that are not whole minutes", () => {

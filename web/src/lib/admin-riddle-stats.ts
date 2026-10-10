@@ -18,9 +18,9 @@ export function summarizePlayers(players: readonly ScheduledRiddlePlayer[]): Pla
   return {
     total: assigned.length,
     played: assigned.filter((player) => player.status !== "not_started").length,
-    solved: finished.filter((player) => player.correct === true).length,
+    solved: finished.filter((player) => player.correct === true && player.outcome !== "partial").length,
     failed: finished.filter((player) => player.correct === false).length,
-    inProgress: assigned.filter((player) => player.status === "in_progress" || player.status === "expired").length,
+    inProgress: assigned.filter((player) => player.status === "in_progress" || player.status === "pending_review" || player.status === "expired").length,
     averageTimeMs: timed.length > 0 ? Math.round(totalTimeMs / timed.length) : null,
     pointsGiven: players.reduce((sum, player) => sum + (player.points ?? 0), 0),
   };

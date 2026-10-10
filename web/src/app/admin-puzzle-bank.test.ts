@@ -11,9 +11,13 @@ function puzzle(status: BankPuzzle["status"], name: string): BankPuzzle {
     name,
     prompt: "What has keys?",
     acceptedAnswers: ["piano"],
+    maxImages: null,
+    promptImageUrl: null,
+    promptImagePath: null,
     difficulty: "medium",
     status,
     createdAt: "2030-05-06T00:00:00Z",
+    createdBy: null,
     createdByName: "Pat Lee",
     timesUsed: 0,
     stats: {
