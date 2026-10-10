@@ -43,9 +43,9 @@ describe("puzzles table", () => {
     ).rejects.toThrow();
   });
 
-  it("lets an unused puzzle's content be edited and the row deleted (AC-4)", async () => {
+  it("lets an unused draft's content be edited and the row deleted (AC-3)", async () => {
     const adminId = await createAdmin();
-    const puzzleId = await insertPuzzle(pool, { createdBy: adminId });
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId, status: "draft" });
     await pool.query("update puzzles set prompt = 'Edited' where id = $1", [puzzleId]);
     const { rows } = await pool.query("select prompt from puzzles where id = $1", [puzzleId]);
     expect(rows[0].prompt).toBe("Edited");
@@ -97,7 +97,66 @@ describe("puzzles table", () => {
     const adminId = await createAdmin();
     const dailyId = await createSharedDay(adminId);
     const puzzleId = await insertPuzzle(pool, { createdBy: adminId, status: "retired" });
-    await expect(scheduleChallenge(dailyId, puzzleId)).rejects.toThrow(/retired/i);
+    await expect(scheduleChallenge(dailyId, puzzleId)).rejects.toThrow(/active/i);
+  });
+
+  it("accepts draft, active, and retired and rejects other statuses (AC-1)", async () => {
+    const adminId = await createAdmin();
+    for (const status of ["draft", "active", "retired"] as const) {
+      await insertPuzzle(pool, { createdBy: adminId, status });
+    }
+    const { rows } = await pool.query(
+      `insert into puzzles (type, prompt, config, answer_data, difficulty, created_by)
+       values ('riddle', 'Q', '{}'::jsonb, '{"accepted":["a"]}'::jsonb, 'standard', $1) returning status`,
+      [adminId],
+    );
+    expect(rows[0].status).toBe("active");
+    await expect(
+      pool.query("update puzzles set status = 'archived' where id = (select id from puzzles where created_by = $1 limit 1)", [adminId]),
+    ).rejects.toThrow();
+  });
+
+  it("refuses to schedule a draft puzzle but schedules an active one (AC-2)", async () => {
+    const adminId = await createAdmin();
+    const dailyId = await createSharedDay(adminId);
+    const draft = await insertPuzzle(pool, { createdBy: adminId, status: "draft" });
+    await expect(scheduleChallenge(dailyId, draft)).rejects.toThrow(/active/i);
+    await pool.query("update puzzles set status = 'active' where id = $1", [draft]);
+    await expect(scheduleChallenge(dailyId, draft)).resolves.toBeDefined();
+  });
+
+  it("freezes an active puzzle's content but not its name, and thaws it as a draft (AC-3)", async () => {
+    const adminId = await createAdmin();
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId, status: "active" });
+    await expect(pool.query("update puzzles set prompt = 'Changed' where id = $1", [puzzleId])).rejects.toThrow(/active/i);
+    await expect(
+      pool.query("update puzzles set status = 'draft', prompt = 'Changed' where id = $1", [puzzleId]),
+    ).rejects.toThrow(/active/i);
+    await pool.query("update puzzles set name = 'Piano' where id = $1", [puzzleId]);
+    await pool.query("update puzzles set status = 'draft' where id = $1", [puzzleId]);
+    await pool.query("update puzzles set prompt = 'Changed' where id = $1", [puzzleId]);
+    await pool.query("update puzzles set status = 'active', prompt = 'Final' where id = $1", [puzzleId]);
+    const { rows } = await pool.query("select status, prompt from puzzles where id = $1", [puzzleId]);
+    expect(rows[0]).toEqual({ status: "active", prompt: "Final" });
+  });
+
+  it("allows content edits on a never-scheduled retired puzzle (AC-3)", async () => {
+    const adminId = await createAdmin();
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId, status: "retired" });
+    await pool.query("update puzzles set prompt = 'Edited' where id = $1", [puzzleId]);
+  });
+
+  it("keeps a scheduled puzzle frozen in every status (AC-4)", async () => {
+    const adminId = await createAdmin();
+    const dailyId = await createSharedDay(adminId);
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId });
+    await scheduleChallenge(dailyId, puzzleId);
+    for (const status of ["draft", "retired"]) {
+      await pool.query("update puzzles set status = $2 where id = $1", [puzzleId, status]);
+      await expect(
+        pool.query("update puzzles set prompt = 'Changed' where id = $1", [puzzleId]),
+      ).rejects.toThrow(/immutable/i);
+    }
   });
 
   it("makes a concurrent edit and schedule serialize so a challenge never sees changed content (AC-11)", async () => {

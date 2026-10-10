@@ -18,9 +18,22 @@ import { PuzzleActivityPanel } from "./puzzle-activity-panel";
 import { Dropdown } from "./puzzle-dropdown";
 
 type Drawer = "closed" | "view" | "form";
-type Filter = { type: "" | BankPuzzleKind; status: "" | "active" | "retired"; used: "" | "true" | "false" };
+type Filter = { type: "" | BankPuzzleKind; status: "" | BankPuzzle["status"]; used: "" | "true" | "false" };
 
 const PAGE_SIZE = 20;
+const STATUS_NOTICE: Record<BankPuzzle["status"], string> = {
+  draft: "Puzzle moved to draft.",
+  active: "Puzzle is active and can be scheduled.",
+  retired: "Puzzle retired.",
+};
+const STATUS_LABEL: Record<BankPuzzle["status"], string> = { draft: "Draft", active: "Active", retired: "Retired" };
+const STATUS_COLOR: Record<BankPuzzle["status"], string> = { draft: "bg-[#6b7280]", active: "bg-[#16a34a]", retired: "bg-[#c00000]" };
+// The statuses an admin can move to, labelled by what the move does from the current one.
+const STATUS_MOVES: Record<BankPuzzle["status"], Array<[BankPuzzle["status"], string]>> = {
+  draft: [["active", "Publish"], ["retired", "Retire"]],
+  active: [["draft", "Move to draft"], ["retired", "Retire"]],
+  retired: [["active", "Restore"], ["draft", "Move to draft"]],
+};
 const emptyValues: PuzzleFieldValues = { prompt: "", acceptedAnswers: "", targetWord: "" };
 const puzzleName = (puzzle: BankPuzzle) => puzzle.name ?? `${puzzle.acceptedAnswers[0] ?? "No answer"} | ${kindLabel(puzzle.type)}`;
 const kindLabel = (type: BankPuzzleKind) => type === "riddle" ? "Riddle" : "Letter game";
@@ -198,7 +211,7 @@ export function AdminPuzzleBank() {
       setValues(emptyValues);
       setDifficultyTouched(false);
       setDrawer(editing ? "view" : "closed");
-      setNotice(editing ? "Puzzle updated." : "Saved to storage.");
+      setNotice(editing ? "Puzzle updated." : "Saved as a draft. Publish it to make it schedulable.");
       void reload();
     } catch {
       setError("Could not confirm the puzzle was saved. Reload to check.");
@@ -232,9 +245,8 @@ export function AdminPuzzleBank() {
     }
   }
 
-  const toggleStatus = (puzzle: BankPuzzle) => void mutate(puzzle, "PATCH",
-    { status: puzzle.status === "active" ? "retired" : "active" },
-    puzzle.status === "active" ? "Puzzle retired." : "Puzzle restored.");
+  const changeStatus = (puzzle: BankPuzzle, status: BankPuzzle["status"]) =>
+    void mutate(puzzle, "PATCH", { status }, STATUS_NOTICE[status]);
 
   const drawerTitle = drawer === "form" ? (editing ? "Edit puzzle" : "Add a puzzle") : selected ? puzzleName(selected) : "Puzzle";
 
@@ -279,7 +291,7 @@ export function AdminPuzzleBank() {
         {drawer === "view" && selected && <>
           <PuzzleDetails key={selected.id} puzzle={selected} busy={busy}
             onEdit={() => startEdit(selected)}
-            onToggleStatus={() => toggleStatus(selected)}
+            onStatus={(status) => changeStatus(selected, status)}
             onRename={(next) => void mutate(selected, "PATCH", { name: next }, next ? "Name saved." : "Name cleared.")}
             onDelete={() => void mutate(selected, "DELETE", undefined, "Puzzle deleted.", true)} />
           <h4 className="mt-7 text-base font-semibold">Player preview</h4>
@@ -303,7 +315,7 @@ export function AdminPuzzleBank() {
               onChange={setValues}
               onRandomTarget={() => setValues({ ...values, targetWord: randomTarget(5) })} />
             <div className="mt-5 flex flex-wrap gap-2">
-              <PrimaryButton type="submit" disabled={busy} className="px-5 py-2.5">{busy ? "Saving…" : editing ? "Save changes" : "Save to storage"}</PrimaryButton>
+              <PrimaryButton type="submit" disabled={busy} className="px-5 py-2.5">{busy ? "Saving…" : editing ? "Save changes" : "Save as draft"}</PrimaryButton>
               <button type="button" onClick={cancelForm} className="rounded-md border border-white/60 px-4 py-2.5 font-semibold hover:bg-white/10">Cancel</button>
             </div>
           </form>
@@ -347,7 +359,7 @@ export function FilterMenu({ type, status, difficulty, onType, onStatus, onDiffi
       <Dropdown label="Puzzle type" value={type} onChange={(next) => onType(next as Filter["type"])}
         options={[["", "All types"], ["riddle", "Riddles"], ["character_puzzle", "Letter games"]]} />
       {!hideStatus && <Dropdown className="mt-3" label="Status" value={status} onChange={(next) => onStatus(next as Filter["status"])}
-        options={[["", "Any status"], ["active", "Active"], ["retired", "Retired"]]} />}
+        options={[["", "Any status"], ["draft", "Draft"], ["active", "Active"], ["retired", "Retired"]]} />}
       <Dropdown className="mt-3" label="Difficulty" value={difficulty} onChange={onDifficulty}
         options={[["", "Any difficulty"], ...DIFFICULTIES.map((value): [string, string] => [value, value[0].toUpperCase() + value.slice(1)])]} />
       {active > 0 && <button type="button" onClick={onClear} className="mt-4 text-sm font-semibold underline">Clear filters</button>}
@@ -358,7 +370,7 @@ export function FilterMenu({ type, status, difficulty, onType, onStatus, onDiffi
 const pill = "inline-block rounded-md px-2 py-0.5 text-xs font-semibold text-[#ffffff]";
 
 function StatusPill({ status }: { status: BankPuzzle["status"] }) {
-  return <span className={`${pill} ${status === "active" ? "bg-[#16a34a]" : "bg-[#c00000]"}`}>{status === "active" ? "Active" : "Retired"}</span>;
+  return <span className={`${pill} ${STATUS_COLOR[status]}`}>{STATUS_LABEL[status]}</span>;
 }
 
 export function PuzzleTable({ puzzles, total, matching, page, pageCount, onPage, onOpen, selectedId, hideStatus = false, footerNote, caption = "Stored puzzles. Select a row to preview it." }: {
@@ -414,13 +426,14 @@ export function PuzzleTable({ puzzles, total, matching, page, pageCount, onPage,
   </div>;
 }
 
-function PuzzleDetails({ puzzle, busy, onEdit, onToggleStatus, onRename, onDelete }: {
-  puzzle: BankPuzzle; busy: boolean; onEdit: () => void; onToggleStatus: () => void; onRename: (name: string) => void; onDelete: () => void;
+function PuzzleDetails({ puzzle, busy, onEdit, onStatus, onRename, onDelete }: {
+  puzzle: BankPuzzle; busy: boolean; onEdit: () => void; onStatus: (status: BankPuzzle["status"]) => void; onRename: (name: string) => void; onDelete: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [nameDraft, setNameDraft] = useState(puzzle.name ?? "");
   const renamed = nameDraft.trim() !== "" && nameDraft.trim() !== (puzzle.name ?? "");
   const unused = puzzle.timesUsed === 0;
+  const editable = unused && puzzle.status !== "active";
   const { stats } = puzzle;
   const fill = "rounded-md bg-black px-3.5 py-2 text-sm font-semibold text-[#ffffff] hover:opacity-85 disabled:opacity-50";
   const label = "text-white/60";
@@ -440,12 +453,13 @@ function PuzzleDetails({ puzzle, busy, onEdit, onToggleStatus, onRename, onDelet
       <div className="flex gap-2"><dt className={label}>Accepted:</dt><dd className="break-words">{puzzle.acceptedAnswers.join(", ")}</dd></div>
     </dl>
     <div className="mt-4 flex flex-wrap gap-2">
-      {unused && <button type="button" disabled={busy} onClick={onEdit} className={fill}>Edit</button>}
-      <button type="button" disabled={busy} onClick={onToggleStatus} className={fill}>{puzzle.status === "active" ? "Retire" : "Restore"}</button>
+      {editable && <button type="button" disabled={busy} onClick={onEdit} className={fill}>Edit</button>}
+      {STATUS_MOVES[puzzle.status].map(([status, action]) => <button key={status} type="button" disabled={busy} onClick={() => onStatus(status)} className={fill}>{action}</button>)}
       {unused && !confirmDelete && <button type="button" disabled={busy} onClick={() => setConfirmDelete(true)} className="rounded-md bg-[#e00000] px-3.5 py-2 text-sm font-semibold text-[#ffffff] hover:opacity-85 disabled:opacity-50">Delete</button>}
       {unused && confirmDelete && <button type="button" disabled={busy} onClick={onDelete} className="rounded-md bg-[#a00000] px-3.5 py-2 text-sm font-semibold text-[#ffffff] disabled:opacity-50">Delete permanently</button>}
     </div>
     {!unused && <p className="mt-2 text-xs text-white/55">Scheduled puzzles can&apos;t be edited or deleted; retire one to stop it being picked.</p>}
+    {unused && puzzle.status === "active" && <p className="mt-2 text-xs text-white/55">Active puzzles can&apos;t be edited; move it to draft first.</p>}
     <PuzzleActivityPanel puzzleId={puzzle.id} stats={stats} used={!unused} />
   </div>;
 }

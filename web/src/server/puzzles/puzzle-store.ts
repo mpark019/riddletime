@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 import { BadRequestError, ConflictError } from "@/server/http/errors";
 
 export type PuzzleType = "riddle" | "character_puzzle";
+export type PuzzleStatus = "draft" | "active" | "retired";
 
 export interface NewPuzzleContent {
   type: PuzzleType;
@@ -11,9 +12,10 @@ export interface NewPuzzleContent {
   answerData: object;
 }
 
-export type PuzzleSource =
-  | { kind: "existing"; puzzleId: string; type: PuzzleType }
-  | ({ kind: "new" } & NewPuzzleContent);
+export interface PuzzleSource {
+  puzzleId: string;
+  type: PuzzleType;
+}
 
 // A shared day counts as seen by every player whose account existed when that day ended.
 export function hasSeenSql(puzzleId: string, playerId: string, playerCreatedAt: string): string {
@@ -37,13 +39,17 @@ export async function insertPuzzle(
   adminId: string,
   content: NewPuzzleContent,
   difficulty: string,
-  name: string | null = null,
+  name: string | null,
+  status: PuzzleStatus,
 ): Promise<string> {
   const { rows } = await client.query(
-    `insert into puzzles (type, name, prompt, config, answer_data, difficulty, created_by)
-     values ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7)
+    `insert into puzzles (type, name, prompt, config, answer_data, difficulty, status, created_by)
+     values ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8)
      returning id`,
-    [content.type, name, content.prompt, JSON.stringify(content.config), JSON.stringify(content.answerData), difficulty, adminId],
+    [
+      content.type, name, content.prompt, JSON.stringify(content.config), JSON.stringify(content.answerData),
+      difficulty, status, adminId,
+    ],
   );
   return rows[0].id as string;
 }
@@ -57,17 +63,11 @@ async function lockSchedulablePuzzle(client: PoolClient, puzzleId: string, type:
   );
   const puzzle = rows[0];
   if (!puzzle) throw new BadRequestError("Puzzle not found");
-  if (puzzle.status !== "active") throw new BadRequestError("That puzzle is retired");
+  if (puzzle.status !== "active") throw new BadRequestError(`That puzzle is ${puzzle.status}, so it cannot be scheduled`);
   if (puzzle.type !== type) throw new BadRequestError("That puzzle is not an allowed type for this date");
 }
 
-export async function resolveSharedPuzzle(
-  client: PoolClient,
-  adminId: string,
-  source: PuzzleSource,
-  difficulty: string,
-): Promise<string> {
-  if (source.kind === "new") return insertPuzzle(client, adminId, source, difficulty);
+export async function resolveSharedPuzzle(client: PoolClient, source: PuzzleSource): Promise<string> {
   await lockSchedulablePuzzle(client, source.puzzleId, source.type);
   const { rows } = await client.query(
     "select 1 from challenges where puzzle_id = $1 limit 1",
@@ -79,12 +79,9 @@ export async function resolveSharedPuzzle(
 
 export async function resolvePersonalPuzzle(
   client: PoolClient,
-  adminId: string,
   source: PuzzleSource,
-  difficulty: string,
   playerIds: string[],
 ): Promise<string> {
-  if (source.kind === "new") return insertPuzzle(client, adminId, source, difficulty);
   await lockSchedulablePuzzle(client, source.puzzleId, source.type);
   const { rows } = await client.query(
     `select p.display_name

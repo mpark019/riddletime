@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pool } from "@/lib/db";
-import { createAuthUser, insertPuzzle } from "@/server/test/fixtures";
+import { createAuthUser, insertPuzzle, withBankPuzzle } from "@/server/test/fixtures";
 
 const { getVerifiedUser } = vi.hoisted(() => ({ getVerifiedUser: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ getVerifiedUser }));
@@ -63,11 +63,11 @@ function letterBody(date: string, playerIds: string[]) {
   };
 }
 
-function post(body: unknown) {
+async function post(body: unknown) {
   return POST(new Request("https://riddletime.example/api/admin/generate-challenge", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(await withBankPuzzle(pool, body as object)),
   }));
 }
 

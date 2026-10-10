@@ -18,6 +18,7 @@ const MAX_FILTER_PLAYERS = 500;
 const puzzleContentSchema = z.discriminatedUnion("type", [manualPuzzleSchema, characterPuzzleSchema]);
 const idSchema = z.uuid();
 const nameSchema = z.string().trim().min(1).max(80);
+const statusSchema = z.enum(["draft", "active", "retired"]);
 
 // Routes pass the body reader itself, so it runs only after the role check.
 type LazyInput = unknown | (() => Promise<unknown>);
@@ -29,6 +30,7 @@ type PuzzleContentInput = z.infer<typeof puzzleContentSchema>;
 
 export const createPuzzleInput = z.object({
   name: nameSchema.optional(),
+  status: statusSchema.default("draft"),
   difficulty: presetNameSchema,
   puzzle: puzzleContentSchema,
 }).strict();
@@ -37,7 +39,7 @@ export const updatePuzzleInput = z.object({
   name: nameSchema.optional(),
   difficulty: presetNameSchema.optional(),
   puzzle: puzzleContentSchema.optional(),
-  status: z.enum(["active", "retired"]).optional(),
+  status: statusSchema.optional(),
 }).strict().refine(
   (input) => input.name !== undefined || input.difficulty !== undefined
     || input.puzzle !== undefined || input.status !== undefined,
@@ -46,7 +48,7 @@ export const updatePuzzleInput = z.object({
 
 export const listPuzzlesInput = z.object({
   type: z.enum(["riddle", "character_puzzle"]).optional(),
-  status: z.enum(["active", "retired"]).optional(),
+  status: statusSchema.optional(),
   used: z.enum(["true", "false"]).optional(),
   exclude_seen_by: z.array(z.uuid()).max(MAX_FILTER_PLAYERS).optional(),
 }).strict();
@@ -70,7 +72,7 @@ export interface BankPuzzle {
   prompt: string;
   acceptedAnswers: string[];
   difficulty: string;
-  status: "active" | "retired";
+  status: "draft" | "active" | "retired";
   createdAt: string;
   timesUsed: number;
   stats: PuzzleStats;
@@ -174,12 +176,13 @@ async function loadOne(client: PoolClient, id: string): Promise<BankPuzzle> {
 }
 
 const FROZEN_MESSAGE = "This puzzle has been scheduled, so its content can no longer change. Retire it instead.";
+const ACTIVE_MESSAGE = "An active puzzle's content cannot change. Move it to draft first.";
 
 export async function createPuzzle(input: LazyInput): Promise<BankPuzzle> {
   return withTransaction(async (client) => {
     const admin = await requireAdmin(client);
     const parsed = createPuzzleInput.parse(await resolveInput(input));
-    const id = await insertPuzzle(client, admin.id, toContent(parsed.puzzle), parsed.difficulty, parsed.name);
+    const id = await insertPuzzle(client, admin.id, toContent(parsed.puzzle), parsed.difficulty, parsed.name ?? null, parsed.status);
     return loadOne(client, id);
   });
 }
@@ -223,11 +226,12 @@ export async function getPuzzle(id: unknown): Promise<BankPuzzle> {
   });
 }
 
-// Only the frozen-content trigger and the challenges foreign key mean "scheduled"; other violations pass through.
+// Only the content-freeze triggers and the challenges foreign key map to 409; other violations pass through.
 function frozenConflict(error: unknown): never {
   const { code, message } = error as { code?: unknown; message?: unknown };
-  const frozenTrigger = code === "23514" && typeof message === "string" && /scheduled puzzle/i.test(message);
-  if (frozenTrigger || code === "23503") throw new ConflictError(FROZEN_MESSAGE);
+  const trigger = code === "23514" && typeof message === "string" ? message : "";
+  if (/active puzzle/i.test(trigger)) throw new ConflictError(ACTIVE_MESSAGE);
+  if (/scheduled puzzle/i.test(trigger) || code === "23503") throw new ConflictError(FROZEN_MESSAGE);
   throw error;
 }
 
@@ -237,7 +241,7 @@ export async function updatePuzzle(rawId: unknown, input: LazyInput): Promise<Ba
       await requireAdmin(client);
       const id = idSchema.parse(rawId);
       const parsed = updatePuzzleInput.parse(await resolveInput(input));
-      const { rows } = await client.query("select type from puzzles where id = $1 for update", [id]);
+      const { rows } = await client.query("select type, status from puzzles where id = $1 for update", [id]);
       if (!rows[0]) throw new NotFoundError("Puzzle not found");
       if (parsed.puzzle && parsed.puzzle.type !== rows[0].type) {
         throw new BadRequestError("A puzzle's type cannot be changed");
@@ -247,6 +251,7 @@ export async function updatePuzzle(rawId: unknown, input: LazyInput): Promise<Ba
       if (changesContent) {
         const { rows: used } = await client.query("select 1 from challenges where puzzle_id = $1 limit 1", [id]);
         if (used[0]) throw new ConflictError(FROZEN_MESSAGE);
+        if (rows[0].status === "active") throw new ConflictError(ACTIVE_MESSAGE);
       }
 
       const content = parsed.puzzle ? toContent(parsed.puzzle) : null;

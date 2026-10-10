@@ -89,7 +89,7 @@ async function play(challengeId: string, playerId: string, outcome: {
 }
 
 describe("puzzle bank service", () => {
-  it("creates an active riddle with trimmed content and a letter puzzle with derived config (AC-2)", async () => {
+  it("creates a draft riddle with trimmed content and a letter puzzle with derived config (AC-2)", async () => {
     await asAdmin();
     const created = await createPuzzle({
       name: "Keys",
@@ -97,7 +97,7 @@ describe("puzzle bank service", () => {
       puzzle: { type: "riddle", prompt: "  What has keys?  ", accepted_answers: [" piano "] },
     });
     expect(created).toMatchObject({
-      type: "riddle", prompt: "What has keys?", acceptedAnswers: ["piano"], difficulty: "hard", status: "active", timesUsed: 0,
+      type: "riddle", prompt: "What has keys?", acceptedAnswers: ["piano"], difficulty: "hard", status: "draft", timesUsed: 0,
     });
 
     const letter = await createPuzzle({ name: "Crane", difficulty: "easy", puzzle: { type: "character_puzzle", target: "crane7" } });
@@ -121,6 +121,30 @@ describe("puzzle bank service", () => {
     for (const input of bad) await expect(createPuzzle(input)).rejects.toBeInstanceOf(ZodError);
     const { rowCount } = await pool.query("select 1 from puzzles where created_by = $1", [adminId]);
     expect(rowCount).toBe(0);
+  });
+
+  it.each([
+    ["an empty answer", "   "],
+    ["a space inside", "AB CD"],
+    ["punctuation", "AB-CD"],
+    ["an accented letter", "CAFÉ"],
+    ["more than 50 characters", "A".repeat(51)],
+  ])("rejects a letter game with %s and persists nothing (AC-2)", async (_name, target) => {
+    const adminId = await asAdmin();
+    await expect(createPuzzle({
+      name: "Letters", difficulty: "easy", puzzle: { type: "character_puzzle", target },
+    })).rejects.toBeInstanceOf(ZodError);
+    const { rowCount } = await pool.query("select 1 from puzzles where created_by = $1", [adminId]);
+    expect(rowCount).toBe(0);
+  });
+
+  it("accepts a 50-character and a single-character letter game (AC-2)", async () => {
+    await asAdmin();
+    const long = "A1".repeat(25);
+    expect(await createPuzzle({ name: "Long", difficulty: "easy", puzzle: { type: "character_puzzle", target: long } }))
+      .toMatchObject({ acceptedAnswers: [long] });
+    expect(await createPuzzle({ name: "One", difficulty: "easy", puzzle: { type: "character_puzzle", target: "z" } }))
+      .toMatchObject({ acceptedAnswers: ["Z"] });
   });
 
   it("refuses non-admins before validating input and never returns answers to them (AC-3)", async () => {
@@ -178,9 +202,9 @@ describe("puzzle bank service", () => {
     expect((await listPuzzles({ exclude_seen_by: [other] })).map((p) => p.id)).toContain(seen);
   });
 
-  it("edits an unused puzzle, and freezes content but not status once it is scheduled (AC-4)", async () => {
+  it("edits a draft, and freezes content but not status once it is scheduled (AC-4)", async () => {
     const adminId = await asAdmin();
-    const puzzleId = await insertPuzzle(pool, { createdBy: adminId, prompt: "Before" });
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId, prompt: "Before", status: "draft" });
 
     const edited = await updatePuzzle(puzzleId, {
       difficulty: "extreme",
@@ -188,6 +212,7 @@ describe("puzzle bank service", () => {
     });
     expect(edited).toMatchObject({ prompt: "After", difficulty: "extreme", acceptedAnswers: ["x"] });
 
+    await updatePuzzle(puzzleId, { status: "active" });
     await scheduleOnPersonalDay(adminId, puzzleId, [await createProfile("player")]);
     await expect(updatePuzzle(puzzleId, {
       puzzle: { type: "riddle", prompt: "Too late", accepted_answers: ["y"] },
@@ -197,11 +222,53 @@ describe("puzzle bank service", () => {
 
     expect(await updatePuzzle(puzzleId, { status: "retired" })).toMatchObject({ status: "retired", prompt: "After" });
     expect(await updatePuzzle(puzzleId, { status: "active" })).toMatchObject({ status: "active" });
+    await updatePuzzle(puzzleId, { status: "draft" });
+    await expect(updatePuzzle(puzzleId, { difficulty: "easy" })).rejects.toBeInstanceOf(ConflictError);
+  });
+
+  it("creates puzzles as drafts unless a status is given (AC-6)", async () => {
+    await asAdmin();
+    expect(await createPuzzle(riddle())).toMatchObject({ status: "draft" });
+    expect(await createPuzzle({ ...riddle(), status: "active" })).toMatchObject({ status: "active" });
+    await expect(createPuzzle({ ...riddle(), status: "archived" })).rejects.toBeInstanceOf(ZodError);
+  });
+
+  it("allows every status transition (AC-5)", async () => {
+    const adminId = await asAdmin();
+    const statuses = ["draft", "active", "retired"] as const;
+    for (const from of statuses) {
+      for (const to of statuses) {
+        if (from === to) continue;
+        const puzzleId = await insertPuzzle(pool, { createdBy: adminId, status: from });
+        expect(await updatePuzzle(puzzleId, { status: to })).toMatchObject({ status: to });
+      }
+    }
+  });
+
+  it("freezes an active puzzle's content, including alongside the move to draft (AC-5)", async () => {
+    const adminId = await asAdmin();
+    const content = { puzzle: { type: "riddle" as const, prompt: "New", accepted_answers: ["n"] } };
+    const active = await insertPuzzle(pool, { createdBy: adminId, prompt: "Old", status: "active" });
+    await expect(updatePuzzle(active, content)).rejects.toBeInstanceOf(ConflictError);
+    await expect(updatePuzzle(active, { ...content, status: "draft" })).rejects.toBeInstanceOf(ConflictError);
+    expect(await updatePuzzle(active, { name: "Still renamable" })).toMatchObject({ prompt: "Old", status: "active" });
+
+    const draft = await insertPuzzle(pool, { createdBy: adminId, prompt: "Old", status: "draft" });
+    expect(await updatePuzzle(draft, { ...content, status: "active" })).toMatchObject({ prompt: "New", status: "active" });
+  });
+
+  it("lists drafts through the status filter (AC-8)", async () => {
+    const adminId = await asAdmin();
+    const draft = await insertPuzzle(pool, { createdBy: adminId, status: "draft" });
+    const active = await insertPuzzle(pool, { createdBy: adminId, status: "active" });
+    const ids = (await listPuzzles({ status: "draft" })).map((p) => p.id);
+    expect(ids).toContain(draft);
+    expect(ids).not.toContain(active);
   });
 
   it("names a puzzle on create and renames it even after it is scheduled, but never clears the name", async () => {
     const adminId = await asAdmin();
-    const created = await createPuzzle({ ...riddle(), name: "  Keys riddle  " });
+    const created = await createPuzzle({ ...riddle(), name: "  Keys riddle  ", status: "active" });
     expect(created.name).toBe("Keys riddle");
     await expect(createPuzzle({ ...riddle(), name: "x".repeat(81) })).rejects.toBeInstanceOf(ZodError);
 

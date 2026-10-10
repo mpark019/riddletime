@@ -125,39 +125,27 @@ describe("scheduling from the puzzle bank", () => {
     expect(rows.map((row) => row.assigned_to).sort()).toEqual([...players].sort());
   });
 
-  it("creates a bank puzzle and its challenge together from manual_puzzle (AC-7)", async () => {
-    await asNewAdmin();
-    const date = futureDate();
-    const prompt = `Manual ${randomUUID()}`;
-
-    const response = await post(sharedBody(date, {
-      manual_puzzle: { type: "riddle", prompt: `  ${prompt}  `, accepted_answers: ["piano"] },
-    }));
-
-    expect(response.status).toBe(201);
-    const [challenge] = await challengesOn(date);
-    const { rows } = await pool.query("select prompt, status, difficulty from puzzles where id = $1", [challenge.puzzle_id]);
-    expect(rows).toEqual([{ prompt, status: "active", difficulty: "easy" }]);
-  });
-
-  it("rejects a request that supplies both or neither of puzzle_id and manual_puzzle (AC-7)", async () => {
+  it("rejects an inline manual_puzzle and a missing puzzle_id, creating nothing (AC-7)", async () => {
     const adminId = await asNewAdmin();
     const puzzleId = await insertPuzzle(pool, { createdBy: adminId });
-    const manual = { type: "riddle", prompt: "Both", accepted_answers: ["x"] };
-    const dateBoth = futureDate();
-    const dateNeither = futureDate();
+    const manual = { type: "riddle", prompt: "Inline", accepted_answers: ["x"] };
+    const cases = [{ manual_puzzle: manual }, { puzzle_id: puzzleId, manual_puzzle: manual }, {}];
 
-    expect((await post(sharedBody(dateBoth, { puzzle_id: puzzleId, manual_puzzle: manual }))).status).toBe(400);
-    expect((await post(sharedBody(dateNeither, {}))).status).toBe(400);
-    expect(await challengesOn(dateBoth)).toEqual([]);
-    expect(await challengesOn(dateNeither)).toEqual([]);
+    for (const puzzle of cases) {
+      const date = futureDate();
+      expect((await post(sharedBody(date, puzzle))).status).toBe(400);
+      expect(await challengesOn(date)).toEqual([]);
+    }
+    const { rows } = await pool.query("select id from puzzles where created_by = $1", [adminId]);
+    expect(rows).toEqual([{ id: puzzleId }]);
   });
 
-  it("rejects a retired, unknown, or wrong-type puzzle and persists nothing (AC-9)", async () => {
+  it("rejects a draft, retired, unknown, or wrong-type puzzle and persists nothing (AC-7)", async () => {
     const adminId = await asNewAdmin();
     const retired = await insertPuzzle(pool, { createdBy: adminId, status: "retired" });
+    const draft = await insertPuzzle(pool, { createdBy: adminId, status: "draft" });
     const letter = await insertPuzzle(pool, { createdBy: adminId, type: "character_puzzle" });
-    const cases = [retired, letter, randomUUID()];
+    const cases = [retired, draft, letter, randomUUID()];
 
     for (const puzzleId of cases) {
       const date = futureDate();

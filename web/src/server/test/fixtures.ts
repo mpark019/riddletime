@@ -32,7 +32,7 @@ interface PuzzleFixture {
   config?: object;
   answerData?: object;
   difficulty?: string;
-  status?: "active" | "retired";
+  status?: "draft" | "active" | "retired";
 }
 
 // Accepts a Pool or PoolClient so a test can create the puzzle inside its own transaction.
@@ -56,4 +56,40 @@ export async function insertPuzzle(
     ],
   );
   return rows[0].id as string;
+}
+
+interface ManualPuzzleShape {
+  type?: unknown;
+  prompt?: unknown;
+  accepted_answers?: unknown;
+  target?: unknown;
+}
+
+// Schedule requests reference bank puzzles only; tests that describe a puzzle inline get it banked here first.
+export async function withBankPuzzle<T extends object>(
+  db: { query: Pool["query"] },
+  body: T,
+): Promise<Omit<T, "manual_puzzle"> & { puzzle_id?: string }> {
+  const { manual_puzzle: manual, ...rest } = body as T & { manual_puzzle?: ManualPuzzleShape };
+  if (!manual || typeof manual !== "object") return rest as never;
+
+  const authorId = await createAuthUser();
+  await db.query(
+    "insert into profiles (id, display_name, role) values ($1, concat('Author ', ($1::uuid)::text), 'admin')",
+    [authorId],
+  );
+  const isRiddle = manual.type === "riddle";
+  const target = String(manual.target).trim().toUpperCase();
+  const accepted = Array.isArray(manual.accepted_answers)
+    ? manual.accepted_answers.map((answer) => String(answer).trim())
+    : [];
+  const fixture: PuzzleFixture = {
+    createdBy: authorId,
+    type: isRiddle ? "riddle" : "character_puzzle",
+    prompt: isRiddle ? String(manual.prompt).trim() : "Letter game",
+    answerData: isRiddle ? { accepted } : { target },
+    config: isRiddle ? {} : { target_length: target.length, character_set: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" },
+    status: "active",
+  };
+  return { ...rest, puzzle_id: await insertPuzzle(db, fixture) } as never;
 }

@@ -2,11 +2,7 @@ import "server-only";
 import type { PoolClient } from "pg";
 import { z } from "zod";
 import { withTransaction } from "@/lib/db";
-import {
-  CHARACTER_SET,
-  characterTargetSchema,
-  type CharacterConfig,
-} from "@/server/challenges/character-puzzle";
+import { characterTargetSchema } from "@/server/challenges/character-puzzle";
 import { normalizeAnswer } from "@/server/challenges/grading";
 import { requireAdmin, requireAdminRead } from "@/server/identity/identity";
 import { BadRequestError, ConflictError, NotFoundError } from "@/server/http/errors";
@@ -152,19 +148,6 @@ function refineSelectedPreset(
 
 export const presetNameSchema = z.string().trim().min(1).max(100);
 
-function refineSinglePuzzleSource(
-  input: { puzzle_id?: string; manual_puzzle?: unknown },
-  context: z.RefinementCtx,
-) {
-  if ((input.puzzle_id === undefined) === (input.manual_puzzle === undefined)) {
-    context.addIssue({
-      code: "custom",
-      path: ["puzzle_id"],
-      message: "Provide either puzzle_id or manual_puzzle",
-    });
-  }
-}
-
 export const createManualSharedRiddleInput = z.object({
   active_date: z.iso.date(),
   mode: z.literal("shared"),
@@ -173,9 +156,8 @@ export const createManualSharedRiddleInput = z.object({
   difficulty_presets: z.record(presetNameSchema, presetSchema),
   selected_difficulty: presetNameSchema,
   generation_prompt: z.string().trim().min(1).max(5_000).optional(),
-  puzzle_id: z.uuid().optional(),
-  manual_puzzle: manualPuzzleSchema.optional(),
-}).strict().superRefine(refineSelectedPreset).superRefine(refineSinglePuzzleSource);
+  puzzle_id: z.uuid(),
+}).strict().superRefine(refineSelectedPreset);
 
 export const createSharedCharacterPuzzleInput = z.object({
   active_date: z.iso.date(),
@@ -184,9 +166,8 @@ export const createSharedCharacterPuzzleInput = z.object({
   difficulty_selection: z.literal("fixed"),
   difficulty_presets: z.record(presetNameSchema, characterPresetSchema),
   selected_difficulty: presetNameSchema,
-  puzzle_id: z.uuid().optional(),
-  manual_puzzle: characterPuzzleSchema.optional(),
-}).strict().superRefine(refineSelectedPreset).superRefine(refineSinglePuzzleSource);
+  puzzle_id: z.uuid(),
+}).strict().superRefine(refineSelectedPreset);
 
 const MAX_ASSIGNED_PLAYERS = 500;
 
@@ -208,9 +189,8 @@ export const assignPersonalRiddleInput = z.object({
   difficulty_selection: z.literal("fixed"),
   difficulty_presets: z.record(presetNameSchema, presetSchema),
   selected_difficulty: presetNameSchema,
-  puzzle_id: z.uuid().optional(),
-  manual_puzzle: manualPuzzleSchema.optional(),
-}).strict().superRefine(refineSelectedPreset).superRefine(refineDistinctPlayers).superRefine(refineSinglePuzzleSource);
+  puzzle_id: z.uuid(),
+}).strict().superRefine(refineSelectedPreset).superRefine(refineDistinctPlayers);
 
 export const assignPersonalCharacterInput = z.object({
   active_date: z.iso.date(),
@@ -219,9 +199,8 @@ export const assignPersonalCharacterInput = z.object({
   difficulty_selection: z.literal("fixed"),
   difficulty_presets: z.record(presetNameSchema, characterPresetSchema),
   selected_difficulty: presetNameSchema,
-  puzzle_id: z.uuid().optional(),
-  manual_puzzle: characterPuzzleSchema.optional(),
-}).strict().superRefine(refineSelectedPreset).superRefine(refineDistinctPlayers).superRefine(refineSinglePuzzleSource);
+  puzzle_id: z.uuid(),
+}).strict().superRefine(refineSelectedPreset).superRefine(refineDistinctPlayers);
 
 export type CreateManualSharedRiddleInput = z.infer<typeof createManualSharedRiddleInput>;
 export type CreateSharedCharacterPuzzleInput = z.infer<typeof createSharedCharacterPuzzleInput>;
@@ -240,35 +219,6 @@ interface PuzzlePlacement {
   maxAttempts: number;
   timeLimitSeconds: number | null;
   scoringPolicy: object;
-}
-
-interface PuzzleChoice<Manual> {
-  puzzle_id?: string;
-  manual_puzzle?: Manual;
-}
-
-function riddleSource(input: PuzzleChoice<z.infer<typeof manualPuzzleSchema>>, config: object): PuzzleSource {
-  if (input.manual_puzzle) {
-    return {
-      kind: "new",
-      type: "riddle",
-      prompt: input.manual_puzzle.prompt,
-      config,
-      answerData: { accepted: input.manual_puzzle.accepted_answers },
-    };
-  }
-  if (!input.puzzle_id) throw new BadRequestError("Provide either puzzle_id or manual_puzzle");
-  return { kind: "existing", puzzleId: input.puzzle_id, type: "riddle" };
-}
-
-function characterSource(input: PuzzleChoice<z.infer<typeof characterPuzzleSchema>>): PuzzleSource {
-  if (input.manual_puzzle) {
-    const target = input.manual_puzzle.target;
-    const config: CharacterConfig = { target_length: target.length, character_set: CHARACTER_SET };
-    return { kind: "new", type: "character_puzzle", prompt: "Letter game", config, answerData: { target } };
-  }
-  if (!input.puzzle_id) throw new BadRequestError("Provide either puzzle_id or manual_puzzle");
-  return { kind: "existing", puzzleId: input.puzzle_id, type: "character_puzzle" };
 }
 
 async function insertSharedSchedule(
@@ -312,7 +262,7 @@ async function insertSharedSchedule(
   );
   const scheduleId = scheduleRows[0].id as string;
 
-  const puzzleId = await resolveSharedPuzzle(client, adminId, puzzle.source, schedule.difficulty);
+  const puzzleId = await resolveSharedPuzzle(client, puzzle.source);
   await client.query(
     `insert into challenges
        (daily_challenge_id, mode, type, puzzle_id, difficulty,
@@ -357,7 +307,7 @@ export async function createManualSharedRiddle(input: unknown) {
         generationPrompt: parsed.generation_prompt,
       },
       {
-        source: riddleSource(parsed, settings.config),
+        source: { puzzleId: parsed.puzzle_id, type: "riddle" },
         maxAttempts: settings.max_attempts,
         timeLimitSeconds: settings.time_limit_seconds,
         scoringPolicy: settings.scoring_policy,
@@ -381,7 +331,7 @@ export async function createSharedCharacterPuzzle(input: unknown) {
         difficulty: parsed.selected_difficulty,
       },
       {
-        source: characterSource(parsed),
+        source: { puzzleId: parsed.puzzle_id, type: "character_puzzle" },
         maxAttempts: settings.max_attempts,
         timeLimitSeconds: settings.time_limit_seconds,
         scoringPolicy: settings.scoring_policy,
@@ -453,13 +403,7 @@ async function assignPersonalPuzzles(
   const skippedPlayerIds = assignment.playerIds.filter((id) => alreadyAssigned.has(id));
   if (assignedPlayerIds.length === 0) throw new ConflictError(ALREADY_ASSIGNED_MESSAGE);
 
-  const puzzleId = await resolvePersonalPuzzle(
-    client,
-    adminId,
-    puzzle.source,
-    assignment.difficulty,
-    assignedPlayerIds,
-  );
+  const puzzleId = await resolvePersonalPuzzle(client, puzzle.source, assignedPlayerIds);
   await client.query(
     `insert into challenges
        (daily_challenge_id, mode, assigned_to, type, puzzle_id, difficulty,
@@ -502,7 +446,7 @@ export async function assignPersonalRiddle(input: unknown) {
         difficulty: parsed.selected_difficulty,
       },
       {
-        source: riddleSource(parsed, settings.config),
+        source: { puzzleId: parsed.puzzle_id, type: "riddle" },
         maxAttempts: settings.max_attempts,
         timeLimitSeconds: settings.time_limit_seconds,
         scoringPolicy: settings.scoring_policy,
@@ -526,7 +470,7 @@ export async function assignPersonalCharacterPuzzle(input: unknown) {
         difficulty: parsed.selected_difficulty,
       },
       {
-        source: characterSource(parsed),
+        source: { puzzleId: parsed.puzzle_id, type: "character_puzzle" },
         maxAttempts: settings.max_attempts,
         timeLimitSeconds: settings.time_limit_seconds,
         scoringPolicy: settings.scoring_policy,

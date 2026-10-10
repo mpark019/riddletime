@@ -65,8 +65,8 @@ async function secondChooserOutcome(
 describe("puzzle choice under concurrency", () => {
   it("makes a second shared chooser wait, then reject the puzzle the first one took (AC-8)", async () => {
     const outcome = await secondChooserOutcome(
-      (client, adminId, puzzleId) =>
-        resolveSharedPuzzle(client, adminId, { kind: "existing", puzzleId, type: "riddle" }, "easy"),
+      (client, _adminId, puzzleId) =>
+        resolveSharedPuzzle(client, { puzzleId, type: "riddle" }),
       "shared",
     );
     expect(outcome).toBeInstanceOf(ConflictError);
@@ -74,8 +74,8 @@ describe("puzzle choice under concurrency", () => {
 
   it("makes a second personal chooser wait, then reject a player who got it meanwhile (AC-8)", async () => {
     const outcome = await secondChooserOutcome(
-      (client, adminId, puzzleId, playerId) =>
-        resolvePersonalPuzzle(client, adminId, { kind: "existing", puzzleId, type: "riddle" }, "easy", [playerId]),
+      (client, _adminId, puzzleId, playerId) =>
+        resolvePersonalPuzzle(client, { puzzleId, type: "riddle" }, [playerId]),
       "personal",
     );
     expect(outcome).toBeInstanceOf(ConflictError);
