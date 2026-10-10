@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildBankScheduleRequest } from "@/lib/admin-riddle-schedule";
 import { isDifficulty, type Difficulty } from "@/lib/difficulty";
 import type { BankPuzzle } from "@/server/puzzles/puzzles";
@@ -43,6 +43,18 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
   const [dayMessage, setDayMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [days, setDays] = useState<ScheduledRiddle[]>([]);
   const takenCount = roster?.mode === "shared" ? players.length : roster?.assignments.length ?? 0;
+  const takenDifficulties = useMemo(() => {
+    const byPlayer = new Map<string, string | null>();
+    if (roster?.mode === "shared") {
+      const difficulty = roster.assignments[0]?.difficulty ?? null;
+      players.forEach((player) => byPlayer.set(player.userId, difficulty));
+    } else {
+      roster?.assignments.forEach((assignment) => {
+        if (assignment.playerId) byPlayer.set(assignment.playerId, assignment.difficulty);
+      });
+    }
+    return byPlayer;
+  }, [roster, players]);
   const selectedPlayerIds = pruneSelection(selection, players);
   const isPastDate = activeDate < today;
   const [basePoints, setBasePoints] = useState("10");
@@ -254,7 +266,7 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
         <section className="rounded-xl border border-white/25 bg-black/[0.04] p-4">
           <h3 className={cardTitle}>Players</h3>
           <p className="mb-4 mt-1 text-sm text-white/55">Pick who gets this puzzle. Players who already have one on this date are skipped.</p>
-          <PlayerPicker players={players} selected={selectedPlayerIds} summary={takenCount > 0 ? `${takenCount} already ${takenCount === 1 ? "has" : "have"} a puzzle on this date.` : undefined} onChange={setSelection} />
+          <PlayerPicker players={players} selected={selectedPlayerIds} summary={takenCount > 0 ? `${takenCount} already ${takenCount === 1 ? "has" : "have"} a puzzle on this date.` : undefined} takenDifficulties={takenDifficulties} onChange={setSelection} />
         </section>
       </div>
 

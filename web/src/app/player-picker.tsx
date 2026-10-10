@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { difficultyColor } from "@/lib/difficulty";
 import { sortPlayers, type PlayerSort } from "@/lib/account-order";
 import type { LeaderboardEntry } from "@/server/points/points";
 import { PlayerButton, PlayerSortToggle } from "./scoreboard";
@@ -9,11 +10,13 @@ export function PlayerPicker({
   players,
   selected,
   summary,
+  takenDifficulties,
   onChange,
 }: {
   players: LeaderboardEntry[];
   selected: string[];
   summary?: string;
+  takenDifficulties?: ReadonlyMap<string, string | null>;
   onChange: (userIds: string[]) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -48,7 +51,7 @@ export function PlayerPicker({
     </div>
     <p className="mt-2 text-sm text-white/65" aria-live="polite">{selected.length === 0 ? "Nobody selected yet." : `${selected.length} selected.`}{summary && ` ${summary}`}</p>
     <div className="mt-3 grid max-h-96 grid-cols-2 gap-2 overflow-y-auto overscroll-contain xl:grid-cols-3">
-      {matching.map((player, index) => <PlayerButton key={player.userId} player={player} index={index} selected={selectedSet.has(player.userId)} onToggle={toggle} />)}
+      {matching.map((player, index) => <PlayerButton key={player.userId} player={player} index={index} selected={selectedSet.has(player.userId)} taken={takenDifficulties?.has(player.userId) ?? false} tint={difficultyColor(takenDifficulties?.get(player.userId))} onToggle={toggle} />)}
     </div>
     {matching.length === 0 && <p className="mt-3 text-sm text-white/65">No players match “{query}”.</p>}
   </div>;
