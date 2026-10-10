@@ -752,7 +752,6 @@ export async function getScheduleDetail(
               s.id as submission_id, s.started_at, s.submitted_at, s.correct,
               s.attempts, s.guess_history, s.time_taken_ms, s.scoring_breakdown, s.review_comment, s.review_submitted_at,
               coalesce(s.scoring_breakdown @> '{"missed": true}', false) as missed,
-              coalesce(s.scoring_breakdown @> '{"outcome": "partial"}', false) as partial,
               s.review_state,
               s.submitted_at is null and s.review_submitted_at is null
                 and riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) <= clock_timestamp() as overdue,
@@ -861,6 +860,7 @@ export async function getDateAssignments(activeDate: string): Promise<DateRoster
       `select d.id as schedule_id, d.mode, c.id as challenge_id, c.assigned_to, c.type,
               c.difficulty, pz.name as puzzle_name, pz.prompt, s.id as submission_id, s.submitted_at, s.correct,
               coalesce(s.scoring_breakdown @> '{"missed": true}', false) as missed,
+              coalesce(s.scoring_breakdown @> '{"outcome": "partial"}', false) as partial,
               s.review_state,
               s.submitted_at is null and s.review_submitted_at is null
                 and riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) <= clock_timestamp() as overdue,

@@ -32,7 +32,7 @@ const {
   uploadSubmissionImage,
 } = await import("./image-submission");
 const { getChallengeSession, getStaffPlayerStatuses, submitChallenge } = await import("./challenges");
-const { deleteSchedule, getScheduleDetail } = await import("@/server/schedules/schedules");
+const { deleteSchedule, getDateAssignments, getScheduleDetail } = await import("@/server/schedules/schedules");
 const { getLeaderboard } = await import("@/server/points/points");
 const { createSharedImageSubmission } = await import("@/server/schedules/schedules");
 const { createPuzzle, deletePuzzle, discardPromptImage } = await import("@/server/puzzles/puzzles");
@@ -63,17 +63,17 @@ async function createProfile(role: "admin" | "player" | "spectator") {
   return id;
 }
 
-async function createImageSession(options: { basePoints?: number; penalty?: number; maxImages?: number } = {}) {
-  const { basePoints = 100, penalty = 20, maxImages = 2 } = options;
+async function createImageSession(options: { basePoints?: number; penalty?: number; maxImages?: number; personal?: boolean } = {}) {
+  const { basePoints = 100, penalty = 20, maxImages = 2, personal = false } = options;
   const adminId = await createProfile("admin");
   const playerId = await createProfile("player");
   const daysAhead = 2000 + Math.floor(Math.random() * 1_000_000);
   const { rows: dailyRows } = await pool.query(
     `insert into daily_challenges
        (active_date, mode, allowed_types, difficulty_selection, difficulty_presets, selected_difficulty, created_by)
-     values (current_date + $3::int, 'shared', array['image_submission'], 'fixed', $1::jsonb, 'standard', $2)
+     values (current_date + $3::int, $4, array['image_submission'], 'fixed', $1::jsonb, 'standard', $2)
      returning id`,
-    [JSON.stringify({ standard: { types: { image_submission: { time_limit_seconds: 120 } } } }), adminId, daysAhead],
+    [JSON.stringify({ standard: { types: { image_submission: { time_limit_seconds: 120 } } } }), adminId, daysAhead, personal ? "personal" : "shared"],
   );
   const puzzleId = await insertPuzzle(pool, {
     createdBy: adminId,
@@ -82,14 +82,18 @@ async function createImageSession(options: { basePoints?: number; penalty?: numb
   });
   const { rows: challengeRows } = await pool.query(
     `insert into challenges
-       (daily_challenge_id, mode, type, puzzle_id, difficulty, max_attempts, time_limit_seconds, scoring_policy)
-     values ($1, 'shared', 'image_submission', $2, 'standard', 1, 120, $3::jsonb)
+       (daily_challenge_id, mode, assigned_to, type, puzzle_id, difficulty, max_attempts, time_limit_seconds, scoring_policy)
+     values ($1, $5, $4, 'image_submission', $2, 'standard', 1, 120, $3::jsonb)
      returning id`,
-    [dailyRows[0].id, puzzleId, JSON.stringify({ base_points: basePoints, speed_bonuses: [], failure_penalty_points: penalty })],
+    [
+      dailyRows[0].id, puzzleId,
+      JSON.stringify({ base_points: basePoints, speed_bonuses: [], failure_penalty_points: penalty }),
+      personal ? playerId : null, personal ? "personal" : "shared",
+    ],
   );
   const { rows: submissionRows } = await pool.query(
-    "insert into submissions (challenge_id, challenge_mode, user_id) values ($1, 'shared', $2) returning id",
-    [challengeRows[0].id, playerId],
+    "insert into submissions (challenge_id, challenge_mode, assigned_to, user_id) values ($1, $3, $4, $2) returning id",
+    [challengeRows[0].id, playerId, personal ? "personal" : "shared", personal ? playerId : null],
   );
   mocks.getVerifiedUser.mockResolvedValue({ id: playerId });
   return {
@@ -753,6 +757,25 @@ describe("deleting a puzzle", () => {
     expect(mocks.remove).not.toHaveBeenCalled();
     await deletePuzzle(second);
     expect(mocks.remove).toHaveBeenCalledWith([path]);
+  });
+});
+
+describe("day roster", () => {
+  it("flags a partially graded session so it is not shown as solved", async () => {
+    const outcomes = [{ outcome: "partial", points: 40 }, { outcome: "full" }] as const;
+    for (const grade of outcomes) {
+      const session = await createImageSession({ personal: true });
+      await uploadSubmissionImage(session.dailyId, pngFile());
+      await submitImagesForReview(session.dailyId);
+      await asUser(session.adminId);
+      await gradeSubmission(session.submissionId, grade);
+      const { rows } = await pool.query(
+        "select to_char(active_date, 'YYYY-MM-DD') as d from daily_challenges where id = $1",
+        [session.dailyId],
+      );
+      const roster = await getDateAssignments(rows[0].d);
+      expect(roster.assignments[0]).toMatchObject({ correct: true, partial: grade.outcome === "partial" });
+    }
   });
 });
 
