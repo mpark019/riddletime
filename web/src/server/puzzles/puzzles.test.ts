@@ -149,11 +149,10 @@ describe("puzzle bank service", () => {
 
   it("refuses non-admins before validating input and never returns answers to them (AC-3)", async () => {
     const player = await createProfile("player");
-    const spectator = await createProfile("spectator");
     const adminId = await createProfile("admin");
     const puzzleId = await insertPuzzle(pool, { createdBy: adminId, answerData: { accepted: ["secret-answer"] } });
 
-    for (const id of [player, spectator]) {
+    for (const id of [player]) {
       getVerifiedUser.mockResolvedValue({ id });
       await expect(createPuzzle("not even an object")).rejects.toBeInstanceOf(ForbiddenError);
       await expect(listPuzzles({})).rejects.toBeInstanceOf(ForbiddenError);
@@ -320,6 +319,102 @@ describe("puzzle bank service", () => {
     expect((await createRoute(new Request("https://riddletime.example/api/admin/puzzles", {
       method: "POST", headers, body: JSON.stringify({ difficulty: "easy" }),
     }))).status).toBe(400);
+  });
+});
+
+describe("puzzle bank for spectators", () => {
+  async function asSpectator() {
+    const id = await createProfile("spectator");
+    getVerifiedUser.mockResolvedValue({ id });
+    return id;
+  }
+  const content = { puzzle: { type: "riddle" as const, prompt: "Edited", accepted_answers: ["e"] } };
+
+  it("lists and fetches puzzles with answers and statistics (AC-1)", async () => {
+    const adminId = await createProfile("admin");
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId, answerData: { accepted: ["secret-answer"] } });
+    await asSpectator();
+
+    expect((await listPuzzles({})).find((p) => p.id === puzzleId)?.acceptedAnswers).toEqual(["secret-answer"]);
+    expect(await getPuzzle(puzzleId)).toMatchObject({ id: puzzleId, stats: expect.any(Object) });
+    expect((await listRoute(new Request("https://riddletime.example/api/admin/puzzles"))).status).toBe(200);
+  });
+
+  it("creates drafts and refuses any other status without storing anything (AC-2)", async () => {
+    const spectatorId = await asSpectator();
+    expect(await createPuzzle(riddle())).toMatchObject({ status: "draft" });
+    expect(await createPuzzle({ ...riddle(), status: "draft" })).toMatchObject({ status: "draft" });
+    for (const status of ["active", "retired"]) {
+      await expect(createPuzzle({ ...riddle(), status })).rejects.toBeInstanceOf(ForbiddenError);
+    }
+    const { rowCount } = await pool.query("select 1 from puzzles where created_by = $1", [spectatorId]);
+    expect(rowCount).toBe(2);
+  });
+
+  it("edits any draft's name, difficulty, and content (AC-3)", async () => {
+    const adminId = await createProfile("admin");
+    const draft = await insertPuzzle(pool, { createdBy: adminId, status: "draft", prompt: "Before" });
+    await asSpectator();
+
+    expect(await updatePuzzle(draft, { name: "Renamed", difficulty: "hard", ...content }))
+      .toMatchObject({ name: "Renamed", difficulty: "hard", prompt: "Edited", status: "draft" });
+  });
+
+  it.each(["active", "retired"] as const)("refuses to edit a %s puzzle, even its name (AC-4)", async (status) => {
+    const adminId = await createProfile("admin");
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId, status, prompt: "Untouched" });
+    await asSpectator();
+
+    await expect(updatePuzzle(puzzleId, content)).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(updatePuzzle(puzzleId, { name: "Sneaky" })).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await getPuzzle(puzzleId)).toMatchObject({ prompt: "Untouched", status, name: null });
+  });
+
+  it("refuses any status field, including the current one (AC-5)", async () => {
+    const adminId = await createProfile("admin");
+    const draft = await insertPuzzle(pool, { createdBy: adminId, status: "draft" });
+    await asSpectator();
+
+    for (const status of ["draft", "active", "retired"]) {
+      await expect(updatePuzzle(draft, { status })).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(updatePuzzle(draft, { name: "N", status })).rejects.toBeInstanceOf(ForbiddenError);
+    }
+    expect((await getPuzzle(draft)).status).toBe("draft");
+  });
+
+  it("refuses to delete a puzzle in any status (AC-6)", async () => {
+    const adminId = await createProfile("admin");
+    const ids = await Promise.all((["draft", "active", "retired"] as const)
+      .map((status) => insertPuzzle(pool, { createdBy: adminId, status })));
+    await asSpectator();
+
+    for (const id of ids) {
+      await expect(deletePuzzle(id)).rejects.toBeInstanceOf(ForbiddenError);
+      expect((await getPuzzle(id)).id).toBe(id);
+    }
+  });
+
+  it("reaches the same decisions through the routes (AC-2, AC-5, AC-6)", async () => {
+    const adminId = await createProfile("admin");
+    const draft = await insertPuzzle(pool, { createdBy: adminId, status: "draft" });
+    await asSpectator();
+    const headers = { "Content-Type": "application/json" };
+    const ctx = { params: Promise.resolve({ id: draft }) } as never;
+    const url = `https://riddletime.example/api/admin/puzzles/${draft}`;
+
+    expect((await createRoute(new Request("https://riddletime.example/api/admin/puzzles", {
+      method: "POST", headers, body: JSON.stringify({ ...riddle(), status: "active" }),
+    }))).status).toBe(403);
+    expect((await patchRoute(new Request(url, { method: "PATCH", headers, body: JSON.stringify({ status: "active" }) }), ctx)).status).toBe(403);
+    expect((await patchRoute(new Request(url, { method: "PATCH", headers, body: JSON.stringify({ name: "Ok" }) }), ctx)).status).toBe(200);
+    expect((await deleteRoute(new Request(url, { method: "DELETE" }), ctx)).status).toBe(403);
+  });
+
+  it("still lets admins do everything (AC-8)", async () => {
+    const adminId = await asAdmin();
+    const draft = await insertPuzzle(pool, { createdBy: adminId, status: "draft" });
+    expect(await updatePuzzle(draft, { status: "active" })).toMatchObject({ status: "active" });
+    await deletePuzzle(draft);
   });
 });
 

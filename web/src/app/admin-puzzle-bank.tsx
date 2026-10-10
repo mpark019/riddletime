@@ -61,7 +61,7 @@ function formFromPuzzle(puzzle: BankPuzzle): PuzzleForm {
   };
 }
 
-export function AdminPuzzleBank() {
+export function AdminPuzzleBank({ canManage = true }: { canManage?: boolean }) {
   const [puzzles, setPuzzles] = useState<BankPuzzle[] | null>(null);
   const [filter, setFilter] = useState<Filter>({ type: "", status: "", used: "" });
   const [search, setSearch] = useState("");
@@ -211,7 +211,7 @@ export function AdminPuzzleBank() {
       setValues(emptyValues);
       setDifficultyTouched(false);
       setDrawer(editing ? "view" : "closed");
-      setNotice(editing ? "Puzzle updated." : "Saved as a draft. Publish it to make it schedulable.");
+      setNotice(editing ? "Puzzle updated." : canManage ? "Saved as a draft. Publish it to make it schedulable." : "Saved as a draft. An admin can publish it.");
       void reload();
     } catch {
       setError("Could not confirm the puzzle was saved. Reload to check.");
@@ -289,7 +289,7 @@ export function AdminPuzzleBank() {
           {notice && <p className="rounded-md border border-emerald-300/60 bg-emerald-950/45 px-4 py-3 text-sm text-emerald-100">{notice}</p>}
         </div>
         {drawer === "view" && selected && <>
-          <PuzzleDetails key={selected.id} puzzle={selected} busy={busy}
+          <PuzzleDetails key={selected.id} puzzle={selected} busy={busy} canManage={canManage}
             onEdit={() => startEdit(selected)}
             onStatus={(status) => changeStatus(selected, status)}
             onRename={(next) => void mutate(selected, "PATCH", { name: next }, next ? "Name saved." : "Name cleared.")}
@@ -426,26 +426,28 @@ export function PuzzleTable({ puzzles, total, matching, page, pageCount, onPage,
   </div>;
 }
 
-function PuzzleDetails({ puzzle, busy, onEdit, onStatus, onRename, onDelete }: {
-  puzzle: BankPuzzle; busy: boolean; onEdit: () => void; onStatus: (status: BankPuzzle["status"]) => void; onRename: (name: string) => void; onDelete: () => void;
+export function PuzzleDetails({ puzzle, busy, canManage, onEdit, onStatus, onRename, onDelete }: {
+  puzzle: BankPuzzle; busy: boolean; canManage: boolean; onEdit: () => void; onStatus: (status: BankPuzzle["status"]) => void; onRename: (name: string) => void; onDelete: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [nameDraft, setNameDraft] = useState(puzzle.name ?? "");
   const renamed = nameDraft.trim() !== "" && nameDraft.trim() !== (puzzle.name ?? "");
   const unused = puzzle.timesUsed === 0;
-  const editable = unused && puzzle.status !== "active";
+  const isDraft = puzzle.status === "draft";
+  const editable = unused && (canManage ? puzzle.status !== "active" : isDraft);
+  const canRename = canManage || isDraft;
   const { stats } = puzzle;
   const fill = "rounded-md bg-black px-3.5 py-2 text-sm font-semibold text-[#ffffff] hover:opacity-85 disabled:opacity-50";
   const label = "text-white/60";
   return <div className="mt-4">
-    <form className="flex flex-wrap items-center gap-2" onSubmit={(event) => { event.preventDefault(); if (renamed) onRename(nameDraft.trim()); }}>
+    {canRename && <form className="flex flex-wrap items-center gap-2" onSubmit={(event) => { event.preventDefault(); if (renamed) onRename(nameDraft.trim()); }}>
       <label className="min-w-[12rem] flex-1 text-sm"><span className="sr-only">Name</span>
         <input value={nameDraft} maxLength={MAX_NAME_LENGTH} onChange={(event) => setNameDraft(event.target.value)} placeholder="No name set"
           className="h-10 w-full rounded-md border border-white/40 bg-black/[0.04] px-3 text-white placeholder:text-white/45 focus:outline-2 focus:outline-white" />
       </label>
       <button type="submit" disabled={busy || !renamed}
         className="h-10 rounded-md border border-white/60 px-3 text-sm font-semibold hover:bg-white/10 disabled:opacity-40">Save name</button>
-    </form>
+    </form>}
     <dl className="mt-4 space-y-1.5 text-sm">
       <div className="flex gap-2"><dt className={label}>Type:</dt><dd>{kindLabel(puzzle.type)}</dd></div>
       <div className="flex gap-2"><dt className={label}>Difficulty:</dt><dd className="font-semibold capitalize" style={{ color: difficultyColor(puzzle.difficulty) }}>{puzzle.difficulty}</dd></div>
@@ -454,12 +456,13 @@ function PuzzleDetails({ puzzle, busy, onEdit, onStatus, onRename, onDelete }: {
     </dl>
     <div className="mt-4 flex flex-wrap gap-2">
       {editable && <button type="button" disabled={busy} onClick={onEdit} className={fill}>Edit</button>}
-      {STATUS_MOVES[puzzle.status].map(([status, action]) => <button key={status} type="button" disabled={busy} onClick={() => onStatus(status)} className={fill}>{action}</button>)}
-      {unused && !confirmDelete && <button type="button" disabled={busy} onClick={() => setConfirmDelete(true)} className="rounded-md bg-[#e00000] px-3.5 py-2 text-sm font-semibold text-[#ffffff] hover:opacity-85 disabled:opacity-50">Delete</button>}
-      {unused && confirmDelete && <button type="button" disabled={busy} onClick={onDelete} className="rounded-md bg-[#a00000] px-3.5 py-2 text-sm font-semibold text-[#ffffff] disabled:opacity-50">Delete permanently</button>}
+      {canManage && STATUS_MOVES[puzzle.status].map(([status, action]) => <button key={status} type="button" disabled={busy} onClick={() => onStatus(status)} className={fill}>{action}</button>)}
+      {canManage && unused && !confirmDelete && <button type="button" disabled={busy} onClick={() => setConfirmDelete(true)} className="rounded-md bg-[#e00000] px-3.5 py-2 text-sm font-semibold text-[#ffffff] hover:opacity-85 disabled:opacity-50">Delete</button>}
+      {canManage && unused && confirmDelete && <button type="button" disabled={busy} onClick={onDelete} className="rounded-md bg-[#a00000] px-3.5 py-2 text-sm font-semibold text-[#ffffff] disabled:opacity-50">Delete permanently</button>}
     </div>
     {!unused && <p className="mt-2 text-xs text-white/55">Scheduled puzzles can&apos;t be edited or deleted; retire one to stop it being picked.</p>}
-    {unused && puzzle.status === "active" && <p className="mt-2 text-xs text-white/55">Active puzzles can&apos;t be edited; move it to draft first.</p>}
+    {canManage && unused && puzzle.status === "active" && <p className="mt-2 text-xs text-white/55">Active puzzles can&apos;t be edited; move it to draft first.</p>}
+    {!canManage && unused && !isDraft && <p className="mt-2 text-xs text-white/55">Only drafts can be edited. An admin publishes and retires puzzles.</p>}
     <PuzzleActivityPanel puzzleId={puzzle.id} stats={stats} used={!unused} />
   </div>;
 }

@@ -3,8 +3,8 @@ import type { PoolClient } from "pg";
 import { z } from "zod";
 import { withTransaction } from "@/lib/db";
 import { CHARACTER_SET, type CharacterConfig } from "@/server/challenges/character-puzzle";
-import { requireAdmin, requireAdminRead } from "@/server/identity/identity";
-import { BadRequestError, ConflictError, NotFoundError } from "@/server/http/errors";
+import { requireAdmin, requirePuzzleBank, requirePuzzleBankRead } from "@/server/identity/identity";
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from "@/server/http/errors";
 import {
   characterPuzzleSchema,
   manualPuzzleSchema,
@@ -180,16 +180,19 @@ const ACTIVE_MESSAGE = "An active puzzle's content cannot change. Move it to dra
 
 export async function createPuzzle(input: LazyInput): Promise<BankPuzzle> {
   return withTransaction(async (client) => {
-    const admin = await requireAdmin(client);
+    const author = await requirePuzzleBank(client);
     const parsed = createPuzzleInput.parse(await resolveInput(input));
-    const id = await insertPuzzle(client, admin.id, toContent(parsed.puzzle), parsed.difficulty, parsed.name ?? null, parsed.status);
+    if (author.role === "spectator" && parsed.status !== "draft") {
+      throw new ForbiddenError("Spectators can only create drafts");
+    }
+    const id = await insertPuzzle(client, author.id, toContent(parsed.puzzle), parsed.difficulty, parsed.name ?? null, parsed.status);
     return loadOne(client, id);
   });
 }
 
 export async function listPuzzles(filter: LazyInput): Promise<BankPuzzle[]> {
   return withTransaction(async (client) => {
-    await requireAdminRead(client);
+    await requirePuzzleBankRead(client);
     const parsed = listPuzzlesInput.parse(await resolveInput(filter));
     const values: unknown[] = [];
     const where: string[] = [];
@@ -219,7 +222,7 @@ export async function listPuzzles(filter: LazyInput): Promise<BankPuzzle[]> {
 
 export async function getPuzzle(id: unknown): Promise<BankPuzzle> {
   return withTransaction(async (client) => {
-    await requireAdminRead(client);
+    await requirePuzzleBankRead(client);
     const puzzleId = idSchema.parse(id);
     const puzzle = await loadOne(client, puzzleId);
     return { ...puzzle, activity: await loadPuzzleActivity(client, puzzleId) };
@@ -238,11 +241,15 @@ function frozenConflict(error: unknown): never {
 export async function updatePuzzle(rawId: unknown, input: LazyInput): Promise<BankPuzzle> {
   try {
     return await withTransaction(async (client) => {
-      await requireAdmin(client);
+      const editor = await requirePuzzleBank(client);
       const id = idSchema.parse(rawId);
       const parsed = updatePuzzleInput.parse(await resolveInput(input));
       const { rows } = await client.query("select type, status from puzzles where id = $1 for update", [id]);
       if (!rows[0]) throw new NotFoundError("Puzzle not found");
+      if (editor.role === "spectator") {
+        if (parsed.status !== undefined) throw new ForbiddenError("Spectators cannot change a puzzle's status");
+        if (rows[0].status !== "draft") throw new ForbiddenError("Spectators can only edit drafts");
+      }
       if (parsed.puzzle && parsed.puzzle.type !== rows[0].type) {
         throw new BadRequestError("A puzzle's type cannot be changed");
       }

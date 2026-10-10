@@ -13,8 +13,9 @@ import { LeaderboardRealtime } from "./leaderboard-realtime";
 import { PointsDesk, Scoreboard } from "./scoreboard";
 import { RiddleGame } from "./riddle-game";
 import { AdminRiddleScheduler } from "./admin-riddle-scheduler";
+import { AdminPuzzleBank } from "./admin-puzzle-bank";
 
-type WorkspaceView = "home" | "riddle" | "schedule" | "points" | "settings";
+type WorkspaceView = "home" | "riddle" | "manage" | "points" | "settings";
 type SettingsTab = "general" | "invitations" | "users";
 
 const REFRESH_COALESCE_MS = 250;
@@ -35,6 +36,7 @@ export function HomeWorkspace({
   const [realtimeRefreshVersion, setRealtimeRefreshVersion] = useState(0);
   const router = useRouter();
   const canManagePoints = profile.role === "admin" || profile.role === "spectator";
+  const canOpenManage = canManagePoints;
 
   function selectView(nextView: WorkspaceView) {
     setView(nextView);
@@ -58,7 +60,7 @@ export function HomeWorkspace({
           <div className="contents sm:relative sm:z-10 sm:flex">
           <PillButton active={view === "home"} onClick={() => selectView("home")}>Home</PillButton>
           <PillButton active={view === "riddle"} onClick={() => selectView("riddle")}>Riddle</PillButton>
-          {profile.role === "admin" && <PillButton active={view === "schedule"} onClick={() => selectView("schedule")}>Schedule</PillButton>}
+          {canOpenManage && <PillButton active={view === "manage"} onClick={() => selectView("manage")}>Manage</PillButton>}
           {canManagePoints && <PillButton active={view === "points"} onClick={() => selectView("points")}>Points</PillButton>}
           </div>
           <AccountMenu active={view === "settings"} profile={profile} onOpenSettings={() => selectView("settings")} />
@@ -68,12 +70,24 @@ export function HomeWorkspace({
       <main className={`flex-1 sm:pb-0 ${view === "points" ? "pb-[calc(3.5rem+env(safe-area-inset-bottom))] max-sm:flex max-sm:min-h-0 max-sm:flex-col max-sm:overflow-y-auto" : "pb-[calc(5rem+env(safe-area-inset-bottom))]"}`}>
         {view === "home" && <Scoreboard initialEntries={leaderboard} />}
         {view === "riddle" && <RiddleGame playerId={profile.id} role={profile.role} onCompleted={refreshRealtimeData} />}
-        {view === "schedule" && profile.role === "admin" && <AdminRiddleScheduler appTimezone={appDateContext.timezone} today={appDateContext.today} players={leaderboard} onChanged={refreshRealtimeData} />}
+        {view === "manage" && profile.role === "admin" && <AdminRiddleScheduler appTimezone={appDateContext.timezone} today={appDateContext.today} players={leaderboard} onChanged={refreshRealtimeData} />}
+        {view === "manage" && profile.role === "spectator" && <SpectatorBank />}
         {view === "points" && canManagePoints && <PointsDesk players={leaderboard} canViewAudit={profile.role === "admin"} onChanged={async () => refreshRealtimeData()} refreshVersion={realtimeRefreshVersion} />}
         {view === "settings" && <SettingsPage profile={profile} isAdmin={profile.role === "admin"} tab={settingsTab} onTabChange={setSettingsTab} />}
       </main>
     </div>
   );
+}
+
+function SpectatorBank() {
+  return <section className="mx-auto w-[calc(100%-2rem)] max-w-[1280px] py-5 lg:py-8" aria-labelledby="puzzle-bank-title">
+    <header className="flex flex-col gap-2 pb-6 lg:pb-8">
+      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">Spectator</p>
+      <h2 id="puzzle-bank-title" className="text-2xl font-semibold tracking-tight lg:text-[28px]">Puzzle bank</h2>
+      <p className="text-sm text-white/65">Add puzzles as drafts and edit drafts. An admin publishes them.</p>
+    </header>
+    <AdminPuzzleBank canManage={false} />
+  </section>;
 }
 
 function PillButton({ active, children, onClick, ...props }: { active: boolean; children: ReactNode; onClick: () => void; "aria-label"?: string }) {

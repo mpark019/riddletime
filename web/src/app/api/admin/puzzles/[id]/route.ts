@@ -3,7 +3,7 @@ import { ok, apiError } from "@/server/http/api-response";
 
 const noStore = { headers: { "Cache-Control": "private, no-store" } };
 
-// The id and body are validated by the service after it checks the caller is an admin.
+// The id and body are validated by the service after it checks the caller's role.
 export async function GET(_request: Request, ctx: RouteContext<"/api/admin/puzzles/[id]">) {
   try {
     const { id } = await ctx.params;
