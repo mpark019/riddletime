@@ -103,10 +103,11 @@ describe("manual shared-riddle scheduling", () => {
     const { rows } = await pool.query(
       `select d.active_date::text, d.mode, d.allowed_types, d.difficulty_selection,
               d.difficulty_presets, d.selected_difficulty, d.created_by,
-              c.type, c.difficulty, c.prompt, c.config, c.answer_data,
+              c.type, c.difficulty, pz.prompt, pz.config, pz.answer_data,
               c.max_attempts, c.time_limit_seconds, c.scoring_policy
        from daily_challenges d
        join challenges c on c.daily_challenge_id = d.id
+       join puzzles pz on pz.id = c.puzzle_id
        where d.id = $1`,
       [body.schedule_id],
     );

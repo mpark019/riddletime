@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pool } from "@/lib/db";
-import { createAuthUser } from "@/server/test/fixtures";
+import { createAuthUser, insertPuzzle } from "@/server/test/fixtures";
 
 const { getVerifiedUser } = vi.hoisted(() => ({ getVerifiedUser: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ getVerifiedUser }));
@@ -77,8 +77,9 @@ async function asUser(id: string) {
 
 async function puzzlesOn(date: string) {
   const { rows } = await pool.query(
-    `select c.assigned_to, c.mode, c.type, c.difficulty, c.prompt, c.time_limit_seconds, c.max_attempts
+    `select c.assigned_to, c.mode, c.type, c.difficulty, pz.prompt, c.time_limit_seconds, c.max_attempts
      from challenges c join daily_challenges d on d.id = c.daily_challenge_id
+     join puzzles pz on pz.id = c.puzzle_id
      where d.active_date = $1::date order by c.created_at`,
     [date],
   );
@@ -377,11 +378,12 @@ describe("player runtime on a personal day (AC-5)", () => {
     );
     const dailyId = day[0].id as string;
     async function assign(playerId: string, prompt: string, answer: string) {
+      const puzzleId = await insertPuzzle(pool, { createdBy: admin, prompt, answerData: { accepted: [answer] } });
       const { rows } = await pool.query(
         `insert into challenges
-           (daily_challenge_id, mode, assigned_to, type, difficulty, prompt, config, answer_data, max_attempts, time_limit_seconds, scoring_policy)
-         values ($1, 'personal', $2, 'riddle', 'easy', $3, '{}'::jsonb, $4::jsonb, 1, 120, $5::jsonb) returning id`,
-        [dailyId, playerId, prompt, JSON.stringify({ accepted: [answer] }), JSON.stringify(scoring)],
+           (daily_challenge_id, mode, assigned_to, type, puzzle_id, difficulty, max_attempts, time_limit_seconds, scoring_policy)
+         values ($1, 'personal', $2, 'riddle', $3, 'easy', 1, 120, $4::jsonb) returning id`,
+        [dailyId, playerId, puzzleId, JSON.stringify(scoring)],
       );
       await pool.query(
         "insert into submissions (challenge_id, challenge_mode, assigned_to, user_id) values ($1, 'personal', $2, $2)",

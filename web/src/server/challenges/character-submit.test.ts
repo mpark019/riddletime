@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pool } from "@/lib/db";
-import { createAuthUser, requireTestAdminPool } from "@/server/test/fixtures";
+import { createAuthUser, insertPuzzle, requireTestAdminPool } from "@/server/test/fixtures";
 
 const { getVerifiedUser } = vi.hoisted(() => ({ getVerifiedUser: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ getVerifiedUser }));
@@ -45,15 +45,21 @@ async function createStartedCharacterGame(options: {
       daysAgo,
     ],
   );
+  const puzzleId = await insertPuzzle(pool, {
+    createdBy: adminId,
+    type: "character_puzzle",
+    prompt: "Guess the code",
+    config: CONFIG,
+    answerData: { target },
+  });
   const { rows: challengeRows } = await pool.query(
     `insert into challenges
-       (daily_challenge_id, mode, type, difficulty, prompt, config, answer_data, max_attempts, time_limit_seconds, scoring_policy)
-     values ($1, 'shared', 'character_puzzle', 'standard', 'Guess the code', $2::jsonb, $3::jsonb, $4, 120, $5::jsonb)
+       (daily_challenge_id, mode, type, puzzle_id, difficulty, max_attempts, time_limit_seconds, scoring_policy)
+     values ($1, 'shared', 'character_puzzle', $2, 'standard', $3, 120, $4::jsonb)
      returning id`,
     [
       dailyRows[0].id,
-      JSON.stringify(CONFIG),
-      JSON.stringify({ target }),
+      puzzleId,
       maxAttempts,
       JSON.stringify({
         base_points: 100,

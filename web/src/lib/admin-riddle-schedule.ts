@@ -158,3 +158,36 @@ export function buildCharacterScheduleRequest(form: CharacterScheduleForm) {
     manual_puzzle: { type: "character_puzzle" as const, target },
   };
 }
+
+export interface BankScheduleForm extends ScheduleRulesForm {
+  kind: "riddle" | "character_puzzle";
+  puzzleId: string;
+}
+
+export function buildBankScheduleRequest(form: BankScheduleForm) {
+  if (!form.puzzleId.trim()) throw new Error("Choose a puzzle from the bank.");
+  const rules = buildRules(form, form.kind === "character_puzzle" ? MAX_CHARACTER_ATTEMPTS : MAX_DATABASE_INTEGER);
+  requirePlayers(form.playerIds);
+
+  return {
+    active_date: rules.activeDate,
+    ...targeting(form.playerIds),
+    allowed_types: [form.kind] as ["riddle" | "character_puzzle"],
+    difficulty_selection: "fixed" as const,
+    difficulty_presets: {
+      [rules.difficulty]: {
+        types: {
+          [form.kind]: {
+            time_limit_seconds: rules.timeLimitSeconds,
+            max_attempts: rules.maxAttempts,
+            generation_settings: {},
+            config: {},
+            scoring_policy: rules.scoringPolicy,
+          },
+        },
+      },
+    } as Record<string, { types: Record<string, object> }>,
+    selected_difficulty: rules.difficulty,
+    puzzle_id: form.puzzleId.trim(),
+  };
+}

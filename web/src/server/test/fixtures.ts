@@ -24,3 +24,36 @@ export async function createAuthUser(email?: string): Promise<string> {
   );
   return id;
 }
+
+interface PuzzleFixture {
+  createdBy: string;
+  type?: "riddle" | "character_puzzle";
+  prompt?: string;
+  config?: object;
+  answerData?: object;
+  difficulty?: string;
+  status?: "active" | "retired";
+}
+
+// Accepts a Pool or PoolClient so a test can create the puzzle inside its own transaction.
+export async function insertPuzzle(
+  db: { query: Pool["query"] },
+  fixture: PuzzleFixture,
+): Promise<string> {
+  const type = fixture.type ?? "riddle";
+  const { rows } = await db.query(
+    `insert into puzzles (type, prompt, config, answer_data, difficulty, status, created_by)
+     values ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7)
+     returning id`,
+    [
+      type,
+      fixture.prompt ?? (type === "riddle" ? "What has keys but no locks?" : "Letter game"),
+      JSON.stringify(fixture.config ?? (type === "riddle" ? {} : { target_length: 4, character_set: "ABCD" })),
+      JSON.stringify(fixture.answerData ?? (type === "riddle" ? { accepted: ["piano"] } : { target: "ABCD" })),
+      fixture.difficulty ?? "standard",
+      fixture.status ?? "active",
+      fixture.createdBy,
+    ],
+  );
+  return rows[0].id as string;
+}

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { AdminRiddleScheduler } from "./admin-riddle-scheduler";
 
 describe("AdminRiddleScheduler", () => {
-  it("renders the timezone, manual puzzle fields, and failure penalty (AC-6)", () => {
+  it("renders the timezone, the bank picker, and failure penalty (AC-6)", () => {
     const html = renderToStaticMarkup(createElement(AdminRiddleScheduler, {
       appTimezone: "America/New_York",
       today: "2030-05-06",
@@ -15,8 +15,7 @@ describe("AdminRiddleScheduler", () => {
     expect(html).toContain("Calendar");
     expect(html).toContain("All days");
     expect(html).toContain("America/New_York");
-    expect(html).toContain("Riddle prompt");
-    expect(html).toContain("Accepted answers");
+    expect(html).toContain("Choose from the puzzle bank");
     expect(html).toContain("Failure penalty");
     expect(html).toContain("deducted once only");
     expect(html).toContain("May 2030");
@@ -24,15 +23,17 @@ describe("AdminRiddleScheduler", () => {
     expect(html).toContain("05/06/2030");
   });
 
-  it("offers both puzzle types with the riddle fields selected first", () => {
+  it("offers only bank puzzles: no free-text puzzle fields or type and difficulty pickers", () => {
     const html = renderToStaticMarkup(createElement(AdminRiddleScheduler, {
       appTimezone: "UTC",
       today: "2030-05-06",
       players: [],
     }));
 
-    expect(html).toContain('aria-label="Puzzle type"');
-    expect(html).toContain("Letter game");
+    expect(html).not.toContain('aria-label="Puzzle type"');
+    expect(html).not.toContain("Riddle prompt");
+    expect(html).not.toContain("Accepted answers");
+    expect(html).not.toContain("Write new");
     expect(html).not.toContain("Allowed characters");
   });
 });

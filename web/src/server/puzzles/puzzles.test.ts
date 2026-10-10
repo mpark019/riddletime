@@ -1,0 +1,321 @@
+import { randomUUID } from "node:crypto";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ZodError } from "zod";
+import { pool } from "@/lib/db";
+import { createAuthUser, insertPuzzle } from "@/server/test/fixtures";
+
+const { getVerifiedUser } = vi.hoisted(() => ({ getVerifiedUser: vi.fn() }));
+vi.mock("@/lib/supabase/server", () => ({ getVerifiedUser }));
+
+const { createPuzzle, deletePuzzle, getPuzzle, listPuzzles, updatePuzzle } = await import("./puzzles");
+const { ConflictError, ForbiddenError, NotFoundError } = await import("@/server/http/errors");
+const { GET: listRoute, POST: createRoute } = await import("@/app/api/admin/puzzles/route");
+const { GET: detailRoute, PATCH: patchRoute, DELETE: deleteRoute } = await import("@/app/api/admin/puzzles/[id]/route");
+
+beforeEach(() => {
+  getVerifiedUser.mockReset();
+});
+
+async function createProfile(role: "admin" | "player" | "spectator") {
+  const id = await createAuthUser();
+  await pool.query(
+    "insert into profiles (id, display_name, role) values ($1, concat('Bank ', ($1::uuid)::text), $2)",
+    [id, role],
+  );
+  return id;
+}
+
+async function asAdmin() {
+  const id = await createProfile("admin");
+  getVerifiedUser.mockResolvedValue({ id });
+  return id;
+}
+
+const riddle = (prompt = `Riddle ${randomUUID()}`) => ({
+  difficulty: "medium",
+  puzzle: { type: "riddle", prompt, accepted_answers: ["piano", "a piano"] },
+});
+
+async function scheduleOnPersonalDay(adminId: string, puzzleId: string, playerIds: string[]) {
+  const offset = 7000 + Math.floor(Math.random() * 1_000_000);
+  const { rows } = await pool.query(
+    `insert into daily_challenges
+       (active_date, mode, allowed_types, difficulty_selection, difficulty_presets, created_by)
+     values (current_date + $2::int, 'personal', array['riddle'], 'random_player', '{"easy":{}}'::jsonb, $1)
+     returning id`,
+    [adminId, offset],
+  );
+  const challengeIds: string[] = [];
+  for (const playerId of playerIds) {
+    const { rows: challenge } = await pool.query(
+      `insert into challenges
+         (daily_challenge_id, mode, assigned_to, type, puzzle_id, difficulty, max_attempts, time_limit_seconds, scoring_policy)
+       values ($1, 'personal', $2, 'riddle', $3, 'easy', 1, 60, '{"base_points":1}'::jsonb) returning id`,
+      [rows[0].id, playerId, puzzleId],
+    );
+    challengeIds.push(challenge[0].id);
+  }
+  return challengeIds;
+}
+
+async function play(challengeId: string, playerId: string, outcome: {
+  correct?: boolean;
+  seconds?: number;
+  attempts?: number;
+  missed?: boolean;
+  finished?: boolean;
+}) {
+  await pool.query(
+    "insert into submissions (challenge_id, challenge_mode, assigned_to, user_id) values ($1, 'personal', $2, $2)",
+    [challengeId, playerId],
+  );
+  if (outcome.finished === false) return;
+  const ms = outcome.missed ? 0 : (outcome.seconds ?? 10) * 1000;
+  await pool.query(
+    `update submissions
+     set submitted_at = started_at + ($3 * interval '1 millisecond'), time_taken_ms = $3, correct = $4,
+         attempts = $5, scoring_breakdown = $6::jsonb
+     where challenge_id = $1 and user_id = $2`,
+    [
+      challengeId,
+      playerId,
+      ms,
+      outcome.correct ?? false,
+      outcome.attempts ?? 1,
+      JSON.stringify(outcome.missed ? { total_points: -1, missed: true } : { total_points: 0 }),
+    ],
+  );
+}
+
+describe("puzzle bank service", () => {
+  it("creates an active riddle with trimmed content and a letter puzzle with derived config (AC-2)", async () => {
+    await asAdmin();
+    const created = await createPuzzle({
+      difficulty: "hard",
+      puzzle: { type: "riddle", prompt: "  What has keys?  ", accepted_answers: [" piano "] },
+    });
+    expect(created).toMatchObject({
+      type: "riddle", prompt: "What has keys?", acceptedAnswers: ["piano"], difficulty: "hard", status: "active", timesUsed: 0,
+    });
+
+    const letter = await createPuzzle({ difficulty: "easy", puzzle: { type: "character_puzzle", target: "crane7" } });
+    expect(letter).toMatchObject({ type: "character_puzzle", prompt: "Letter game", acceptedAnswers: ["CRANE7"] });
+    const { rows } = await pool.query("select config from puzzles where id = $1", [letter.id]);
+    expect(rows[0].config).toEqual({ target_length: 6, character_set: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" });
+  });
+
+  it("rejects invalid content and persists nothing (AC-2)", async () => {
+    const adminId = await asAdmin();
+    const bad = [
+      { difficulty: "easy", puzzle: { type: "riddle", prompt: "   ", accepted_answers: ["x"] } },
+      { difficulty: "easy", puzzle: { type: "riddle", prompt: "ok", accepted_answers: [] } },
+      { difficulty: "easy", puzzle: { type: "riddle", prompt: "ok", accepted_answers: ["Piano", "piano!"] } },
+      { difficulty: "easy", puzzle: { type: "character_puzzle", target: "has space" } },
+      { difficulty: "", puzzle: { type: "riddle", prompt: "ok", accepted_answers: ["x"] } },
+      { difficulty: "easy", puzzle: { type: "riddle", prompt: "ok", accepted_answers: ["x"] }, extra: 1 },
+    ];
+    for (const input of bad) await expect(createPuzzle(input)).rejects.toBeInstanceOf(ZodError);
+    const { rowCount } = await pool.query("select 1 from puzzles where created_by = $1", [adminId]);
+    expect(rowCount).toBe(0);
+  });
+
+  it("refuses non-admins before validating input and never returns answers to them (AC-3)", async () => {
+    const player = await createProfile("player");
+    const spectator = await createProfile("spectator");
+    const adminId = await createProfile("admin");
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId, answerData: { accepted: ["secret-answer"] } });
+
+    for (const id of [player, spectator]) {
+      getVerifiedUser.mockResolvedValue({ id });
+      await expect(createPuzzle("not even an object")).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(listPuzzles({})).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(getPuzzle(puzzleId)).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(updatePuzzle(puzzleId, { status: "retired" })).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(deletePuzzle(puzzleId)).rejects.toBeInstanceOf(ForbiddenError);
+
+      const response = await listRoute(new Request("https://riddletime.example/api/admin/puzzles"));
+      expect(response.status).toBe(403);
+      expect(JSON.stringify(await response.json())).not.toContain("secret-answer");
+    }
+    getVerifiedUser.mockResolvedValue(null);
+    expect((await listRoute(new Request("https://riddletime.example/api/admin/puzzles"))).status).toBe(401);
+  });
+
+  it("filters the list by type, status, and whether it has been scheduled", async () => {
+    const adminId = await asAdmin();
+    const unusedRiddle = await insertPuzzle(pool, { createdBy: adminId });
+    const retired = await insertPuzzle(pool, { createdBy: adminId, status: "retired" });
+    const letter = await insertPuzzle(pool, { createdBy: adminId, type: "character_puzzle" });
+    const used = await insertPuzzle(pool, { createdBy: adminId });
+    await scheduleOnPersonalDay(adminId, used, [await createProfile("player")]);
+
+    const ids = async (filter: object) => (await listPuzzles(filter)).map((p) => p.id);
+    expect(await ids({ type: "character_puzzle" })).toContain(letter);
+    expect(await ids({ type: "character_puzzle" })).not.toContain(unusedRiddle);
+    expect(await ids({ status: "retired" })).toEqual(expect.arrayContaining([retired]));
+    expect(await ids({ status: "retired" })).not.toContain(unusedRiddle);
+    expect(await ids({ used: "true" })).toContain(used);
+    expect(await ids({ used: "false" })).toEqual(expect.arrayContaining([unusedRiddle, retired, letter]));
+    expect(await ids({ used: "false" })).not.toContain(used);
+    expect((await listPuzzles({})).find((p) => p.id === used)?.timesUsed).toBe(1);
+  });
+
+  it("can hide puzzles that selected players have already had (AC-8)", async () => {
+    const adminId = await asAdmin();
+    const seenBy = await createProfile("player");
+    const other = await createProfile("player");
+    const seen = await insertPuzzle(pool, { createdBy: adminId });
+    const fresh = await insertPuzzle(pool, { createdBy: adminId });
+    await scheduleOnPersonalDay(adminId, seen, [seenBy]);
+
+    const withSeen = (await listPuzzles({ exclude_seen_by: [seenBy] })).map((p) => p.id);
+    expect(withSeen).not.toContain(seen);
+    expect(withSeen).toContain(fresh);
+    expect((await listPuzzles({ exclude_seen_by: [other] })).map((p) => p.id)).toContain(seen);
+  });
+
+  it("edits an unused puzzle, and freezes content but not status once it is scheduled (AC-4)", async () => {
+    const adminId = await asAdmin();
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId, prompt: "Before" });
+
+    const edited = await updatePuzzle(puzzleId, {
+      difficulty: "extreme",
+      puzzle: { type: "riddle", prompt: "After", accepted_answers: ["x"] },
+    });
+    expect(edited).toMatchObject({ prompt: "After", difficulty: "extreme", acceptedAnswers: ["x"] });
+
+    await scheduleOnPersonalDay(adminId, puzzleId, [await createProfile("player")]);
+    await expect(updatePuzzle(puzzleId, {
+      puzzle: { type: "riddle", prompt: "Too late", accepted_answers: ["y"] },
+    })).rejects.toBeInstanceOf(ConflictError);
+    await expect(updatePuzzle(puzzleId, { difficulty: "easy" })).rejects.toBeInstanceOf(ConflictError);
+    expect((await getPuzzle(puzzleId)).prompt).toBe("After");
+
+    expect(await updatePuzzle(puzzleId, { status: "retired" })).toMatchObject({ status: "retired", prompt: "After" });
+    expect(await updatePuzzle(puzzleId, { status: "active" })).toMatchObject({ status: "active" });
+  });
+
+  it("names a puzzle on create, renames it even after it is scheduled, and clears the name", async () => {
+    const adminId = await asAdmin();
+    const created = await createPuzzle({ ...riddle(), name: "  Keys riddle  " });
+    expect(created.name).toBe("Keys riddle");
+    expect((await createPuzzle(riddle())).name).toBeNull();
+    await expect(createPuzzle({ ...riddle(), name: "x".repeat(81) })).rejects.toBeInstanceOf(ZodError);
+
+    await scheduleOnPersonalDay(adminId, created.id, [await createProfile("player")]);
+    expect(await updatePuzzle(created.id, { name: "Renamed" })).toMatchObject({ name: "Renamed", prompt: created.prompt });
+    expect(await updatePuzzle(created.id, { name: "" })).toMatchObject({ name: null });
+    await expect(updatePuzzle(created.id, { name: "Again", difficulty: "easy" })).rejects.toBeInstanceOf(ConflictError);
+    expect((await getPuzzle(created.id)).name).toBeNull();
+  });
+
+  it("will not change a puzzle's type through an edit", async () => {
+    const adminId = await asAdmin();
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId });
+    await expect(updatePuzzle(puzzleId, {
+      puzzle: { type: "character_puzzle", target: "ABC" },
+    })).rejects.toThrow(/type/i);
+    expect((await getPuzzle(puzzleId)).type).toBe("riddle");
+  });
+
+  it("deletes an unused puzzle and refuses a scheduled one (AC-4)", async () => {
+    const adminId = await asAdmin();
+    const unused = await insertPuzzle(pool, { createdBy: adminId });
+    const scheduled = await insertPuzzle(pool, { createdBy: adminId });
+    await scheduleOnPersonalDay(adminId, scheduled, [await createProfile("player")]);
+
+    await deletePuzzle(unused);
+    await expect(getPuzzle(unused)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(deletePuzzle(scheduled)).rejects.toBeInstanceOf(ConflictError);
+    expect((await getPuzzle(scheduled)).id).toBe(scheduled);
+    await expect(deletePuzzle(randomUUID())).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("serves the same operations through the routes", async () => {
+    await asAdmin();
+    const headers = { "Content-Type": "application/json" };
+    const created = await createRoute(new Request("https://riddletime.example/api/admin/puzzles", {
+      method: "POST", headers, body: JSON.stringify(riddle()),
+    }));
+    expect(created.status).toBe(201);
+    const { puzzle } = await created.json() as { puzzle: { id: string } };
+    const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
+    const url = `https://riddletime.example/api/admin/puzzles/${puzzle.id}`;
+
+    expect((await detailRoute(new Request(url), ctx(puzzle.id) as never)).status).toBe(200);
+    const patched = await patchRoute(new Request(url, { method: "PATCH", headers, body: JSON.stringify({ status: "retired" }) }), ctx(puzzle.id) as never);
+    expect(patched.status).toBe(200);
+    expect((await deleteRoute(new Request(url, { method: "DELETE" }), ctx(puzzle.id) as never)).status).toBe(200);
+    expect((await detailRoute(new Request(url), ctx(puzzle.id) as never)).status).toBe(404);
+    expect((await createRoute(new Request("https://riddletime.example/api/admin/puzzles", {
+      method: "POST", headers, body: JSON.stringify({ difficulty: "easy" }),
+    }))).status).toBe(400);
+  });
+});
+
+describe("puzzle routes for non-admins (AC-3)", () => {
+  it("answer 403 before reading the body or validating the id", async () => {
+    const adminId = await createProfile("admin");
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId });
+    const player = await createProfile("player");
+    getVerifiedUser.mockResolvedValue({ id: player });
+    const ctx = (id: string) => ({ params: Promise.resolve({ id }) }) as never;
+    const headers = { "Content-Type": "application/json" };
+    const malformed = (method: string) => new Request("https://riddletime.example/api/admin/puzzles", { method, headers, body: "{bad" });
+
+    expect((await createRoute(malformed("POST"))).status).toBe(403);
+    expect((await patchRoute(malformed("PATCH"), ctx(puzzleId))).status).toBe(403);
+    expect((await patchRoute(malformed("PATCH"), ctx("not-a-uuid"))).status).toBe(403);
+    expect((await detailRoute(new Request("https://riddletime.example/x"), ctx("not-a-uuid"))).status).toBe(403);
+    expect((await deleteRoute(new Request("https://riddletime.example/x", { method: "DELETE" }), ctx("not-a-uuid"))).status).toBe(403);
+  });
+
+  it("still reports malformed input and ids to admins as 400", async () => {
+    await asAdmin();
+    const ctx = (id: string) => ({ params: Promise.resolve({ id }) }) as never;
+    const bad = new Request("https://riddletime.example/api/admin/puzzles", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{bad",
+    });
+    expect((await createRoute(bad)).status).toBe(400);
+    expect((await detailRoute(new Request("https://riddletime.example/x"), ctx("not-a-uuid"))).status).toBe(400);
+  });
+});
+
+describe("puzzle statistics (AC-10)", () => {
+  it("counts started, solved, failed, missed, and unfinished games separately", async () => {
+    const adminId = await asAdmin();
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId });
+    const players = await Promise.all([1, 2, 3, 4, 5, 6].map(() => createProfile("player")));
+    const challenges = await scheduleOnPersonalDay(adminId, puzzleId, players);
+
+    await play(challenges[0], players[0], { correct: true, seconds: 10, attempts: 1 });
+    await play(challenges[1], players[1], { correct: true, seconds: 30, attempts: 3 });
+    await play(challenges[2], players[2], { correct: false, seconds: 60, attempts: 2 });
+    await play(challenges[3], players[3], { missed: true });
+    await play(challenges[4], players[4], { finished: false });
+    // players[5] never started
+
+    const { stats } = await getPuzzle(puzzleId);
+    expect(stats).toEqual({
+      daysUsed: 1,
+      assigned: 6,
+      started: 4,
+      finished: 3,
+      solved: 2,
+      missed: 1,
+      solveRate: 2 / 3,
+      medianSolveSeconds: 20,
+      averageAttempts: 2,
+    });
+    expect((await listPuzzles({})).find((p) => p.id === puzzleId)?.stats.solved).toBe(2);
+  });
+
+  it("reports empty statistics for a puzzle that has never been scheduled", async () => {
+    const adminId = await asAdmin();
+    const puzzleId = await insertPuzzle(pool, { createdBy: adminId });
+    expect((await getPuzzle(puzzleId)).stats).toEqual({
+      daysUsed: 0, assigned: 0, started: 0, finished: 0, solved: 0, missed: 0,
+      solveRate: null, medianSolveSeconds: null, averageAttempts: null,
+    });
+  });
+});

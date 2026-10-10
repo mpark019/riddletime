@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { buildCharacterScheduleRequest, buildManualRiddleScheduleRequest } from "@/lib/admin-riddle-schedule";
-import { DIFFICULTIES, difficultyColor, type Difficulty } from "@/lib/difficulty";
+import { buildBankScheduleRequest } from "@/lib/admin-riddle-schedule";
+import { difficultyColor, isDifficulty, type Difficulty } from "@/lib/difficulty";
+import type { BankPuzzle } from "@/server/puzzles/puzzles";
+import { AdminPuzzleBank } from "./admin-puzzle-bank";
 import { AdminRiddleList } from "./admin-riddle-list";
 import { pruneSelection } from "@/lib/point-selection";
 import { formatUsDate } from "@/lib/calendar";
@@ -31,12 +33,9 @@ const inputClass = "mt-1 w-full rounded-md border border-white/40 bg-black/[0.04
 export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }: { appTimezone: string; today: string; players: LeaderboardEntry[]; onChanged?: () => void }) {
   const [activeDate, setActiveDate] = useState(today);
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
-  const [prompt, setPrompt] = useState("");
-  const [acceptedAnswers, setAcceptedAnswers] = useState("");
   const [timeLimitSeconds, setTimeLimitSeconds] = useState("120");
   const [noTimeLimit, setNoTimeLimit] = useState(false);
   const [maxAttempts, setMaxAttempts] = useState("1");
-  const [puzzleKind, setPuzzleKind] = useState<PuzzleKind>("riddle");
   const [selection, setSelection] = useState<string[]>([]);
   const [roster, setRoster] = useState<DateRoster | null>(null);
   const [rosterError, setRosterError] = useState(false);
@@ -46,7 +45,6 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
   const takenCount = roster?.mode === "shared" ? players.length : roster?.assignments.length ?? 0;
   const selectedPlayerIds = pruneSelection(selection, players);
   const isPastDate = activeDate < today;
-  const [targetWord, setTargetWord] = useState("");
   const [basePoints, setBasePoints] = useState("100");
   const [failurePenaltyPoints, setFailurePenaltyPoints] = useState("20");
   const [speedBonuses, setSpeedBonuses] = useState<SpeedBonusRow[]>([]);
@@ -54,7 +52,11 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [listVersion, setListVersion] = useState(0);
-  const [tab, setTab] = useState<"day" | "all">("day");
+  const [tab, setTab] = useState<"day" | "all" | "bank">("day");
+  const [bankPuzzleId, setBankPuzzleId] = useState("");
+  const [bankPuzzles, setBankPuzzles] = useState<BankPuzzle[] | null>(null);
+  const [bankVersion, setBankVersion] = useState(0);
+  const [bankError, setBankError] = useState(false);
   const nextSpeedBonusId = useRef(1);
 
   const loadRoster = useCallback(async (date: string) => {
@@ -84,6 +86,44 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
     };
   }, [activeDate, loadRoster]);
 
+  const selectedPuzzle = bankPuzzles?.find((puzzle) => puzzle.id === bankPuzzleId) ?? null;
+  const puzzleKind: PuzzleKind = selectedPuzzle?.type ?? "riddle";
+
+  const bankQuery = (() => {
+    const query = new URLSearchParams({ status: "active" });
+    if (selectedPlayerIds.length > 0) query.set("exclude_seen_by", selectedPlayerIds.join(","));
+    else query.set("used", "false");
+    return query.toString();
+  })();
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void fetch(`/api/admin/puzzles?${bankQuery}`, { cache: "no-store" })
+        .then((response) => response.ok ? response.json() as Promise<{ puzzles: BankPuzzle[] }> : Promise.reject(new Error("bank")))
+        .then((body) => {
+          if (!active) return;
+          setBankError(false);
+          setBankPuzzles(body.puzzles);
+          // A choice the refreshed list no longer offers (a player already had it, or it was retired) must not be submitted.
+          setBankPuzzleId((current) => body.puzzles.some((puzzle) => puzzle.id === current) ? current : "");
+        })
+        .catch(() => { if (active) { setBankError(true); setBankPuzzles([]); setBankPuzzleId(""); } });
+    }, 0);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [bankQuery, bankVersion]);
+
+  function chooseBankPuzzle(puzzle: BankPuzzle) {
+    setBankPuzzleId(puzzle.id);
+    if (isDifficulty(puzzle.difficulty)) setDifficulty(puzzle.difficulty);
+    if (puzzle.type !== puzzleKind) setMaxAttempts(puzzle.type === "character_puzzle" ? "6" : "1");
+    setError(null);
+    setNotice(null);
+  }
+
   async function removeAssignment(challengeId: string) {
     setRemovingId(challengeId);
     setDayMessage(null);
@@ -104,15 +144,6 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
     }
   }
 
-  function selectPuzzleKind(kind: PuzzleKind) {
-    if (kind === puzzleKind) return;
-    setPuzzleKind(kind);
-    setMaxAttempts(kind === "character_puzzle" ? "6" : "1");
-    setTargetWord("");
-    setError(null);
-    setNotice(null);
-  }
-
   function addSpeedBonus() {
     if (speedBonuses.length >= MAX_SPEED_BONUSES) return;
     const id = nextSpeedBonusId.current++;
@@ -127,7 +158,7 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
     event.preventDefault();
     setError(null);
     setNotice(null);
-    let body: ReturnType<typeof buildManualRiddleScheduleRequest | typeof buildCharacterScheduleRequest>;
+    let body: ReturnType<typeof buildBankScheduleRequest>;
     try {
       const rules = {
         activeDate,
@@ -139,9 +170,7 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
         failurePenaltyPoints,
         speedBonuses,
       };
-      body = puzzleKind === "character_puzzle"
-        ? buildCharacterScheduleRequest({ ...rules, targetWord })
-        : buildManualRiddleScheduleRequest({ ...rules, prompt, acceptedAnswers });
+      body = buildBankScheduleRequest({ ...rules, kind: puzzleKind, puzzleId: bankPuzzleId });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Check the schedule values.");
       return;
@@ -159,9 +188,8 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
         setError(result.error ?? `Could not schedule this ${puzzleLabel}.`);
         return;
       }
-      setPrompt("");
-      setAcceptedAnswers("");
-      setTargetWord("");
+      setBankPuzzleId("");
+      setBankVersion((version) => version + 1);
       const skipped = result.skipped_count ?? 0;
       setNotice(`${puzzleLabel[0].toUpperCase()}${puzzleLabel.slice(1)} assigned to ${result.assigned_count ?? selectedPlayerIds.length} for ${result.active_date ?? activeDate}${skipped > 0 ? `; skipped ${skipped} who already had one` : ""}.`);
       setSelection([]);
@@ -185,10 +213,11 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
     <header className="flex flex-col gap-2 pb-6 lg:pb-8">
       <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">Admin</p>
       <div className="flex items-center justify-between gap-3">
-        <h2 id="schedule-riddle-title" className="text-2xl font-semibold tracking-tight lg:text-[28px]">{tab === "day" ? "Schedule a riddle" : "All scheduled days"}</h2>
+        <h2 id="schedule-riddle-title" className="text-2xl font-semibold tracking-tight lg:text-[28px]">{tab === "day" ? "Schedule a riddle" : tab === "all" ? "All scheduled days" : "Puzzle bank"}</h2>
         <div className="inline-flex shrink-0 overflow-hidden rounded-md border border-white/80" role="tablist" aria-label="Riddle schedule sections">
-          <TabButton active={tab === "day"} onClick={() => setTab("day")}>Day</TabButton>
+          <TabButton active={tab === "day"} onClick={() => { setTab("day"); setBankVersion((version) => version + 1); }}>Day</TabButton>
           <TabButton active={tab === "all"} onClick={openAllDays}>All days</TabButton>
+          <TabButton active={tab === "bank"} onClick={() => setTab("bank")}>Puzzles</TabButton>
         </div>
       </div>
     </header>
@@ -219,34 +248,8 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
       <div className="space-y-4">
         <section className="rounded-xl border border-white/25 bg-black/[0.04] p-4">
           <h3 className={cardTitle}>Puzzle</h3>
-          <div className="mt-5 grid gap-5 sm:grid-cols-2">
-            <div className="text-sm font-semibold sm:col-span-2">
-              <span id="schedule-difficulty-label">Difficulty</span>
-              <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-labelledby="schedule-difficulty-label">
-                {DIFFICULTIES.map((option) => <DifficultyButton key={option} option={option} active={difficulty === option} onClick={() => setDifficulty(option)} />)}
-              </div>
-            </div>
-          </div>
-          <div className="mt-5 flex flex-wrap gap-2" aria-label="Schedule type">
-            <div className="inline-flex overflow-hidden rounded-full border border-white/30" role="radiogroup" aria-label="Puzzle type">
-              <PuzzleKindButton active={puzzleKind === "riddle"} onClick={() => selectPuzzleKind("riddle")}>Riddle</PuzzleKindButton>
-              <PuzzleKindButton active={puzzleKind === "character_puzzle"} onClick={() => selectPuzzleKind("character_puzzle")}>Letter game</PuzzleKindButton>
-            </div>
-          </div>
-          {puzzleKind === "riddle" ? <>
-          <label className="mt-5 block text-sm font-semibold">Riddle prompt
-              <textarea required maxLength={10_000} rows={5} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="What has keys but no locks?" className={`${inputClass} resize-y`} />
-            </label>
-            <label className="mt-5 block text-sm font-semibold">Accepted answers
-              <textarea required maxLength={25_050} rows={4} value={acceptedAnswers} onChange={(event) => setAcceptedAnswers(event.target.value)} placeholder={"piano\na piano"} className={`${inputClass} resize-y`} />
-              <span className="mt-1 block text-xs font-normal text-white/55">One answer per line, up to 50. Capitalization and punctuation are ignored during grading.</span>
-            </label>
-          </> : <>
-            <label className="mt-5 block text-sm font-semibold">Answer
-              <input type="text" required maxLength={50} autoComplete="off" spellCheck={false} value={targetWord} onChange={(event) => setTargetWord(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder="CRANE" className={`${inputClass} font-mono uppercase tracking-widest`} />
-              <span className="mt-1 block text-xs font-normal text-white/55">Up to 50 letters and digits, no spaces. Players see only the length and are never shown the answer, even after they fail.</span>
-            </label>
-          </>}
+          <p className="mt-1 text-sm text-white/55">Choose from the puzzle bank. The type and difficulty come from the puzzle.</p>
+          <BankPicker puzzles={bankPuzzles} loadFailed={bankError} selectedId={bankPuzzleId} personal={selectedPlayerIds.length > 0} onOpenBank={() => setTab("bank")} onSelect={chooseBankPuzzle} />
         </section>
 
         <section className="rounded-xl border border-white/25 bg-black/[0.04] p-4">
@@ -309,6 +312,7 @@ export function AdminRiddleScheduler({ appTimezone, today, players, onChanged }:
     </div>
 
     <div hidden={tab !== "all"}><AdminRiddleList refreshVersion={listVersion} appTimezone={appTimezone} /></div>
+    {tab === "bank" && <AdminPuzzleBank />}
   </section>;
 }
 
@@ -316,18 +320,25 @@ function TabButton({ active, children, onClick }: { active: boolean; children: s
   return <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`h-9 px-3 text-sm font-semibold transition lg:h-11 lg:px-5 lg:text-base ${active ? "navy-surface flat-on-mobile relative isolate" : "text-white hover:bg-white/15"}`}>{active && <FloatingQuestionMarks contained compact start={4} />}{children}</button>;
 }
 
-function PuzzleKindButton({ active, children, onClick }: { active: boolean; children: string; onClick: () => void }) {
-  return <button type="button" role="radio" aria-checked={active} onClick={onClick} className={`px-3 py-1 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-white ${active ? "bg-white/20" : "hover:bg-white/10"}`}>{children}</button>;
-}
-
-function DifficultyButton({ option, active, onClick }: { option: Difficulty; active: boolean; onClick: () => void }) {
-  const color = difficultyColor(option);
-  return <button
-    type="button"
-    role="radio"
-    aria-checked={active}
-    onClick={onClick}
-    style={{ borderColor: color, color: active ? "#fff" : color, backgroundColor: active ? color : undefined }}
-    className="flex min-w-0 items-center justify-center whitespace-nowrap rounded-md border-2 px-2 py-2.5 text-sm font-bold uppercase tracking-wide transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-  >{option}</button>;
+function BankPicker({ puzzles, loadFailed, selectedId, personal, onOpenBank, onSelect }: { puzzles: BankPuzzle[] | null; loadFailed: boolean; selectedId: string; personal: boolean; onOpenBank: () => void; onSelect: (puzzle: BankPuzzle) => void }) {
+  if (loadFailed) return <p role="alert" className="mt-5 rounded-md border border-red-300/60 bg-red-950/45 px-4 py-3 text-sm text-red-100">Could not load the puzzle bank. Reload the page to try again.</p>;
+  if (puzzles === null) return <p className="mt-5 text-sm text-white/60">Loading the bank…</p>;
+  if (puzzles.length === 0) {
+    return <p className="mt-5 rounded-md border border-dashed border-white/25 px-4 py-6 text-center text-sm text-white/55">
+      {personal ? "No active puzzles that every selected player has not already had. " : "No unused active puzzles. "}<button type="button" onClick={onOpenBank} className="font-semibold underline">Add one in the Puzzles tab</button>.
+    </p>;
+  }
+  return <ul className="mt-5 max-h-72 space-y-2 overflow-y-auto" role="radiogroup" aria-label="Bank puzzles">
+    {puzzles.map((puzzle) => <li key={puzzle.id}>
+      <button type="button" role="radio" aria-checked={selectedId === puzzle.id} onClick={() => onSelect(puzzle)}
+        className={`flex w-full flex-col gap-1 rounded-md border px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-white ${selectedId === puzzle.id ? "border-white bg-white/20" : "border-white/25 hover:bg-white/10"}`}>
+        <span className="flex flex-wrap gap-x-3 text-xs font-semibold uppercase tracking-wide">
+          <span>{puzzle.type === "riddle" ? "Riddle" : "Letter game"}</span>
+          <span style={{ color: difficultyColor(puzzle.difficulty) }}>{puzzle.difficulty}</span>
+          <span className="text-white/55">{puzzle.timesUsed === 0 ? "Never scheduled" : `Scheduled ${puzzle.timesUsed}×`}</span>
+        </span>
+        <span className="line-clamp-2 break-words">{puzzle.name ?? (puzzle.type === "riddle" ? puzzle.prompt : `Letter game, ${puzzle.acceptedAnswers[0]?.length ?? 0} characters`)}</span>
+      </button>
+    </li>)}
+  </ul>;
 }

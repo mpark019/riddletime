@@ -87,9 +87,10 @@ describe("shared character puzzle scheduling", () => {
     expect(response.status).toBe(201);
     expect(JSON.stringify(body)).not.toContain("CRANE7");
     const { rows } = await pool.query(
-      `select d.allowed_types, c.type, c.prompt, c.config, c.answer_data,
+      `select d.allowed_types, c.type, pz.prompt, pz.config, pz.answer_data,
               c.max_attempts, c.time_limit_seconds, c.scoring_policy
        from daily_challenges d join challenges c on c.daily_challenge_id = d.id
+       join puzzles pz on pz.id = c.puzzle_id
        where d.id = $1`,
       [body.schedule_id],
     );
@@ -113,7 +114,8 @@ describe("shared character puzzle scheduling", () => {
     const first = await createSharedCharacterPuzzle(validInput({ target: long }));
     const second = await createSharedCharacterPuzzle(validInput({ target: "z" }));
     const { rows } = await pool.query(
-      "select answer_data->>'target' as target, (config->>'target_length')::int as length from challenges where daily_challenge_id = any($1)",
+      `select pz.answer_data->>'target' as target, (pz.config->>'target_length')::int as length
+       from challenges c join puzzles pz on pz.id = c.puzzle_id where c.daily_challenge_id = any($1)`,
       [[first.scheduleId, second.scheduleId]],
     );
     expect(rows.map((row) => [row.target, row.length]).sort()).toEqual([[long, 50], ["Z", 1]]);

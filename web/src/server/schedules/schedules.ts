@@ -10,6 +10,12 @@ import {
 import { normalizeAnswer } from "@/server/challenges/grading";
 import { requireAdmin, requireAdminRead } from "@/server/identity/identity";
 import { BadRequestError, ConflictError, NotFoundError } from "@/server/http/errors";
+import {
+  puzzleAnswers,
+  resolvePersonalPuzzle,
+  resolveSharedPuzzle,
+  type PuzzleSource,
+} from "@/server/puzzles/puzzle-store";
 
 const MAX_DATABASE_INTEGER = 2_147_483_647;
 const MAX_PRESETS = 20;
@@ -91,12 +97,12 @@ const characterPresetSchema = z.object({
   types: z.object({ character_puzzle: characterSettingsSchema }).strict(),
 }).strict();
 
-const characterPuzzleSchema = z.object({
+export const characterPuzzleSchema = z.object({
   type: z.literal("character_puzzle"),
   target: characterTargetSchema,
 }).strict();
 
-const manualPuzzleSchema = z.object({
+export const manualPuzzleSchema = z.object({
   type: z.literal("riddle"),
   prompt: z.string().trim().min(1).max(10_000),
   accepted_answers: z.array(z.string().trim().min(1).max(500))
@@ -144,7 +150,20 @@ function refineSelectedPreset(
   }
 }
 
-const presetNameSchema = z.string().trim().min(1).max(100);
+export const presetNameSchema = z.string().trim().min(1).max(100);
+
+function refineSinglePuzzleSource(
+  input: { puzzle_id?: string; manual_puzzle?: unknown },
+  context: z.RefinementCtx,
+) {
+  if ((input.puzzle_id === undefined) === (input.manual_puzzle === undefined)) {
+    context.addIssue({
+      code: "custom",
+      path: ["puzzle_id"],
+      message: "Provide either puzzle_id or manual_puzzle",
+    });
+  }
+}
 
 export const createManualSharedRiddleInput = z.object({
   active_date: z.iso.date(),
@@ -154,8 +173,9 @@ export const createManualSharedRiddleInput = z.object({
   difficulty_presets: z.record(presetNameSchema, presetSchema),
   selected_difficulty: presetNameSchema,
   generation_prompt: z.string().trim().min(1).max(5_000).optional(),
-  manual_puzzle: manualPuzzleSchema,
-}).strict().superRefine(refineSelectedPreset);
+  puzzle_id: z.uuid().optional(),
+  manual_puzzle: manualPuzzleSchema.optional(),
+}).strict().superRefine(refineSelectedPreset).superRefine(refineSinglePuzzleSource);
 
 export const createSharedCharacterPuzzleInput = z.object({
   active_date: z.iso.date(),
@@ -164,8 +184,9 @@ export const createSharedCharacterPuzzleInput = z.object({
   difficulty_selection: z.literal("fixed"),
   difficulty_presets: z.record(presetNameSchema, characterPresetSchema),
   selected_difficulty: presetNameSchema,
-  manual_puzzle: characterPuzzleSchema,
-}).strict().superRefine(refineSelectedPreset);
+  puzzle_id: z.uuid().optional(),
+  manual_puzzle: characterPuzzleSchema.optional(),
+}).strict().superRefine(refineSelectedPreset).superRefine(refineSinglePuzzleSource);
 
 const MAX_ASSIGNED_PLAYERS = 500;
 
@@ -187,8 +208,9 @@ export const assignPersonalRiddleInput = z.object({
   difficulty_selection: z.literal("fixed"),
   difficulty_presets: z.record(presetNameSchema, presetSchema),
   selected_difficulty: presetNameSchema,
-  manual_puzzle: manualPuzzleSchema,
-}).strict().superRefine(refineSelectedPreset).superRefine(refineDistinctPlayers);
+  puzzle_id: z.uuid().optional(),
+  manual_puzzle: manualPuzzleSchema.optional(),
+}).strict().superRefine(refineSelectedPreset).superRefine(refineDistinctPlayers).superRefine(refineSinglePuzzleSource);
 
 export const assignPersonalCharacterInput = z.object({
   active_date: z.iso.date(),
@@ -197,8 +219,9 @@ export const assignPersonalCharacterInput = z.object({
   difficulty_selection: z.literal("fixed"),
   difficulty_presets: z.record(presetNameSchema, characterPresetSchema),
   selected_difficulty: presetNameSchema,
-  manual_puzzle: characterPuzzleSchema,
-}).strict().superRefine(refineSelectedPreset).superRefine(refineDistinctPlayers);
+  puzzle_id: z.uuid().optional(),
+  manual_puzzle: characterPuzzleSchema.optional(),
+}).strict().superRefine(refineSelectedPreset).superRefine(refineDistinctPlayers).superRefine(refineSinglePuzzleSource);
 
 export type CreateManualSharedRiddleInput = z.infer<typeof createManualSharedRiddleInput>;
 export type CreateSharedCharacterPuzzleInput = z.infer<typeof createSharedCharacterPuzzleInput>;
@@ -212,14 +235,40 @@ export function isDuplicateDateViolation(error: unknown): boolean {
     && (error as { constraint?: unknown }).constraint === "daily_challenges_active_date_key";
 }
 
-interface SharedPuzzleRow {
-  type: "riddle" | "character_puzzle";
-  prompt: string;
-  config: object;
-  answerData: object;
+interface PuzzlePlacement {
+  source: PuzzleSource;
   maxAttempts: number;
   timeLimitSeconds: number | null;
   scoringPolicy: object;
+}
+
+interface PuzzleChoice<Manual> {
+  puzzle_id?: string;
+  manual_puzzle?: Manual;
+}
+
+function riddleSource(input: PuzzleChoice<z.infer<typeof manualPuzzleSchema>>, config: object): PuzzleSource {
+  if (input.manual_puzzle) {
+    return {
+      kind: "new",
+      type: "riddle",
+      prompt: input.manual_puzzle.prompt,
+      config,
+      answerData: { accepted: input.manual_puzzle.accepted_answers },
+    };
+  }
+  if (!input.puzzle_id) throw new BadRequestError("Provide either puzzle_id or manual_puzzle");
+  return { kind: "existing", puzzleId: input.puzzle_id, type: "riddle" };
+}
+
+function characterSource(input: PuzzleChoice<z.infer<typeof characterPuzzleSchema>>): PuzzleSource {
+  if (input.manual_puzzle) {
+    const target = input.manual_puzzle.target;
+    const config: CharacterConfig = { target_length: target.length, character_set: CHARACTER_SET };
+    return { kind: "new", type: "character_puzzle", prompt: "Letter game", config, answerData: { target } };
+  }
+  if (!input.puzzle_id) throw new BadRequestError("Provide either puzzle_id or manual_puzzle");
+  return { kind: "existing", puzzleId: input.puzzle_id, type: "character_puzzle" };
 }
 
 async function insertSharedSchedule(
@@ -227,12 +276,12 @@ async function insertSharedSchedule(
   adminId: string,
   schedule: {
     activeDate: string;
-    allowedType: SharedPuzzleRow["type"];
+    allowedType: PuzzleSource["type"];
     presets: object;
     difficulty: string;
     generationPrompt?: string;
   },
-  puzzle: SharedPuzzleRow,
+  puzzle: PuzzlePlacement,
 ) {
   const { rows: dateRows } = await client.query(
     `select $1::date < current_date as is_past,
@@ -263,18 +312,17 @@ async function insertSharedSchedule(
   );
   const scheduleId = scheduleRows[0].id as string;
 
+  const puzzleId = await resolveSharedPuzzle(client, adminId, puzzle.source, schedule.difficulty);
   await client.query(
     `insert into challenges
-       (daily_challenge_id, mode, type, difficulty, prompt, config,
-        answer_data, max_attempts, time_limit_seconds, scoring_policy)
-     values ($1, 'shared', $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9::jsonb)`,
+       (daily_challenge_id, mode, type, puzzle_id, difficulty,
+        max_attempts, time_limit_seconds, scoring_policy)
+     values ($1, 'shared', $2, $3, $4, $5, $6, $7::jsonb)`,
     [
       scheduleId,
-      puzzle.type,
+      puzzle.source.type,
+      puzzleId,
       schedule.difficulty,
-      puzzle.prompt,
-      JSON.stringify(puzzle.config),
-      JSON.stringify(puzzle.answerData),
       puzzle.maxAttempts,
       puzzle.timeLimitSeconds,
       JSON.stringify(puzzle.scoringPolicy),
@@ -309,10 +357,7 @@ export async function createManualSharedRiddle(input: unknown) {
         generationPrompt: parsed.generation_prompt,
       },
       {
-        type: "riddle",
-        prompt: parsed.manual_puzzle.prompt,
-        config: settings.config,
-        answerData: { accepted: parsed.manual_puzzle.accepted_answers },
+        source: riddleSource(parsed, settings.config),
         maxAttempts: settings.max_attempts,
         timeLimitSeconds: settings.time_limit_seconds,
         scoringPolicy: settings.scoring_policy,
@@ -326,8 +371,6 @@ export async function createSharedCharacterPuzzle(input: unknown) {
     const admin = await requireAdmin(client);
     const parsed = createSharedCharacterPuzzleInput.parse(input);
     const settings = parsed.difficulty_presets[parsed.selected_difficulty].types.character_puzzle;
-    const target = parsed.manual_puzzle.target;
-    const config: CharacterConfig = { target_length: target.length, character_set: CHARACTER_SET };
     return insertSharedSchedule(
       client,
       admin.id,
@@ -338,10 +381,7 @@ export async function createSharedCharacterPuzzle(input: unknown) {
         difficulty: parsed.selected_difficulty,
       },
       {
-        type: "character_puzzle",
-        prompt: "Letter game",
-        config,
-        answerData: { target },
+        source: characterSource(parsed),
         maxAttempts: settings.max_attempts,
         timeLimitSeconds: settings.time_limit_seconds,
         scoringPolicy: settings.scoring_policy,
@@ -387,7 +427,7 @@ async function assignPersonalPuzzles(
     presets: object;
     difficulty: string;
   },
-  puzzle: SharedPuzzleRow,
+  puzzle: PuzzlePlacement,
 ) {
   const { rows: dateRows } = await client.query(
     "select $1::date < current_date as is_past",
@@ -413,19 +453,24 @@ async function assignPersonalPuzzles(
   const skippedPlayerIds = assignment.playerIds.filter((id) => alreadyAssigned.has(id));
   if (assignedPlayerIds.length === 0) throw new ConflictError(ALREADY_ASSIGNED_MESSAGE);
 
+  const puzzleId = await resolvePersonalPuzzle(
+    client,
+    adminId,
+    puzzle.source,
+    assignment.difficulty,
+    assignedPlayerIds,
+  );
   await client.query(
     `insert into challenges
-       (daily_challenge_id, mode, assigned_to, type, difficulty, prompt, config,
-        answer_data, max_attempts, time_limit_seconds, scoring_policy)
-     select $1, 'personal', player_id, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9::jsonb
-     from unnest($10::uuid[]) as player_id`,
+       (daily_challenge_id, mode, assigned_to, type, puzzle_id, difficulty,
+        max_attempts, time_limit_seconds, scoring_policy)
+     select $1, 'personal', player_id, $2, $3, $4, $5, $6, $7::jsonb
+     from unnest($8::uuid[]) as player_id`,
     [
       scheduleId,
-      puzzle.type,
+      puzzle.source.type,
+      puzzleId,
       assignment.difficulty,
-      puzzle.prompt,
-      JSON.stringify(puzzle.config),
-      JSON.stringify(puzzle.answerData),
       puzzle.maxAttempts,
       puzzle.timeLimitSeconds,
       JSON.stringify(puzzle.scoringPolicy),
@@ -457,10 +502,7 @@ export async function assignPersonalRiddle(input: unknown) {
         difficulty: parsed.selected_difficulty,
       },
       {
-        type: "riddle",
-        prompt: parsed.manual_puzzle.prompt,
-        config: settings.config,
-        answerData: { accepted: parsed.manual_puzzle.accepted_answers },
+        source: riddleSource(parsed, settings.config),
         maxAttempts: settings.max_attempts,
         timeLimitSeconds: settings.time_limit_seconds,
         scoringPolicy: settings.scoring_policy,
@@ -474,8 +516,6 @@ export async function assignPersonalCharacterPuzzle(input: unknown) {
     const admin = await requireAdmin(client);
     const parsed = assignPersonalCharacterInput.parse(input);
     const settings = parsed.difficulty_presets[parsed.selected_difficulty].types.character_puzzle;
-    const target = parsed.manual_puzzle.target;
-    const config: CharacterConfig = { target_length: target.length, character_set: CHARACTER_SET };
     return assignPersonalPuzzles(
       client,
       admin.id,
@@ -486,10 +526,7 @@ export async function assignPersonalCharacterPuzzle(input: unknown) {
         difficulty: parsed.selected_difficulty,
       },
       {
-        type: "character_puzzle",
-        prompt: "Letter game",
-        config,
-        answerData: { target },
+        source: characterSource(parsed),
         maxAttempts: settings.max_attempts,
         timeLimitSeconds: settings.time_limit_seconds,
         scoringPolicy: settings.scoring_policy,
@@ -549,18 +586,13 @@ export interface ScheduledRiddlePlayer {
   missed: boolean;
 }
 
-function adminAnswers(answerData: { accepted?: unknown; target?: unknown } | null): string[] {
-  if (Array.isArray(answerData?.accepted)) return answerData.accepted;
-  return typeof answerData?.target === "string" ? [answerData.target] : [];
-}
-
 async function selectSchedules(client: PoolClient, scheduleId: string | null): Promise<ScheduledRiddle[]> {
   const { rows } = await client.query(
     `select d.id, d.active_date::text as active_date,
             case when d.active_date < current_date then 'past'
                  when d.active_date = current_date then 'today'
                  else 'upcoming' end as timing,
-            d.mode, c.type, d.selected_difficulty, c.prompt, c.answer_data, c.time_limit_seconds,
+            d.mode, c.type, d.selected_difficulty, pz.prompt, pz.answer_data, c.time_limit_seconds,
             c.max_attempts, c.scoring_policy,
             (select count(*)::int from challenges x where x.daily_challenge_id = d.id) as assigned_count,
             (select count(*)::int from submissions s
@@ -571,6 +603,7 @@ async function selectSchedules(client: PoolClient, scheduleId: string | null): P
               where x.daily_challenge_id = d.id) as finished_count
      from daily_challenges d
      left join challenges c on c.daily_challenge_id = d.id and c.mode = 'shared'
+     left join puzzles pz on pz.id = c.puzzle_id
      where $1::uuid is null or d.id = $1
      order by d.active_date desc`,
     [scheduleId],
@@ -584,7 +617,7 @@ async function selectSchedules(client: PoolClient, scheduleId: string | null): P
     type: row.type,
     difficulty: row.selected_difficulty,
     prompt: row.prompt,
-    acceptedAnswers: adminAnswers(row.answer_data),
+    acceptedAnswers: puzzleAnswers(row.answer_data),
     timeLimitSeconds: row.time_limit_seconds,
     maxAttempts: row.max_attempts,
     scoringPolicy: row.scoring_policy,
@@ -630,7 +663,7 @@ export async function getScheduleDetail(
 
     const { rows } = await client.query(
       `select p.id as user_id, p.display_name,
-              c.id as challenge_id, c.type, c.difficulty, c.prompt, c.answer_data,
+              c.id as challenge_id, c.type, c.difficulty, pz.prompt, pz.answer_data,
               c.max_attempts, c.time_limit_seconds,
               s.id as submission_id, s.started_at, s.submitted_at, s.correct,
               s.attempts, s.guess_history, s.time_taken_ms, s.scoring_breakdown,
@@ -642,6 +675,7 @@ export async function getScheduleDetail(
        from profiles p
        join daily_challenges d on d.id = $1
        left join challenges c on c.daily_challenge_id = d.id and (c.mode = 'shared' or c.assigned_to = p.id)
+       left join puzzles pz on pz.id = c.puzzle_id
        left join submissions s on s.challenge_id = c.id and s.user_id = p.id
        where p.role = 'player'
        order by (s.id is null), (c.id is null), s.started_at, lower(p.display_name), p.id`,
@@ -660,7 +694,7 @@ export async function getScheduleDetail(
           type: row.type,
           difficulty: row.difficulty,
           prompt: row.prompt,
-          acceptedAnswers: adminAnswers(row.answer_data),
+          acceptedAnswers: puzzleAnswers(row.answer_data),
           maxAttempts: row.max_attempts,
           timeLimitSeconds: row.time_limit_seconds,
         }
@@ -717,7 +751,7 @@ export async function getDateAssignments(activeDate: string): Promise<DateRoster
     await requireAdminRead(client);
     const { rows } = await client.query(
       `select d.id as schedule_id, d.mode, c.id as challenge_id, c.assigned_to, c.type,
-              c.difficulty, c.prompt, s.id as submission_id, s.submitted_at, s.correct,
+              c.difficulty, pz.prompt, s.id as submission_id, s.submitted_at, s.correct,
               coalesce(s.scoring_breakdown @> '{"missed": true}', false) as missed,
               s.submitted_at is null
                 and riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) <= clock_timestamp() as overdue,
@@ -725,6 +759,7 @@ export async function getDateAssignments(activeDate: string): Promise<DateRoster
                 where pt.submission_id = s.id and pt.kind = 'challenge_result') as points
        from daily_challenges d
        left join challenges c on c.daily_challenge_id = d.id
+       left join puzzles pz on pz.id = c.puzzle_id
        left join submissions s on s.challenge_id = c.id
        where d.active_date = $1::date
        order by c.created_at, s.started_at`,

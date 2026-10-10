@@ -658,6 +658,11 @@ export function StaffRiddleView({ preview }: { preview: StaffRiddlePreview }) {
   return <RiddleFrame><StaffRiddleBody preview={preview} /></RiddleFrame>;
 }
 
+// The same player screen without the page-level frame, for embedding inside another card.
+export function StaffRiddleSandbox({ preview }: { preview: StaffRiddlePreview }) {
+  return <StaffRiddleBody preview={preview} />;
+}
+
 function StaffRiddleBody({ preview }: { preview: StaffRiddlePreview }) {
   const { config } = preview;
   const speedTiers = preview.timeLimitSeconds === null

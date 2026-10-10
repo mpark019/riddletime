@@ -7,7 +7,7 @@ import {
   type PendingRiddleSubmission,
   type PendingSubmissionStorage,
 } from "@/lib/challenge-state";
-import { createAuthUser, requireTestAdminPool } from "@/server/test/fixtures";
+import { createAuthUser, insertPuzzle, requireTestAdminPool } from "@/server/test/fixtures";
 
 const { getVerifiedUser } = vi.hoisted(() => ({
   getVerifiedUser: vi.fn(),
@@ -53,7 +53,8 @@ async function ensureTodaysSharedRiddle() {
     ).rows[0].id;
 
   const { rows: existingChallenge } = await pool.query(
-    "select id, prompt from challenges where daily_challenge_id = $1 and mode = 'shared'",
+    `select c.id, pz.prompt from challenges c join puzzles pz on pz.id = c.puzzle_id
+     where c.daily_challenge_id = $1 and c.mode = 'shared'`,
     [dailyId],
   );
   if (existingChallenge[0]) {
@@ -61,17 +62,17 @@ async function ensureTodaysSharedRiddle() {
   }
 
   const prompt = "What has keys but no locks?";
+  const puzzleId = await insertPuzzle(pool, {
+    createdBy: adminId,
+    prompt,
+    answerData: { accepted: ["piano", "a piano"] },
+  });
   const { rows } = await pool.query(
     `insert into challenges
-       (daily_challenge_id, mode, type, difficulty, prompt, config, answer_data, max_attempts, time_limit_seconds, scoring_policy)
-     values ($1, 'shared', 'riddle', 'standard', $2, '{}'::jsonb, $3::jsonb, 1, 120, $4::jsonb)
+       (daily_challenge_id, mode, type, puzzle_id, difficulty, max_attempts, time_limit_seconds, scoring_policy)
+     values ($1, 'shared', 'riddle', $2, 'standard', 1, 120, $3::jsonb)
      returning id`,
-    [
-      dailyId,
-      prompt,
-      JSON.stringify({ accepted: ["piano", "a piano"] }),
-      JSON.stringify({ base_points: 100, speed_bonuses: [] }),
-    ],
+    [dailyId, puzzleId, JSON.stringify({ base_points: 100, speed_bonuses: [] })],
   );
   return { dailyId, challengeId: rows[0].id, prompt };
 }
@@ -103,14 +104,19 @@ async function createStartedPastRiddle(maxAttempts: number, failurePenaltyPoints
       daysAgo,
     ],
   );
+  const puzzleId = await insertPuzzle(pool, {
+    createdBy: adminId,
+    prompt: "Two-try fixture",
+    answerData: { accepted: ["piano"] },
+  });
   const { rows: challengeRows } = await pool.query(
     `insert into challenges
-       (daily_challenge_id, mode, type, difficulty, prompt, config, answer_data, max_attempts, time_limit_seconds, scoring_policy)
-     values ($1, 'shared', 'riddle', 'standard', 'Two-try fixture', '{}'::jsonb, $2::jsonb, $3, 120, $4::jsonb)
+       (daily_challenge_id, mode, type, puzzle_id, difficulty, max_attempts, time_limit_seconds, scoring_policy)
+     values ($1, 'shared', 'riddle', $2, 'standard', $3, 120, $4::jsonb)
      returning id`,
     [
       dailyRows[0].id,
-      JSON.stringify({ accepted: ["piano"] }),
+      puzzleId,
       maxAttempts,
       JSON.stringify({
         base_points: 100,
@@ -825,12 +831,17 @@ describe("stored puzzle shape validation", () => {
       ],
     );
     const dailyId = dailyRows[0].id;
+    const puzzleId = await insertPuzzle(pool, {
+      createdBy: adminId,
+      prompt: "malformed fixture",
+      answerData: answerData as object,
+    });
     const { rows: challengeRows } = await pool.query(
       `insert into challenges
-         (daily_challenge_id, mode, type, difficulty, prompt, config, answer_data, max_attempts, time_limit_seconds, scoring_policy)
-       values ($1, 'shared', 'riddle', 'standard', 'malformed fixture', '{}'::jsonb, $2::jsonb, 1, 120, $3::jsonb)
+         (daily_challenge_id, mode, type, puzzle_id, difficulty, max_attempts, time_limit_seconds, scoring_policy)
+       values ($1, 'shared', 'riddle', $2, 'standard', 1, 120, $3::jsonb)
        returning id`,
-      [dailyId, JSON.stringify(answerData), JSON.stringify(scoringPolicy)],
+      [dailyId, puzzleId, JSON.stringify(scoringPolicy)],
     );
     const challengeId = challengeRows[0].id;
 
