@@ -25,3 +25,6 @@
 /AGENTS.md
 /.specs/
 /docs/
+
+# Local-only development database setup (holds this machine's account ids)
+database/dev/

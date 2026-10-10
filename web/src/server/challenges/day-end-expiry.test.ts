@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { pool } from "@/lib/db";
-import { createAuthUser, requireTestAdminPool } from "@/server/test/fixtures";
+import { createAuthUser, insertPuzzle, requireTestAdminPool } from "@/server/test/fixtures";
 
 const { getVerifiedUser } = vi.hoisted(() => ({ getVerifiedUser: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ getVerifiedUser }));
@@ -87,17 +87,22 @@ async function createRiddle(options: {
       options.activeDate ?? null,
     ],
   );
+  const puzzleId = await insertPuzzle(pool, {
+    createdBy: adminId,
+    prompt: "Day-end fixture",
+    answerData: { accepted: ["piano"] },
+  });
   const { rows: challengeRows } = await pool.query(
     `insert into challenges
-       (daily_challenge_id, mode, assigned_to, type, difficulty, prompt, config, answer_data,
+       (daily_challenge_id, mode, assigned_to, type, puzzle_id, difficulty,
         max_attempts, time_limit_seconds, scoring_policy)
-     values ($1, $2, $3, 'riddle', 'standard', 'Day-end fixture', '{}'::jsonb, $4::jsonb, 1, $5, $6::jsonb)
+     values ($1, $2, $3, 'riddle', $4, 'standard', 1, $5, $6::jsonb)
      returning id`,
     [
       dailyRows[0].id,
       options.mode,
       options.assignedTo ?? null,
-      JSON.stringify({ accepted: ["piano"] }),
+      puzzleId,
       options.timeLimitSeconds,
       JSON.stringify({ base_points: 100, speed_bonuses: [], failure_penalty_points: options.penalty ?? 25 }),
     ],
@@ -171,9 +176,9 @@ describe("day-end riddle expiry", () => {
     const missed = await createRiddle({ mode: "personal", dayOffset, timeLimitSeconds: null, assignedTo: missedPlayer });
     const { rows } = await pool.query(
       `insert into challenges
-         (daily_challenge_id, mode, assigned_to, type, difficulty, prompt, config, answer_data,
+         (daily_challenge_id, mode, assigned_to, type, puzzle_id, difficulty,
           max_attempts, time_limit_seconds, scoring_policy)
-       select daily_challenge_id, mode, $2, type, difficulty, prompt, config, answer_data,
+       select daily_challenge_id, mode, $2, type, puzzle_id, difficulty,
               max_attempts, time_limit_seconds, scoring_policy
        from challenges where id = $1
        returning id`,

@@ -6,7 +6,7 @@ function player(userId: string, type: string, answers: string[] | null): Schedul
   return {
     userId, displayName: userId, status: answers ? "not_started" : "not_assigned", correct: null, attempts: 0, guesses: [],
     startedAt: null, submittedAt: null, timeTakenMs: null, points: null, breakdown: null, missed: false,
-    puzzle: answers ? { type, difficulty: "easy", prompt: "p", acceptedAnswers: answers, maxAttempts: 1, timeLimitSeconds: 60 } : null,
+    puzzle: answers ? { type, name: null, difficulty: "easy", prompt: "p", acceptedAnswers: answers, maxAttempts: 1, timeLimitSeconds: 60 } : null,
   };
 }
 

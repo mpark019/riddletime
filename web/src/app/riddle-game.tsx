@@ -517,6 +517,8 @@ export function RiddleGame({
   </RiddleFrame>;
 }
 
+const LONG_LETTER_GAME_LENGTH = 10;
+
 export function NotStartedRiddle({
   play,
   busy,
@@ -530,14 +532,20 @@ export function NotStartedRiddle({
   onStart: () => void;
   readOnly?: boolean;
 }) {
+  const isLetterGame = play.type === "character_puzzle";
+  const gameLabel = play.type === undefined ? null : isLetterGame ? "Letter game" : "Riddle";
+  const wide = isLetterGame && (play.targetLength ?? 0) > LONG_LETTER_GAME_LENGTH;
   return <RiddleFrame>
-    <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">Daily challenge</p>
+    <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/55">Daily challenge{gameLabel && ` · ${gameLabel}`}</p>
     <h3 style={{ color: difficultyColor(play.difficulty) }} className="mt-3 text-2xl font-bold uppercase">{play.difficulty ?? "Ready when you are?"}</h3>
     <p className="mt-3 max-w-xl text-white/70">Your timer starts only after the game has begun. Refreshing will not reset it.</p>
+    {wide && <p role="note" className="mt-4 max-w-xl rounded-md border border-amber-700/50 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+      This letter game has {play.targetLength} letters. The board is wide, so play on a laptop or desktop if feasible.
+    </p>}
     {play.scoringPolicy && <div className="mt-6"><RiddleStakes policy={play.scoringPolicy} /></div>}
     {error && <div className="mt-5"><ErrorMessage message={error} /></div>}
     {readOnly ? null : play.available
-      ? <PrimaryButton type="button" disabled={busy} onClick={onStart} className="mt-7 px-6 py-3">{busy ? "Starting…" : "Start riddle"}</PrimaryButton>
+      ? <PrimaryButton type="button" disabled={busy} onClick={onStart} className="mt-7 px-6 py-3">{busy ? "Starting…" : isLetterGame ? "Start letter game" : "Start riddle"}</PrimaryButton>
       : <p className="mt-6 rounded-md border border-white/25 bg-black/[0.04] px-4 py-3 text-white/70">Today’s puzzle has not been published yet.</p>}
   </RiddleFrame>;
 }
@@ -656,6 +664,11 @@ function StaffFact({ label, value }: { label: string; value: string }) {
 
 export function StaffRiddleView({ preview }: { preview: StaffRiddlePreview }) {
   return <RiddleFrame><StaffRiddleBody preview={preview} /></RiddleFrame>;
+}
+
+// The same player screen without the page-level frame, for embedding inside another card.
+export function StaffRiddleSandbox({ preview }: { preview: StaffRiddlePreview }) {
+  return <StaffRiddleBody preview={preview} />;
 }
 
 function StaffRiddleBody({ preview }: { preview: StaffRiddlePreview }) {

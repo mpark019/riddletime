@@ -13,7 +13,7 @@ const players = [
 
 function assignment(overrides: Partial<DateAssignment>): DateAssignment {
   return {
-    playerId: "a", challengeId: "c1", type: "riddle", difficulty: "easy", prompt: "What has keys?",
+    playerId: "a", challengeId: "c1", type: "riddle", name: null, difficulty: "easy", prompt: "What has keys?",
     status: "not_started", correct: null, points: null, missed: false, ...overrides,
   };
 }
@@ -29,11 +29,12 @@ describe("AdminDayRoster (AC-8)", () => {
     const html = render({
       scheduleId: "s", mode: "personal",
       assignments: [
-        assignment({ playerId: "a", status: "completed", correct: true, points: 100 }),
+        assignment({ playerId: "a", name: "Keys riddle", status: "completed", correct: true, points: 100 }),
         assignment({ playerId: "b", challengeId: "c2", type: "character_puzzle", difficulty: "hard", prompt: "Letter game" }),
       ],
     });
 
+    expect(html).toContain("Keys riddle");
     expect(html).toContain("Riddle · easy");
     expect(html).toContain("Letter game · hard");
     expect(html).toContain("Solved (+100)");

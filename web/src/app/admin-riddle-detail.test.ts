@@ -150,7 +150,7 @@ describe("RiddleDashboard on a personal day", () => {
         schedule: personal,
         players: [player({
           userId: "p", displayName: "Pat", status: "completed", correct: true, attempts: 2, timeTakenMs: 38_000,
-          puzzle: { type: "riddle", difficulty: "easy", prompt: "test", acceptedAnswers: ["test"], maxAttempts: 3, timeLimitSeconds: 120 },
+          puzzle: { type: "riddle", name: null, difficulty: "easy", prompt: "test", acceptedAnswers: ["test"], maxAttempts: 3, timeLimitSeconds: 120 },
         })],
       },
       appTimezone: "UTC",
@@ -165,14 +165,14 @@ describe("RiddleDashboard on a personal day", () => {
 
 describe("RiddleDashboard puzzle groups", () => {
   const personal: ScheduledRiddle = { ...schedule, mode: "personal", assignedCount: 3, type: null, difficulty: null, prompt: null, acceptedAnswers: [], timeLimitSeconds: null, maxAttempts: null };
-  const puzzle = (type: string, answers: string[]) => ({ type, difficulty: "easy", prompt: "p", acceptedAnswers: answers, maxAttempts: 3, timeLimitSeconds: 120 });
+  const puzzle = (type: string, answers: string[], name: string | null = null) => ({ type, name, difficulty: "easy", prompt: "p", acceptedAnswers: answers, maxAttempts: 3, timeLimitSeconds: 120 });
   const html = renderToStaticMarkup(createElement(RiddleDashboard, {
     detail: {
       schedule: personal,
       players: [
         player({ userId: "1", displayName: "test1", status: "completed", correct: true, puzzle: puzzle("riddle", ["test"]) }),
         player({ userId: "2", displayName: "test2", status: "completed", correct: false, puzzle: puzzle("riddle", ["Test"]) }),
-        player({ userId: "3", displayName: "test3", status: "completed", correct: true, puzzle: puzzle("character_puzzle", ["TESTTEST"]) }),
+        player({ userId: "3", displayName: "test3", status: "completed", correct: true, puzzle: puzzle("character_puzzle", ["TESTTEST"], "Spelling bee") }),
       ],
     },
     appTimezone: "UTC",
@@ -180,9 +180,10 @@ describe("RiddleDashboard puzzle groups", () => {
     onDelete: () => undefined,
   }));
 
-  it("shows a bar grouping the same riddle by game type and answer, above the Played table", () => {
+  it("shows a bar grouping the same riddle by game type and answer, labelled by name when it has one, above the Played table", () => {
     expect(html).toContain("Riddle · test");
-    expect(html).toContain("Letter game · TESTTEST");
+    expect(html).toContain("Spelling bee");
+    expect(html).not.toContain("Letter game · TESTTEST");
     expect(html).toContain("2 players");
     expect(html).toContain("3 players");
     expect(html.indexOf('role="tablist"')).toBeLessThan(html.indexOf("Played <span"));

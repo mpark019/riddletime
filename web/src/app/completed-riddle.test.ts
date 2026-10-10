@@ -255,7 +255,13 @@ describe("RiddleStakes", () => {
 });
 
 describe("NotStartedRiddle", () => {
-  function render(play: { available: boolean; difficulty: string | null; scoringPolicy?: { base_points: number; failure_penalty_points?: number } }) {
+  function render(play: {
+    available: boolean;
+    difficulty: string | null;
+    type?: "riddle" | "character_puzzle";
+    targetLength?: number;
+    scoringPolicy?: { base_points: number; failure_penalty_points?: number };
+  }) {
     return renderToStaticMarkup(createElement(NotStartedRiddle, {
       play: { status: "not_started", ...play },
       busy: false,
@@ -283,6 +289,33 @@ describe("NotStartedRiddle", () => {
     const html = render({ available: true, difficulty: "hard" });
 
     expect(html).not.toContain("Correct answer");
+  });
+
+  it("names the game type and labels the Start button to match", () => {
+    const riddle = render({ available: true, difficulty: "hard", type: "riddle" });
+    expect(riddle).toContain("Daily challenge");
+    expect(riddle).toContain("Riddle");
+    expect(riddle).toContain("Start riddle");
+
+    const letters = render({ available: true, difficulty: "hard", type: "character_puzzle", targetLength: 5 });
+    expect(letters).toContain("Letter game");
+    expect(letters).toContain("Start letter game");
+    expect(letters).not.toContain("Start riddle");
+  });
+
+  it.each([
+    ["a riddle", { type: "riddle" as const }],
+    ["a letter game of 10 letters", { type: "character_puzzle" as const, targetLength: 10 }],
+    ["a letter game of unknown length", { type: "character_puzzle" as const }],
+  ])("shows no laptop advice for %s", (_label, extra) => {
+    expect(render({ available: true, difficulty: "hard", ...extra })).not.toContain("laptop");
+  });
+
+  it("advises a laptop for a letter game above 10 letters and says how long it is", () => {
+    const html = render({ available: true, difficulty: "hard", type: "character_puzzle", targetLength: 11 });
+
+    expect(html).toContain("11 letters");
+    expect(html).toContain("laptop");
   });
 
   it("falls back to a neutral heading when the difficulty is unknown", () => {

@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { pool } from "@/lib/db";
-import { createAuthUser, requireTestAdminPool } from "@/server/test/fixtures";
+import { pool, withTransaction } from "@/lib/db";
+import { createAuthUser, insertPuzzle, requireTestAdminPool } from "@/server/test/fixtures";
 
 const { getVerifiedUser } = vi.hoisted(() => ({ getVerifiedUser: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ getVerifiedUser }));
 
-const { getChallengeSession, submitChallenge } = await import("./challenges");
+const { getChallengeSession, getStaffPlayerStatuses, submitChallenge } = await import("./challenges");
 const { BadRequestError } = await import("@/server/http/errors");
 
 beforeEach(() => {
@@ -45,15 +45,21 @@ async function createStartedCharacterGame(options: {
       daysAgo,
     ],
   );
+  const puzzleId = await insertPuzzle(pool, {
+    createdBy: adminId,
+    type: "character_puzzle",
+    prompt: "Guess the code",
+    config: CONFIG,
+    answerData: { target },
+  });
   const { rows: challengeRows } = await pool.query(
     `insert into challenges
-       (daily_challenge_id, mode, type, difficulty, prompt, config, answer_data, max_attempts, time_limit_seconds, scoring_policy)
-     values ($1, 'shared', 'character_puzzle', 'standard', 'Guess the code', $2::jsonb, $3::jsonb, $4, 120, $5::jsonb)
+       (daily_challenge_id, mode, type, puzzle_id, difficulty, max_attempts, time_limit_seconds, scoring_policy)
+     values ($1, 'shared', 'character_puzzle', $2, 'standard', $3, 120, $4::jsonb)
      returning id`,
     [
       dailyRows[0].id,
-      JSON.stringify(CONFIG),
-      JSON.stringify({ target }),
+      puzzleId,
       maxAttempts,
       JSON.stringify({
         base_points: 100,
@@ -238,5 +244,41 @@ describe("character puzzle player state", () => {
         }),
       ],
     });
+  });
+});
+
+describe("character puzzle before Start", () => {
+  it("tells the player the type and letter count, never the target or prompt", async () => {
+    const adminId = await createProfile("admin");
+    const playerId = await createProfile("player");
+    const target = "ABCDEFGHIJKL";
+    const offset = 20_000 + Math.floor(Math.random() * 1_000_000);
+    const { rows: daily } = await pool.query(
+      `insert into daily_challenges
+         (active_date, mode, allowed_types, difficulty_selection, difficulty_presets, created_by)
+       values (current_date + $2::int, 'personal', array['character_puzzle'], 'random_player', '{"easy":{}}'::jsonb, $1)
+       returning id`,
+      [adminId, offset],
+    );
+    const puzzleId = await insertPuzzle(pool, {
+      createdBy: adminId,
+      type: "character_puzzle",
+      prompt: "Guess the code",
+      config: { target_length: 12, character_set: "ABCDEFGHIJKL1234" },
+      answerData: { target },
+    });
+    await pool.query(
+      `insert into challenges
+         (daily_challenge_id, mode, assigned_to, type, puzzle_id, difficulty, max_attempts, time_limit_seconds, scoring_policy)
+       values ($1, 'personal', $2, 'character_puzzle', $3, 'easy', 6, 120, '{"base_points":100}'::jsonb)`,
+      [daily[0].id, playerId, puzzleId],
+    );
+
+    const statuses = await withTransaction((client) => getStaffPlayerStatuses(client, daily[0].id, true));
+    const mine = statuses.find((entry) => entry.userId === playerId);
+
+    expect(mine?.play).toMatchObject({ status: "not_started", type: "character_puzzle", targetLength: 12 });
+    expect(JSON.stringify(mine?.play)).not.toContain(target);
+    expect(JSON.stringify(mine?.play)).not.toContain("Guess the code");
   });
 });

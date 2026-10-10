@@ -81,6 +81,22 @@ export async function requireAdminRead(client: PoolClient): Promise<Profile> {
   return profile;
 }
 
+export async function requirePuzzleBank(client: PoolClient): Promise<Profile> {
+  const profile = await requireProfile(client);
+  if (profile.role !== "admin" && profile.role !== "spectator") {
+    throw new ForbiddenError("Admin or spectator role required");
+  }
+  return profile;
+}
+
+export async function requirePuzzleBankRead(client: PoolClient): Promise<Profile> {
+  const profile = await requireProfileRead(client);
+  if (profile.role !== "admin" && profile.role !== "spectator") {
+    throw new ForbiddenError("Admin or spectator role required");
+  }
+  return profile;
+}
+
 export async function requirePointsManager(client: PoolClient): Promise<Profile> {
   const profile = await requireProfile(client);
   if (profile.role !== "admin" && profile.role !== "spectator") {

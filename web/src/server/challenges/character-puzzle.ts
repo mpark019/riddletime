@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-export const MAX_TARGET_LENGTH = 50;
+// New answers are capped at 25; stored configs keep the older bound so existing games stay playable.
+export const MAX_TARGET_LENGTH = 25;
+const MAX_STORED_TARGET_LENGTH = 50;
 export const MAX_CHARACTER_SET_SIZE = 36;
 
 export const CHARACTER_SET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -8,7 +10,7 @@ export const CHARACTER_SET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 export type CharacterFeedback = "correct" | "present" | "absent";
 
 export const characterConfigSchema = z.object({
-  target_length: z.number().int().positive().max(MAX_TARGET_LENGTH),
+  target_length: z.number().int().positive().max(MAX_STORED_TARGET_LENGTH),
   character_set: z.string()
     .min(1)
     .max(MAX_CHARACTER_SET_SIZE)

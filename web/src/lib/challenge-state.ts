@@ -48,7 +48,14 @@ export interface ActiveRiddle {
 }
 
 export type PlayerChallengeState =
-  | { status: "not_started"; available: boolean; difficulty: string | null; scoringPolicy?: PublicScoringPolicy }
+  | {
+      status: "not_started";
+      available: boolean;
+      difficulty: string | null;
+      type?: "riddle" | "character_puzzle";
+      targetLength?: number;
+      scoringPolicy?: PublicScoringPolicy;
+    }
   | ({ status: "in_progress" } & ActiveRiddle)
   | ({
       status: "completed";

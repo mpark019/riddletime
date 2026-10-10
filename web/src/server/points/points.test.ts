@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pool } from "@/lib/db";
-import { createAuthUser } from "@/server/test/fixtures";
+import { createAuthUser, insertPuzzle } from "@/server/test/fixtures";
 
 const { getVerifiedUser } = vi.hoisted(() => ({
   getVerifiedUser: vi.fn(),
@@ -48,7 +48,8 @@ async function addPoints(userId: string, amount: number, label: string) {
 
 async function ensureLeaderboardRiddle() {
   const { rows: existing } = await pool.query(
-    "select id from challenges where prompt = 'Leaderboard statistics fixture'",
+    `select c.id from challenges c join puzzles pz on pz.id = c.puzzle_id
+     where pz.prompt = 'Leaderboard statistics fixture'`,
   );
   if (existing[0]) return existing[0].id as string;
 
@@ -60,12 +61,17 @@ async function ensureLeaderboardRiddle() {
      returning id`,
     [JSON.stringify({ standard: {} }), admin],
   );
+  const puzzleId = await insertPuzzle(pool, {
+    createdBy: admin,
+    prompt: "Leaderboard statistics fixture",
+    answerData: { accepted: ["fixture"] },
+  });
   const { rows } = await pool.query(
     `insert into challenges
-       (daily_challenge_id, mode, type, difficulty, prompt, config, answer_data, max_attempts, time_limit_seconds, scoring_policy)
-     values ($1, 'shared', 'riddle', 'standard', 'Leaderboard statistics fixture', '{}'::jsonb, $2::jsonb, 1, 60, $3::jsonb)
+       (daily_challenge_id, mode, type, puzzle_id, difficulty, max_attempts, time_limit_seconds, scoring_policy)
+     values ($1, 'shared', 'riddle', $2, 'standard', 1, 60, $3::jsonb)
      returning id`,
-    [dailyRows[0].id, JSON.stringify({ accepted: ["fixture"] }), JSON.stringify({ base_points: 1, speed_bonuses: [] })],
+    [dailyRows[0].id, puzzleId, JSON.stringify({ base_points: 1, speed_bonuses: [] })],
   );
   return rows[0].id as string;
 }

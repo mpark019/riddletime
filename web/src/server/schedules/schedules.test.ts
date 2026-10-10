@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { pool } from "@/lib/db";
-import { createAuthUser, requireTestAdminPool } from "@/server/test/fixtures";
+import { createAuthUser, requireTestAdminPool, withBankPuzzle } from "@/server/test/fixtures";
 
 const { getVerifiedUser } = vi.hoisted(() => ({ getVerifiedUser: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ getVerifiedUser }));
@@ -75,11 +75,11 @@ function validInput(activeDate = futureDate()) {
   };
 }
 
-function postRequest(body: unknown) {
+async function postRequest(body: unknown) {
   return new Request("https://riddletime.example/api/admin/generate-challenge", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(await withBankPuzzle(pool, body as object)),
   });
 }
 
@@ -89,7 +89,7 @@ describe("manual shared-riddle scheduling", () => {
     const input = validInput();
     getVerifiedUser.mockResolvedValue({ id: adminId });
 
-    const response = await POST(postRequest(input));
+    const response = await POST(await postRequest(input));
     const body = await response.json();
 
     expect(response.status).toBe(201);
@@ -103,10 +103,11 @@ describe("manual shared-riddle scheduling", () => {
     const { rows } = await pool.query(
       `select d.active_date::text, d.mode, d.allowed_types, d.difficulty_selection,
               d.difficulty_presets, d.selected_difficulty, d.created_by,
-              c.type, c.difficulty, c.prompt, c.config, c.answer_data,
+              c.type, c.difficulty, pz.prompt, pz.config, pz.answer_data,
               c.max_attempts, c.time_limit_seconds, c.scoring_policy
        from daily_challenges d
        join challenges c on c.daily_challenge_id = d.id
+       join puzzles pz on pz.id = c.puzzle_id
        where d.id = $1`,
       [body.schedule_id],
     );
@@ -143,7 +144,7 @@ describe("manual shared-riddle scheduling", () => {
       const input = validInput();
       getVerifiedUser.mockResolvedValue({ id: userId });
 
-      await expect(createManualSharedRiddle(input)).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(createManualSharedRiddle(await withBankPuzzle(pool, input))).rejects.toBeInstanceOf(ForbiddenError);
       const { rows } = await pool.query(
         "select count(*)::int as count from daily_challenges where active_date = $1::date",
         [input.active_date],
@@ -156,7 +157,7 @@ describe("manual shared-riddle scheduling", () => {
     const input = validInput();
     getVerifiedUser.mockResolvedValue(null);
 
-    const response = await POST(postRequest(input));
+    const response = await POST(await postRequest(input));
 
     expect(response.status).toBe(401);
     expect(await response.json()).toMatchObject({ code: "unauthorized" });
@@ -171,7 +172,7 @@ describe("manual shared-riddle scheduling", () => {
     const playerId = await createProfile("player");
     getVerifiedUser.mockResolvedValue({ id: playerId });
 
-    const response = await POST(postRequest({ mode: "personal" }));
+    const response = await POST(await postRequest({ mode: "personal" }));
 
     expect(response.status).toBe(403);
   });
@@ -181,7 +182,7 @@ describe("manual shared-riddle scheduling", () => {
     const input = validInput("1900-01-01");
     getVerifiedUser.mockResolvedValue({ id: adminId });
 
-    await expect(createManualSharedRiddle(input)).rejects.toThrow("past");
+    await expect(createManualSharedRiddle(await withBankPuzzle(pool, input))).rejects.toThrow("past");
     const { rows } = await pool.query(
       "select count(*)::int as count from daily_challenges where active_date = $1::date",
       [input.active_date],
@@ -193,10 +194,10 @@ describe("manual shared-riddle scheduling", () => {
     const adminId = await createProfile("admin");
     const input = validInput();
     getVerifiedUser.mockResolvedValue({ id: adminId });
-    const first = await createManualSharedRiddle(input);
+    const first = await createManualSharedRiddle(await withBankPuzzle(pool, input));
 
-    await expect(createManualSharedRiddle(input)).rejects.toBeInstanceOf(ConflictError);
-    const duplicateResponse = await POST(postRequest(input));
+    await expect(createManualSharedRiddle(await withBankPuzzle(pool, input))).rejects.toBeInstanceOf(ConflictError);
+    const duplicateResponse = await POST(await postRequest(input));
     expect(duplicateResponse.status).toBe(409);
     expect(await duplicateResponse.json()).toMatchObject({
       code: "conflict",
@@ -243,14 +244,14 @@ describe("manual shared-riddle scheduling", () => {
         .mockResolvedValueOnce({ id: firstAdminId })
         .mockResolvedValueOnce({ id: secondAdminId });
 
-      first = createManualSharedRiddle(input);
+      first = createManualSharedRiddle(await withBankPuzzle(pool, input));
       await vi.waitFor(async () => {
         const { rows } = await adminPool.query(
           "select count(*)::int as count from pg_stat_activity where wait_event = 'advisory'",
         );
         expect(rows[0].count).toBeGreaterThanOrEqual(1);
       });
-      second = createManualSharedRiddle(input);
+      second = createManualSharedRiddle(await withBankPuzzle(pool, input));
       await vi.waitFor(async () => {
         const { rows } = await adminPool.query(
           "select count(*)::int as count from pg_stat_activity where wait_event = 'advisory'",
@@ -303,10 +304,13 @@ describe("manual shared-riddle request validation", () => {
     ["speed threshold equal to the time limit", (input: ReturnType<typeof validInput>) => { input.difficulty_presets.standard.types.riddle.scoring_policy.speed_bonuses[0].under_ms = 120_000; }],
     ["reward integer overflow", (input: ReturnType<typeof validInput>) => { input.difficulty_presets.standard.types.riddle.scoring_policy.base_points = 2_147_483_647; }],
     ["negative penalty", (input: ReturnType<typeof validInput>) => { input.difficulty_presets.standard.types.riddle.scoring_policy.failure_penalty_points = -1; }],
-    ["blank prompt", (input: ReturnType<typeof validInput>) => { input.manual_puzzle.prompt = "   "; }],
-    ["unusable accepted answer", (input: ReturnType<typeof validInput>) => { input.manual_puzzle.accepted_answers = ["!!!"]; }],
-  ])("rejects %s before persistence (AC-5)", (_label, mutate) => {
-    const input = validInput();
+    ["missing puzzle_id", (input: ReturnType<typeof validInput>) => { delete (input as { puzzle_id?: string }).puzzle_id; }],
+    ["inline manual_puzzle", (input: ReturnType<typeof validInput>) => {
+      (input as Record<string, unknown>).manual_puzzle = { type: "riddle", prompt: "Q", accepted_answers: ["a"] };
+    }],
+    ["non-uuid puzzle_id", (input: ReturnType<typeof validInput>) => { (input as { puzzle_id?: string }).puzzle_id = "not-a-uuid"; }],
+  ])("rejects %s before persistence (AC-5)", async (_label, mutate) => {
+    const input = await withBankPuzzle(pool, validInput()) as ReturnType<typeof validInput>;
     mutate(input);
     expect(() => createManualSharedRiddleInput.parse(input)).toThrow();
   });
@@ -317,7 +321,7 @@ describe("admin riddle list and delete", () => {
     const input = validInput();
     input.difficulty_presets.standard.types.riddle.max_attempts = maxAttempts;
     getVerifiedUser.mockResolvedValue({ id: adminId });
-    const created = await createManualSharedRiddle(input);
+    const created = await createManualSharedRiddle(await withBankPuzzle(pool, input));
     return { scheduleId: created.scheduleId, input };
   }
 
@@ -406,7 +410,7 @@ describe("admin riddle list and delete", () => {
     );
     expect(rows[0].count).toBe(0);
     getVerifiedUser.mockResolvedValue({ id: adminId });
-    await expect(createManualSharedRiddle(input)).resolves.toMatchObject({ status: "ready" });
+    await expect(createManualSharedRiddle(await withBankPuzzle(pool, input))).resolves.toMatchObject({ status: "ready" });
   });
 
   it("deletes a played riddle and reverses only its points (AC-3)", async () => {

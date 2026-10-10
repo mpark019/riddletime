@@ -138,9 +138,10 @@ function toStaffPreview(row: Record<string, unknown> | undefined) {
 
 async function getStaffPreview(client: PoolClient, dailyChallengeId: string) {
   const { rows } = await client.query(
-    `select type, difficulty, prompt, time_limit_seconds, max_attempts, scoring_policy, config
-     from challenges
-     where daily_challenge_id = $1 and mode = 'shared'`,
+    `select c.type, c.difficulty, pz.prompt, c.time_limit_seconds, c.max_attempts, c.scoring_policy, pz.config
+     from challenges c
+     join puzzles pz on pz.id = c.puzzle_id
+     where c.daily_challenge_id = $1 and c.mode = 'shared'`,
     [dailyChallengeId],
   );
   return toStaffPreview(rows[0]);
@@ -206,13 +207,14 @@ async function getSharedPlayState(
   playerId: string,
 ) {
   const { rows } = await client.query(
-    `select c.id as challenge_id, c.type, c.difficulty, c.prompt,
-            c.scoring_policy, c.config, c.time_limit_seconds, c.max_attempts,
+    `select c.id as challenge_id, c.type, c.difficulty, pz.prompt,
+            c.scoring_policy, pz.config, c.time_limit_seconds, c.max_attempts,
             s.id as submission_id, s.started_at, s.submitted_at, s.correct,
             s.feedback, s.guess_history, s.attempts, s.time_taken_ms,
             s.scoring_breakdown, clock_timestamp() as server_time,
             riddle_private.session_deadline(s.started_at, c.time_limit_seconds, d.active_date, current_setting('timezone')) as deadline
      from challenges c
+     join puzzles pz on pz.id = c.puzzle_id
      join daily_challenges d on d.id = c.daily_challenge_id
      left join submissions s
        on s.challenge_id = c.id and s.user_id = $2
@@ -222,10 +224,13 @@ async function getSharedPlayState(
   const row = rows[0];
   if (!row?.submission_id) {
     const policy = scoringPolicySchema.safeParse(row?.scoring_policy);
+    const config = row?.type === "character_puzzle" ? characterConfigSchema.safeParse(row.config) : null;
     return {
       status: "not_started" as const,
       available: Boolean(row?.challenge_id),
       difficulty: (row?.difficulty as string | undefined) ?? null,
+      ...(row?.type ? { type: row.type as "riddle" | "character_puzzle" } : {}),
+      ...(config?.success ? { targetLength: config.data.target_length } : {}),
       ...(policy.success ? { scoringPolicy: toPublicScoringPolicy(policy.data) } : {}),
     };
   }
@@ -448,9 +453,10 @@ export async function submitChallenge(
     const player = await requirePlayer(client);
 
     const { rows: challengeRows } = await client.query(
-      `select c.id as challenge_id, c.type, c.answer_data, c.config, c.scoring_policy,
+      `select c.id as challenge_id, c.type, pz.answer_data, pz.config, c.scoring_policy,
               c.max_attempts, c.time_limit_seconds, d.active_date::text as active_date
        from challenges c
+       join puzzles pz on pz.id = c.puzzle_id
        join daily_challenges d on d.id = c.daily_challenge_id
        where d.id = $1 and (c.mode = 'shared' or c.assigned_to = $2)`,
       [dailyChallengeId, player.id],

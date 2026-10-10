@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   characterConfigSchema,
+  characterTargetSchema,
   gradeCharacterGuess,
   normalizeCharacterGuess,
   sanitizeCharacterInput,
@@ -103,9 +104,19 @@ describe("characterConfigSchema", () => {
     expect(characterConfigSchema.safeParse(config).success).toBe(false);
   });
 
-  it("accepts a length of 50 and the full 36-character set", () => {
+  it("still reads stored games longer than the 25-letter authoring cap", () => {
     const set = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     expect(characterConfigSchema.safeParse({ target_length: 50, character_set: set }).success).toBe(true);
+  });
+});
+
+describe("characterTargetSchema", () => {
+  it("accepts up to 25 letters and digits and uppercases them", () => {
+    expect(characterTargetSchema.parse("a".repeat(25))).toBe("A".repeat(25));
+  });
+
+  it("rejects 26 characters", () => {
+    expect(characterTargetSchema.safeParse("A".repeat(26)).success).toBe(false);
   });
 });
 

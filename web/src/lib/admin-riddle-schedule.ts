@@ -11,16 +11,6 @@ interface ScheduleRulesForm {
   speedBonuses: Array<{ underSeconds: string; points: string }>;
 }
 
-export interface ManualRiddleScheduleForm extends ScheduleRulesForm {
-  prompt: string;
-  acceptedAnswers: string;
-}
-
-export interface CharacterScheduleForm extends ScheduleRulesForm {
-  targetWord: string;
-}
-
-const MAX_TARGET_LENGTH = 50;
 const MAX_CHARACTER_ATTEMPTS = 100;
 
 const MAX_DATABASE_INTEGER = 2_147_483_647;
@@ -86,65 +76,25 @@ function targeting(playerIds: string[] | undefined) {
     : { mode: "personal" as const, player_ids: playerIds };
 }
 
-export function buildManualRiddleScheduleRequest(form: ManualRiddleScheduleForm) {
-  const prompt = form.prompt.trim();
-  const acceptedAnswers = form.acceptedAnswers
-    .split("\n")
-    .map((answer) => answer.trim())
-    .filter(Boolean);
-  if (!prompt) throw new Error("Enter the riddle prompt.");
-  if (acceptedAnswers.length === 0) throw new Error("Enter at least one accepted answer.");
-  const rules = buildRules(form);
-  requirePlayers(form.playerIds);
-
-  return {
-    active_date: rules.activeDate,
-    ...targeting(form.playerIds),
-    allowed_types: ["riddle"] as ["riddle"],
-    difficulty_selection: "fixed" as const,
-    difficulty_presets: {
-      [rules.difficulty]: {
-        types: {
-          riddle: {
-            time_limit_seconds: rules.timeLimitSeconds,
-            max_attempts: rules.maxAttempts,
-            generation_settings: {},
-            config: {},
-            scoring_policy: rules.scoringPolicy,
-          },
-        },
-      },
-    },
-    selected_difficulty: rules.difficulty,
-    manual_puzzle: {
-      type: "riddle" as const,
-      prompt,
-      accepted_answers: acceptedAnswers,
-    },
-  };
+export interface BankScheduleForm extends ScheduleRulesForm {
+  kind: "riddle" | "character_puzzle";
+  puzzleId: string;
 }
 
-export function buildCharacterScheduleRequest(form: CharacterScheduleForm) {
-  const target = form.targetWord.trim().toUpperCase();
-  if (!target) throw new Error("Enter the word or code players will guess.");
-  if (!/^[A-Z0-9]+$/.test(target)) {
-    throw new Error("The answer can only use letters A-Z and digits 0-9, with no spaces.");
-  }
-  if (target.length > MAX_TARGET_LENGTH) {
-    throw new Error(`The answer must be at most ${MAX_TARGET_LENGTH} characters.`);
-  }
-  const rules = buildRules(form, MAX_CHARACTER_ATTEMPTS);
+export function buildBankScheduleRequest(form: BankScheduleForm) {
+  if (!form.puzzleId.trim()) throw new Error("Choose a puzzle from the bank.");
+  const rules = buildRules(form, form.kind === "character_puzzle" ? MAX_CHARACTER_ATTEMPTS : MAX_DATABASE_INTEGER);
   requirePlayers(form.playerIds);
 
   return {
     active_date: rules.activeDate,
     ...targeting(form.playerIds),
-    allowed_types: ["character_puzzle"] as ["character_puzzle"],
+    allowed_types: [form.kind] as ["riddle" | "character_puzzle"],
     difficulty_selection: "fixed" as const,
     difficulty_presets: {
       [rules.difficulty]: {
         types: {
-          character_puzzle: {
+          [form.kind]: {
             time_limit_seconds: rules.timeLimitSeconds,
             max_attempts: rules.maxAttempts,
             generation_settings: {},
@@ -153,8 +103,8 @@ export function buildCharacterScheduleRequest(form: CharacterScheduleForm) {
           },
         },
       },
-    },
+    } as Record<string, { types: Record<string, object> }>,
     selected_difficulty: rules.difficulty,
-    manual_puzzle: { type: "character_puzzle" as const, target },
+    puzzle_id: form.puzzleId.trim(),
   };
 }
