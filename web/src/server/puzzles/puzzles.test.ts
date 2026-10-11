@@ -381,13 +381,22 @@ describe("puzzle bank for spectators", () => {
     expect(rowCount).toBe(2);
   });
 
-  it("edits any draft's name, difficulty, and content (AC-3)", async () => {
-    const adminId = await createProfile("admin");
-    const draft = await insertPuzzle(pool, { createdBy: adminId, status: "draft", prompt: "Before" });
-    await asSpectator();
+  it("edits their own draft's name, difficulty, and content (AC-3)", async () => {
+    const spectatorId = await asSpectator();
+    const draft = await insertPuzzle(pool, { createdBy: spectatorId, status: "draft", prompt: "Before" });
 
     expect(await updatePuzzle(draft, { name: "Renamed", difficulty: "hard", ...content }))
       .toMatchObject({ name: "Renamed", difficulty: "hard", prompt: "Edited", status: "draft" });
+  });
+
+  it("refuses to edit another account's draft, even its name", async () => {
+    const adminId = await createProfile("admin");
+    const draft = await insertPuzzle(pool, { createdBy: adminId, status: "draft", prompt: "Untouched" });
+    await asSpectator();
+
+    await expect(updatePuzzle(draft, content)).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(updatePuzzle(draft, { name: "Sneaky" })).rejects.toBeInstanceOf(ForbiddenError);
+    expect(await getPuzzle(draft)).toMatchObject({ prompt: "Untouched", status: "draft", name: null });
   });
 
   it.each(["active", "retired"] as const)("refuses to edit a %s puzzle, even its name (AC-4)", async (status) => {
@@ -401,9 +410,8 @@ describe("puzzle bank for spectators", () => {
   });
 
   it("refuses any status field, including the current one (AC-5)", async () => {
-    const adminId = await createProfile("admin");
-    const draft = await insertPuzzle(pool, { createdBy: adminId, status: "draft" });
-    await asSpectator();
+    const spectatorId = await asSpectator();
+    const draft = await insertPuzzle(pool, { createdBy: spectatorId, status: "draft" });
 
     for (const status of ["draft", "active", "retired"]) {
       await expect(updatePuzzle(draft, { status })).rejects.toBeInstanceOf(ForbiddenError);
@@ -436,18 +444,22 @@ describe("puzzle bank for spectators", () => {
 
   it("reaches the same decisions through the routes (AC-2, AC-5, AC-6)", async () => {
     const adminId = await createProfile("admin");
-    const draft = await insertPuzzle(pool, { createdBy: adminId, status: "draft" });
-    await asSpectator();
+    const adminDraft = await insertPuzzle(pool, { createdBy: adminId, status: "draft" });
+    const spectatorId = await asSpectator();
+    const draft = await insertPuzzle(pool, { createdBy: spectatorId, status: "draft" });
     const headers = { "Content-Type": "application/json" };
     const ctx = { params: Promise.resolve({ id: draft }) } as never;
     const url = `https://riddletime.example/api/admin/puzzles/${draft}`;
+    const adminUrl = `https://riddletime.example/api/admin/puzzles/${adminDraft}`;
 
     expect((await createRoute(new Request("https://riddletime.example/api/admin/puzzles", {
       method: "POST", headers, body: JSON.stringify({ ...riddle(), status: "active" }),
     }))).status).toBe(403);
     expect((await patchRoute(new Request(url, { method: "PATCH", headers, body: JSON.stringify({ status: "active" }) }), ctx)).status).toBe(403);
     expect((await patchRoute(new Request(url, { method: "PATCH", headers, body: JSON.stringify({ name: "Ok" }) }), ctx)).status).toBe(200);
-    expect((await deleteRoute(new Request(url, { method: "DELETE" }), ctx)).status).toBe(403);
+    expect((await patchRoute(new Request(adminUrl, { method: "PATCH", headers, body: JSON.stringify({ name: "Ok" }) }),
+      { params: Promise.resolve({ id: adminDraft }) } as never)).status).toBe(403);
+    expect((await deleteRoute(new Request(adminUrl, { method: "DELETE" }), { params: Promise.resolve({ id: adminDraft }) } as never)).status).toBe(403);
   });
 
   it("still lets admins do everything (AC-8)", async () => {

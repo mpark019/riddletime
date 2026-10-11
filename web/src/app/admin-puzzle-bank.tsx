@@ -321,6 +321,7 @@ export function AdminPuzzleBank({ canManage = true, viewerId }: { canManage?: bo
         {drawer === "view" && selected && <>
           <PuzzleDetails key={selected.id} puzzle={selected} busy={busy} canManage={canManage}
             canDelete={canManage || (selected.status === "draft" && viewerId !== undefined && selected.createdBy === viewerId)}
+            isOwner={canManage || (viewerId !== undefined && selected.createdBy === viewerId)}
             onEdit={() => startEdit(selected)}
             onStatus={(status) => changeStatus(selected, status)}
             onRename={(next) => void mutate(selected, "PATCH", { name: next }, next ? "Name saved." : "Name cleared.")}
@@ -462,16 +463,16 @@ export function PuzzleTable({ puzzles, total, matching, page, pageCount, onPage,
   </div>;
 }
 
-export function PuzzleDetails({ puzzle, busy, canManage, canDelete = canManage, onEdit, onStatus, onRename, onDelete }: {
-  puzzle: BankPuzzle; busy: boolean; canManage: boolean; canDelete?: boolean; onEdit: () => void; onStatus: (status: BankPuzzle["status"]) => void; onRename: (name: string) => void; onDelete: () => void;
+export function PuzzleDetails({ puzzle, busy, canManage, canDelete = canManage, isOwner = canManage, onEdit, onStatus, onRename, onDelete }: {
+  puzzle: BankPuzzle; busy: boolean; canManage: boolean; canDelete?: boolean; isOwner?: boolean; onEdit: () => void; onStatus: (status: BankPuzzle["status"]) => void; onRename: (name: string) => void; onDelete: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [nameDraft, setNameDraft] = useState(puzzle.name ?? "");
   const renamed = nameDraft.trim() !== "" && nameDraft.trim() !== (puzzle.name ?? "");
   const unused = puzzle.timesUsed === 0;
   const isDraft = puzzle.status === "draft";
-  const editable = unused && (canManage ? puzzle.status !== "active" : isDraft);
-  const canRename = canManage || isDraft;
+  const editable = unused && (canManage ? puzzle.status !== "active" : isDraft && isOwner);
+  const canRename = canManage || (isDraft && isOwner);
   const { stats } = puzzle;
   const fill = "rounded-md bg-black px-3.5 py-2 text-sm font-semibold text-[#ffffff] hover:opacity-85 disabled:opacity-50";
   const label = "text-white/60";
@@ -503,6 +504,7 @@ export function PuzzleDetails({ puzzle, busy, canManage, canDelete = canManage, 
     {!unused && <p className="mt-2 text-xs text-white/55">Scheduled puzzles can&apos;t be edited or deleted; retire one to stop it being picked.</p>}
     {canManage && unused && puzzle.status === "active" && <p className="mt-2 text-xs text-white/55">Active puzzles can&apos;t be edited; move it to draft first.</p>}
     {!canManage && unused && !isDraft && <p className="mt-2 text-xs text-white/55">Only drafts can be edited. An admin publishes and retires puzzles.</p>}
+    {!canManage && unused && isDraft && !isOwner && <p className="mt-2 text-xs text-white/55">Only the author can edit this draft.</p>}
     <PuzzleActivityPanel puzzleId={puzzle.id} stats={stats} used={!unused} />
   </div>;
 }

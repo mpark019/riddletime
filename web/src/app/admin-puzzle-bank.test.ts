@@ -82,15 +82,22 @@ describe("puzzle author", () => {
 
 describe("PuzzleDetails controls by role (AC-9)", () => {
   const noop = () => undefined;
-  const render = (status: BankPuzzle["status"], canManage: boolean) => renderToStaticMarkup(createElement(PuzzleDetails, {
-    puzzle: puzzle(status, "Sample"), busy: false, canManage, onEdit: noop, onStatus: noop, onRename: noop, onDelete: noop,
+  const render = (status: BankPuzzle["status"], canManage: boolean, isOwner = canManage) => renderToStaticMarkup(createElement(PuzzleDetails, {
+    puzzle: puzzle(status, "Sample"), busy: false, canManage, isOwner, onEdit: noop, onStatus: noop, onRename: noop, onDelete: noop,
   }));
 
   it("gives a spectator Edit and rename on a draft and nothing that changes status or deletes", () => {
-    const html = render("draft", false);
+    const html = render("draft", false, true);
     expect(html).toContain(">Edit<");
     expect(html).toContain("Save name");
     for (const hidden of ["Publish", "Retire", "Restore", "Move to draft", "Delete"]) expect(html).not.toContain(hidden);
+  });
+
+  it("gives a spectator no Edit or rename on a draft someone else created", () => {
+    const html = render("draft", false, false);
+    expect(html).not.toContain(">Edit<");
+    expect(html).not.toContain("Save name");
+    expect(html).toContain("Only the author can edit this draft");
   });
 
   it.each(["active", "retired"] as const)("gives a spectator no Edit or rename on a %s puzzle", (status) => {

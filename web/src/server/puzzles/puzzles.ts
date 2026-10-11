@@ -407,13 +407,15 @@ export async function updatePuzzle(rawId: unknown, input: LazyInput): Promise<Ba
       const editor = await requirePuzzleBank(client);
       const id = idSchema.parse(rawId);
       const parsed = updatePuzzleInput.parse(await resolveInput(input));
-      const { rows } = await client.query("select type, status, config from puzzles where id = $1 for update", [id]);
+      const { rows } = await client.query("select type, status, config, created_by from puzzles where id = $1 for update", [id]);
       if (!rows[0]) throw new NotFoundError("Puzzle not found");
       const previousImagePath = imageConfigOf(rows[0])?.prompt_image_path ?? null;
       if (parsed.puzzle) await requireOwnPromptImage(client, parsed.puzzle, editor.id, previousImagePath);
       if (editor.role === "spectator") {
         if (parsed.status !== undefined) throw new ForbiddenError("Spectators cannot change a puzzle's status");
-        if (rows[0].status !== "draft") throw new ForbiddenError("Spectators can only edit drafts");
+        if (rows[0].status !== "draft" || rows[0].created_by !== editor.id) {
+          throw new ForbiddenError("Spectators can only edit their own drafts");
+        }
       }
       if (parsed.puzzle && parsed.puzzle.type !== rows[0].type) {
         throw new BadRequestError("A puzzle's type cannot be changed");
