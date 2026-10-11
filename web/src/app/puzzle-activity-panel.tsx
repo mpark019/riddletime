@@ -30,7 +30,7 @@ function Stat({ label, value }: { label: string; value: string | number }) {
   return <div><dt className="text-xs uppercase tracking-wide text-white/55">{label}</dt><dd className="text-lg font-semibold tabular-nums">{value}</dd></div>;
 }
 
-const th = "bg-black/[0.06] px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide";
+const th = "bg-surface-solid shadow-[inset_0_0_0_999px_rgba(0,0,0,0.06)] px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide";
 const td = "border-b border-white/15 px-3 py-2.5 align-middle";
 
 interface StatValues {
