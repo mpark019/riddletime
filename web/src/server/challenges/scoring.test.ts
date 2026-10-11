@@ -71,10 +71,10 @@ describe("computeResult", () => {
       });
     });
 
-    it("clamps a correct result at zero when the hint costs more than it earned", () => {
-      const result = computeResult(true, 100, [], 5000, 0, 150);
-      expect(result.total_points).toBe(0);
-      expect(result.hint_cost_points).toBe(150);
+    it("lets a correct result go negative when the hint costs more than it earned", () => {
+      const result = computeResult(true, 5, [], 5000, 10, 50);
+      expect(result.total_points).toBe(-45);
+      expect(result.hint_cost_points).toBe(50);
     });
 
     it("adds the hint cost to the failure penalty for an incorrect result", () => {

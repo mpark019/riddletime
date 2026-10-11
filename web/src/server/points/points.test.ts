@@ -113,8 +113,8 @@ describe("leaderboard", () => {
     expect(tiedEntries.map((entry) => entry.displayName)).toEqual(["Alpha", "Bravo"]);
     expect(tiedEntries).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ userId: alpha, displayName: "Alpha", name: "Alexandra", totalPoints: 40, correctRiddles: 1, incorrectRiddles: 0 }),
-        expect.objectContaining({ userId: bravo, displayName: "Bravo", name: "Brandon", totalPoints: 40, correctRiddles: 0, incorrectRiddles: 1 }),
+        expect.objectContaining({ userId: alpha, displayName: "Alpha", name: "Alexandra", totalPoints: 40, correctRiddles: 1, playedRiddles: 1 }),
+        expect.objectContaining({ userId: bravo, displayName: "Bravo", name: "Brandon", totalPoints: 40, correctRiddles: 0, playedRiddles: 1 }),
       ]),
     );
     expect(tiedEntries[0].rank).toBe(tiedEntries[1].rank);

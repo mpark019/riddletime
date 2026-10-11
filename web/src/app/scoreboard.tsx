@@ -62,7 +62,7 @@ function LeaderboardRow({ entry }: { entry: LeaderboardEntry }) {
           {entry.name && <span className="block truncate text-sm text-white">{entry.name}</span>}
         </span>
       </td>
-      <td className="hidden px-3 py-5 text-right text-lg tabular-nums text-white sm:table-cell">{number.format(entry.correctRiddles)} / {number.format(entry.incorrectRiddles)}</td>
+      <td className="hidden px-3 py-5 text-right text-lg tabular-nums text-white sm:table-cell">{number.format(entry.correctRiddles)} / {number.format(entry.playedRiddles)}</td>
       <td className="px-1 py-5 text-right text-xl font-semibold tabular-nums text-white sm:px-2 sm:text-2xl">{number.format(entry.totalPoints)}</td>
     </tr>
   );

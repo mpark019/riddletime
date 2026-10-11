@@ -437,7 +437,7 @@ describe("review queue and statuses", () => {
 });
 
 describe("leaderboard tallies", () => {
-  it("counts full as correct and none as incorrect, and skips partial and pending", async () => {
+  it("counts full as correct, counts every graded result as played, and skips pending", async () => {
     const outcomes = [
       { outcome: "full" },
       { outcome: "none" },
@@ -455,10 +455,9 @@ describe("leaderboard tallies", () => {
       await asUser(session.playerId);
       const entry = (await getLeaderboard()).find((row) => row.userId === session.playerId);
       const expected = !outcome ? [0, 0]
-        : outcome.outcome === "full" ? [1, 0]
-        : outcome.outcome === "none" ? [0, 1]
-        : [0, 0];
-      expect([entry?.correctRiddles, entry?.incorrectRiddles]).toEqual(expected);
+        : outcome.outcome === "full" ? [1, 1]
+        : [0, 1];
+      expect([entry?.correctRiddles, entry?.playedRiddles]).toEqual(expected);
     }
   });
 });

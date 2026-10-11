@@ -161,6 +161,19 @@ describe("RiddleDashboard", () => {
     expect(html).toContain("piano");
   });
 
+  it("shows when the hint was used and what it cost", () => {
+    const hinted = player({
+      userId: "h",
+      displayName: "Hal",
+      status: "in_progress",
+      timeline: [{ kind: "hint", offsetMs: 12_000, costPoints: 50 }],
+    });
+    const html = render({}, [hinted]);
+
+    expect(html).toContain("0:12");
+    expect(html).toContain("used the hint (-50 pts)");
+  });
+
   it("shows when the riddle text was copied (AC-14)", () => {
     const copier = player({
       userId: "c",

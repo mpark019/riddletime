@@ -4,6 +4,7 @@ export type TimelineEntry =
   | { kind: "paste"; offsetMs: number }
   | { kind: "image_added"; offsetMs: number }
   | { kind: "image_removed"; offsetMs: number }
+  | { kind: "hint"; offsetMs: number; costPoints: number }
   | { kind: "submitted"; offsetMs: number }
   | { kind: "away"; offsetMs: number; durationMs: number; returned: boolean }
   | { kind: "guess"; offsetMs: number | null; response: string; correct: boolean };
@@ -22,7 +23,7 @@ export interface TimelineGuess {
 export const MIN_VISIBLE_AWAY_MS = 1_000;
 
 const KIND_RANK = {
-  typing: 0, copy: 0, paste: 0, image_added: 0, image_removed: 0, away: 1, guess: 2, submitted: 3,
+  typing: 0, copy: 0, paste: 0, image_added: 0, image_removed: 0, hint: 0, away: 1, guess: 2, submitted: 3,
 } as const;
 
 export function buildTimeline(input: {
@@ -31,6 +32,7 @@ export function buildTimeline(input: {
   events: ActivityEvent[];
   guesses: TimelineGuess[];
   submittedAtMs?: number | null;
+  hint?: { usedAtMs: number; costPoints: number } | null;
 }): TimelineEntry[] {
   const elapsedMs = Math.max(input.endMs - input.startedAtMs, 0);
   const clamp = (offsetMs: number) => Math.min(Math.max(offsetMs, 0), elapsedMs);
@@ -54,6 +56,10 @@ export function buildTimeline(input: {
   }
   if (openAwayOffsetMs !== null) {
     entries.push({ kind: "away", offsetMs: openAwayOffsetMs, durationMs: elapsedMs - openAwayOffsetMs, returned: false });
+  }
+
+  if (input.hint) {
+    entries.push({ kind: "hint", offsetMs: clamp(input.hint.usedAtMs - input.startedAtMs), costPoints: input.hint.costPoints });
   }
 
   if (input.submittedAtMs !== undefined && input.submittedAtMs !== null) {
