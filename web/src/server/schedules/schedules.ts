@@ -770,7 +770,7 @@ export async function getScheduleDetail(
       `select p.id as user_id, p.display_name,
               c.id as challenge_id, c.type, c.difficulty, pz.name as puzzle_name, pz.prompt, pz.answer_data,
               c.max_attempts, c.time_limit_seconds,
-              s.id as submission_id, s.started_at, s.submitted_at, s.correct,
+              s.id as submission_id, s.started_at, s.submitted_at, s.correct, s.hint_used_at, pz.hint_cost_points,
               s.attempts, s.guess_history, s.time_taken_ms, s.scoring_breakdown, s.review_comment, s.review_submitted_at,
               coalesce(s.scoring_breakdown @> '{"missed": true}', false) as missed,
               s.review_state,
@@ -819,6 +819,9 @@ export async function getScheduleDetail(
           events: activity.get(row.submission_id) ?? [],
           guesses: toTimelineGuesses(row.guess_history),
           submittedAtMs: row.review_submitted_at ? new Date(row.review_submitted_at).getTime() : null,
+          hint: row.hint_used_at
+            ? { usedAtMs: new Date(row.hint_used_at).getTime(), costPoints: row.hint_cost_points ?? 0 }
+            : null,
         })
         : [],
       startedAt: row.started_at ? new Date(row.started_at).toISOString() : null,

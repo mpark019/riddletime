@@ -61,6 +61,7 @@ function TimelineList({ timeline, imagePuzzle = false }: { timeline: TimelineEnt
             {entry.kind === "typing" && "started typing"}
             {entry.kind === "copy" && <span className="text-[#f0a000]">{imagePuzzle ? "copied the prompt text" : "copied the riddle text"}</span>}
             {entry.kind === "paste" && <span className="text-[#f0a000]">{imagePuzzle ? "pasted into the note" : "pasted into the answer box"}</span>}
+            {entry.kind === "hint" && <span className="text-[#f0a000]">used the hint (-{entry.costPoints} pts)</span>}
             {entry.kind === "image_added" && "added an image"}
             {entry.kind === "image_removed" && "removed an image"}
             {entry.kind === "submitted" && <span className="font-medium">submitted for review</span>}

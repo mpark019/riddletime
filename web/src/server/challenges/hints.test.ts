@@ -124,7 +124,7 @@ describe("puzzle hints", () => {
     });
   });
 
-  it("clamps a correct answer at zero when the hint costs more than it earns (AC-4)", async () => {
+  it("goes negative on a correct answer when the hint costs more than it earns (AC-4)", async () => {
     const { dailyId, submissionId } = await createFixture({ hint: { text: HINT_TEXT, cost: 150 } });
     await revealHint(dailyId);
 
@@ -132,8 +132,8 @@ describe("puzzle hints", () => {
 
     expect(await resultFor(submissionId)).toMatchObject({
       correct: true,
-      points: 0,
-      scoring_breakdown: { hint_cost_points: 150, total_points: 0 },
+      points: -50,
+      scoring_breakdown: { hint_cost_points: 150, total_points: -50 },
     });
   });
 

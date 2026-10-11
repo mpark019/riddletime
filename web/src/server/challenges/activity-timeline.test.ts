@@ -23,6 +23,22 @@ describe("buildTimeline", () => {
     ]);
   });
 
+  it("places the hint reveal on the timeline with its cost", () => {
+    const timeline = buildTimeline({
+      startedAtMs: START,
+      endMs: at(30_000),
+      events: [{ kind: "typing", atMs: at(3_000) }, { kind: "typing", atMs: at(20_000) }],
+      guesses: [{ response: "piano", correct: true, offsetMs: 25_000 }],
+      hint: { usedAtMs: at(12_000), costPoints: 50 },
+    });
+    expect(timeline).toEqual([
+      { kind: "typing", offsetMs: 3_000 },
+      { kind: "hint", offsetMs: 12_000, costPoints: 50 },
+      { kind: "typing", offsetMs: 20_000 },
+      { kind: "guess", offsetMs: 25_000, response: "piano", correct: true },
+    ]);
+  });
+
   it("runs an absence with no back to the session end and marks it unreturned", () => {
     const [entry] = buildTimeline({
       startedAtMs: START,

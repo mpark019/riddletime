@@ -15,7 +15,7 @@ export interface ScoringBreakdown {
 }
 
 // Bonuses don't stack: only the single highest applicable tier counts.
-// A hint never takes a correct result below zero; an incorrect one pays the hint on top of its penalty.
+// A revealed hint is always charged in full, so a correct result can total below zero.
 export function computeResult(
   correct: boolean,
   basePoints: number,
@@ -49,7 +49,7 @@ export function computeResult(
     speed_bonus_points: best ? best.points : null,
     penalty_points: 0,
     ...hint,
-    total_points: Math.max(0, basePoints + (best ? best.points : 0) - hintCostPoints),
+    total_points: basePoints + (best ? best.points : 0) - hintCostPoints,
     bonus_under_ms: best ? best.underMs : null,
   };
 }

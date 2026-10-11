@@ -37,7 +37,7 @@ export interface LeaderboardEntry {
   rank: number;
   totalPoints: number;
   correctRiddles: number;
-  incorrectRiddles: number;
+  playedRiddles: number;
 }
 
 export interface PointTransaction {
@@ -82,7 +82,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
        riddle_results as (
          select s.user_id,
                 count(*) filter (where s.correct and coalesce(s.scoring_breakdown->>'outcome', '') <> 'partial')::bigint as correct_riddles,
-                count(*) filter (where not s.correct)::bigint as incorrect_riddles
+                count(*)::bigint as played_riddles
          from submissions s
          join challenges c on c.id = s.challenge_id
          where c.type in ('riddle', 'image_submission') and s.submitted_at is not null
@@ -91,7 +91,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
        select p.id as user_id, p.display_name, p.name, p.avatar_url,
               coalesce(b.total_points, 0)::bigint as total_points,
               coalesce(r.correct_riddles, 0)::bigint as correct_riddles,
-              coalesce(r.incorrect_riddles, 0)::bigint as incorrect_riddles,
+              coalesce(r.played_riddles, 0)::bigint as played_riddles,
               rank() over (order by coalesce(b.total_points, 0) desc)::bigint as rank
        from profiles p
        left join balances b on b.user_id = p.id
@@ -107,7 +107,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
       rank: Number(row.rank),
       totalPoints: Number(row.total_points),
       correctRiddles: Number(row.correct_riddles),
-      incorrectRiddles: Number(row.incorrect_riddles),
+      playedRiddles: Number(row.played_riddles),
     }));
   });
 }
