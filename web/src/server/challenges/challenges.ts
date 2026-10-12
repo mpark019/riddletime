@@ -188,7 +188,7 @@ export async function getStaffPlayerStatuses(client: PoolClient, dailyChallengeI
   const plays = new Map<string, Awaited<ReturnType<typeof getSharedPlayState>>>();
   if (includePlay) {
     for (const row of rows) {
-      if (row.challenge_id) plays.set(row.user_id, await getSharedPlayState(client, dailyChallengeId, row.user_id));
+      if (row.challenge_id) plays.set(row.user_id, await getSharedPlayState(client, dailyChallengeId, row.user_id, true));
     }
   }
   return rows.map((row) => ({
@@ -228,6 +228,7 @@ async function getSharedPlayState(
   client: PoolClient,
   dailyChallengeId: string,
   playerId: string,
+  forStaff = false,
 ) {
   const { rows } = await client.query(
     `select c.id as challenge_id, c.type, c.difficulty, pz.prompt,
@@ -258,7 +259,7 @@ async function getSharedPlayState(
       ...(config?.success ? { targetLength: config.data.target_length } : {}),
       ...(image?.success ? { maxImages: image.data.max_images } : {}),
       ...(policy.success ? { scoringPolicy: toPublicScoringPolicy(policy.data) } : {}),
-      ...(row ? toHintView(row) : {}),
+      ...(row ? toHintView(row, forStaff) : {}),
     };
   }
 
@@ -291,7 +292,7 @@ async function getSharedPlayState(
     guessHistory: guessHistory.map(withoutOffset),
     feedback: row.feedback,
     scoringPolicy,
-    ...toHintView(row),
+    ...toHintView(row, forStaff),
     ...(row.type === "character_puzzle" ? { config: parseStoredCharacterConfig(row.config) } : {}),
     ...(row.type === "image_submission" ? await toImageSessionView(row) : {}),
   };
@@ -317,12 +318,12 @@ async function getSharedPlayState(
   };
 }
 
-// The hint text leaves the server only after the player has paid for it.
-function toHintView(row: Record<string, unknown>) {
+// The hint text leaves the server only after the player has paid for it, or to staff reviewing the player.
+function toHintView(row: Record<string, unknown>, forStaff: boolean) {
   const costPoints = row.hint_cost_points;
   if (typeof costPoints !== "number") return {};
   const revealed = row.hint_used_at !== null && row.hint_used_at !== undefined;
-  return { hint: { costPoints, revealed, text: revealed ? (row.hint as string) : null } };
+  return { hint: { costPoints, revealed, text: revealed || forStaff ? (row.hint as string) : null } };
 }
 
 function outcomeOf(breakdown: unknown): "full" | "partial" | "none" | null {

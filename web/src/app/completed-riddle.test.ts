@@ -52,6 +52,26 @@ function tone(html: string, label: string) {
   return new RegExp(`data-tone="(\\w+)"><p[^>]*>${label}</p>`).exec(html)?.[1];
 }
 
+describe("CompletedRiddle hint", () => {
+  it("shows the hint text and cost when the player used it", () => {
+    const html = render({ ...completed(true, {}), hint: { costPoints: 3, revealed: true, text: "Think about numbers" } });
+    expect(html).toContain("Think about numbers");
+    expect(html).toContain("−3");
+  });
+
+  it("shows staff the hint text with whether the player used it", () => {
+    const hint = { costPoints: 3, revealed: false, text: "Think about numbers" };
+    const html = renderToStaticMarkup(createElement(CompletedRiddle, { play: { ...completed(true, {}), hint }, staff: true }));
+    expect(html).toContain("Think about numbers");
+    expect(html).toContain("not used");
+  });
+
+  it("shows nothing when the hint was available but not used", () => {
+    const html = render({ ...completed(true, {}), hint: { costPoints: 3, revealed: false, text: null } });
+    expect(html).not.toContain("Hint");
+  });
+});
+
 describe("CompletedRiddle for a letter game", () => {
   it("labels it Letter game and does not show the stored instruction sentence", () => {
     const html = render({

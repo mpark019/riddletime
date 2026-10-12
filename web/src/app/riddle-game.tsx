@@ -509,6 +509,12 @@ export function RiddleGame({
 
     {speedTiers.length > 0 && <SpeedTiers tiers={speedTiers} basePoints={play.scoringPolicy.base_points} />}
 
+    {characterConfig && play.hint && <HintPanel
+      hint={play.hint}
+      disabled={busy || refreshRequired || secondsRemaining === 0}
+      onReveal={() => void revealHint()}
+    />}
+
     {isImage
       ? <ImagePrompt prompt={play.prompt} url={play.promptImageUrl} />
       : characterConfig
@@ -530,7 +536,7 @@ export function RiddleGame({
       </div>
       : <p className="mt-8 border-y border-white/25 py-8 whitespace-pre-line text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{play.prompt}</p>}
 
-    {play.hint && <HintPanel
+    {play.hint && !characterConfig && <HintPanel
       hint={play.hint}
       disabled={busy || refreshRequired || secondsRemaining === 0}
       onReveal={() => void revealHint()}
@@ -676,7 +682,7 @@ export function StaffPlayerRiddles({ players }: { players: StaffPlayerStatus[] }
 
 function StaffPlayView({ player, play }: { player: StaffPlayerStatus; play: PlayerChallengeState }) {
   const label = <p className="mb-5 text-xs font-semibold uppercase tracking-[0.14em] text-white/55 sm:text-sm sm:tracking-[0.2em]">View only · what {player.displayName} sees</p>;
-  if (play.status === "completed") return <>{label}<CompletedRiddle play={play} /></>;
+  if (play.status === "completed") return <>{label}<CompletedRiddle play={play} staff /></>;
   if (play.status === "not_started") return <>{label}<NotStartedRiddle play={play} busy={false} error={null} onStart={noop} readOnly /></>;
   if (play.status === "pending_review") return <>{label}<PendingReview play={play} /></>;
   const remaining = play.deadline === null
@@ -693,6 +699,7 @@ function StaffPlayView({ player, play }: { player: StaffPlayerStatus; play: Play
       tries={isImage ? undefined : `${play.attemptsRemaining}/${play.maxAttempts}`}
       variant={isImage ? "image" : "answer"}
     />
+    {characterConfig && play.hint && <StaffHint hint={play.hint} />}
     {isImage
       ? <><ImagePrompt prompt={play.prompt} url={play.promptImageUrl} /><ImageGallery images={play.images ?? []} /><ImageNote note={play.note} /></>
       : characterConfig
@@ -701,6 +708,7 @@ function StaffPlayView({ player, play }: { player: StaffPlayerStatus; play: Play
         <CharacterBoard guesses={play.guessHistory} current="" length={characterConfig.target_length} rows={play.maxAttempts} />
       </div>
       : <p className="mt-8 border-y border-white/25 py-8 whitespace-pre-line text-balance text-2xl font-medium leading-relaxed sm:text-3xl">{play.prompt}</p>}
+    {!characterConfig && play.hint && <StaffHint hint={play.hint} />}
     {!isImage && !characterConfig && play.guessHistory.length > 0 && <div className="mt-6">
       <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Previous guesses</h4>
       <ul className="mt-2 divide-y divide-white/20 border-y border-white/25">
@@ -845,7 +853,7 @@ function PendingReview({ play }: { play: Extract<PlayerChallengeState, { status:
   </RiddleFrame>;
 }
 
-export function CompletedRiddle({ play }: { play: Extract<PlayerChallengeState, { status: "completed" }> }) {
+export function CompletedRiddle({ play, staff = false }: { play: Extract<PlayerChallengeState, { status: "completed" }>; staff?: boolean }) {
   const breakdown = play.result.scoringBreakdown;
   const penaltyPoints = breakdown.penalty_points ?? 0;
   const summary = resultSummary(play);
@@ -879,6 +887,7 @@ export function CompletedRiddle({ play }: { play: Extract<PlayerChallengeState, 
         <p className="mt-2 whitespace-pre-line">{play.result.reviewComment}</p>
       </div>}
     </>}
+    {staff && play.hint ? <StaffHint hint={play.hint} /> : play.hint?.revealed && <RevealedHint hint={play.hint} />}
     {play.guessHistory.length > 0 && <div className="mt-6">
       <p className="text-sm font-semibold uppercase tracking-wide text-white/55">Your answers</p>
       {play.type === "character_puzzle"
@@ -888,16 +897,27 @@ export function CompletedRiddle({ play }: { play: Extract<PlayerChallengeState, 
   </RiddleFrame>;
 }
 
+function StaffHint({ hint }: { hint: PlayerHint }) {
+  if (hint.text === null) return null;
+  const used = hint.revealed ? (hint.costPoints > 0 ? `used · −${hint.costPoints}` : "used") : "not used";
+  return <div className="mt-6 rounded-md border border-white/25 bg-black/[0.04] p-4">
+    <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Hint · {used}</h4>
+    <p className="mt-2 whitespace-pre-line text-lg">{hint.text}</p>
+  </div>;
+}
+
+function RevealedHint({ hint }: { hint: PlayerHint }) {
+  return <div className="mt-6 rounded-md border border-white/25 bg-black/[0.04] p-4">
+    <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Hint{hint.costPoints > 0 ? ` · −${hint.costPoints}` : ""}</h4>
+    <p className="mt-2 whitespace-pre-line text-lg">{hint.text}</p>
+  </div>;
+}
+
 function HintPanel({ hint, disabled, onReveal }: { hint: PlayerHint; disabled: boolean; onReveal: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const cost = hint.costPoints === 0 ? "free" : `${hint.costPoints} ${hint.costPoints === 1 ? "point" : "points"}`;
 
-  if (hint.revealed) {
-    return <div className="mt-6 rounded-md border border-white/25 bg-black/[0.04] p-4">
-      <h4 className="text-sm font-semibold uppercase tracking-wide text-white/55">Hint{hint.costPoints > 0 ? ` · −${hint.costPoints}` : ""}</h4>
-      <p className="mt-2 whitespace-pre-line text-lg">{hint.text}</p>
-    </div>;
-  }
+  if (hint.revealed) return <RevealedHint hint={hint} />;
 
   return <div className="mt-6">
     {confirming
