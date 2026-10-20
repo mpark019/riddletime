@@ -432,7 +432,7 @@ async function loadTodayChallengeIn(client: PoolClient) {
 
   if (profile.role !== "player") {
     if (daily.mode === "personal") {
-      return { finalized, result: { schedule, playerStatuses: await getStaffPlayerStatuses(client, daily.id, profile.role === "admin") } };
+      return { finalized, result: { schedule, playerStatuses: await getStaffPlayerStatuses(client, daily.id, true) } };
     }
     const preview = await getStaffPreview(client, daily.id);
     return { finalized, result: preview ? { schedule, preview } : { schedule } };

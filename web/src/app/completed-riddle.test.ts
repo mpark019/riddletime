@@ -463,5 +463,21 @@ describe("StaffPlayerRiddles with a player's own screen (AC-12)", () => {
     expect(html).toContain("Daily challenge");
     expect(html).not.toContain("Start riddle");
   });
+
+  it("shows image-puzzle instructions and stakes in the read-only player view", () => {
+    const html = renderToStaticMarkup(createElement(StaffPlayerRiddles, { players: [
+      { ...base, userId: "a", displayName: "ada", status: "not_started", play: {
+        status: "not_started", available: true, type: "image_submission", difficulty: "easy",
+        maxImages: 5, scoringPolicy: { base_points: 25, failure_penalty_points: 10 },
+      } },
+    ] }));
+
+    expect(html).toContain("what ada sees");
+    expect(html).toContain("Image submission");
+    expect(html).toContain("Upload up to 5 images");
+    expect(html).toContain("Full credit");
+    expect(html).not.toContain("Start image puzzle");
+    expect(html).not.toContain("<input");
+  });
 });
 
